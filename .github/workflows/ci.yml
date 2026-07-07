@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - release
+
+jobs:
+  lint-and-build:
+    name: Lint and Test Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Test Docker build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          load: true
+          tags: hvac-dashboard:ci-test
+
+      - name: Test container starts
+        run: |
+          docker run -d --name hvac-test -p 8080:80 hvac-dashboard:ci-test
+          sleep 10
+          curl -sf http://localhost:8080/health || exit 1
+          curl -sf http://localhost:8080/ | grep -i "HVAC" || exit 1
+          curl -sf http://localhost:8080/api/ | grep -i "ok" || exit 1
+          echo "All checks passed"
+          docker stop hvac-test
+
+      - name: Lint Python API
+        run: |
+          pip install pyflakes
+          pyflakes api.py
+
+      - name: Validate nginx config
+        run: |
+          docker run --rm -v ${{ github.workspace }}/nginx.conf:/etc/nginx/conf.d/hvac.conf:ro nginx:alpine nginx -t

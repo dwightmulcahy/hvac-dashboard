@@ -1,0 +1,1281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HVAC Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0f1117;--bg2:#161b27;--bg3:#1e2535;
+  --border:#ffffff14;--border2:#ffffff22;
+  --text:#e8ecf4;--text2:#8b94a8;--text3:#4f5769;
+  --cool:#3b82f6;--cool-bg:#1e3a5f;
+  --heat:#f97316;--heat-bg:#4a2010;
+  --auto:#a855f7;--auto-bg:#3b1f5e;
+  --fan:#10b981;--fan-bg:#0d3728;
+  --dry:#ec4899;--dry-bg:#4a1030;
+  --ok:#22c55e;--warn:#f59e0b;--err:#ef4444;
+  --r:10px;--rl:14px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:24px 20px;max-width:960px;margin:0 auto}
+h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
+.sub{font-size:13px;color:var(--text2);margin-bottom:20px}
+.notice{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:9px 13px;font-size:12px;color:var(--text2);margin-bottom:20px;line-height:1.5}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px;margin-bottom:16px}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:8px 10px}
+.clabel{font-size:9px;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:.8px;font-family:'DM Mono',monospace}
+.cval{font-size:18px;font-weight:500;letter-spacing:-0.5px}
+.cval span{font-size:11px;color:var(--text2);font-weight:400}
+.sec{font-size:10px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin:18px 0 10px;font-family:'DM Mono',monospace}
+.dcard{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rl);padding:14px 16px;margin-bottom:20px}
+.dhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.dtitle{font-size:13px;font-weight:500}
+.brow{display:flex;gap:8px}
+.btn{background:transparent;border:1px solid var(--border2);border-radius:var(--r);padding:5px 12px;font-size:12px;cursor:pointer;color:var(--text);font-family:'DM Sans',sans-serif;transition:background .15s}
+.btn:hover{background:var(--bg3)}.btn:active{transform:scale(.97)}
+.bico{width:28px;height:28px;display:flex;align-items:center;justify-content:center;padding:0;border-radius:8px}
+.irow{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.irow:last-child{border-bottom:none}
+.inp{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:5px 9px;font-size:12px;color:var(--text);font-family:'DM Mono',monospace;outline:none}
+.inp:focus{border-color:var(--border2)}
+.ucard{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rl);padding:0 16px;margin-bottom:20px}
+.urow{padding:16px 0;border-bottom:1px solid var(--border)}
+.urow:last-child{border-bottom:none}
+.uname{font-size:14px;font-weight:500}
+.uhost{font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:2px}
+.pill-row{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px;align-items:center}
+.pill-label{font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;min-width:38px}
+.pill{font-size:11px;padding:3px 9px;border-radius:7px;border:1px solid var(--border);cursor:pointer;background:transparent;color:var(--text2);transition:all .15s}
+.pill:hover:not(:disabled){border-color:var(--border2);color:var(--text)}
+.pill:disabled{opacity:.3;cursor:default}
+.p-COOL.act{background:var(--cool-bg);color:var(--cool);border-color:var(--cool)}
+.p-HEAT.act{background:var(--heat-bg);color:var(--heat);border-color:var(--heat)}
+.p-HEAT_COOL.act{background:var(--auto-bg);color:var(--auto);border-color:var(--auto)}
+.p-FAN_ONLY.act{background:var(--fan-bg);color:var(--fan);border-color:var(--fan)}
+.p-DRY.act{background:var(--dry-bg);color:var(--dry);border-color:var(--dry)}
+.fan-act{background:var(--fan-bg)!important;color:var(--fan)!important;border-color:var(--fan)!important}
+.tdisp{font-size:13px;font-weight:500;min-width:48px;text-align:center;font-family:'DM Mono',monospace;white-space:nowrap}
+.pbtn{width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:7px;border:1px solid var(--border);background:transparent;cursor:pointer;transition:all .15s}
+.pbtn.on{border-color:var(--ok);color:var(--ok)}.pbtn.off{color:var(--text3)}
+.pbtn:hover{background:var(--bg3)}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:5px}
+.d-on{background:var(--ok)}.d-off{background:var(--text3)}.d-err{background:var(--err)}
+.srow{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.stat{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:5px 8px;font-size:11px;min-width:60px}
+.slabel{color:var(--text3);margin-bottom:2px;font-size:10px}
+.sval{font-family:'DM Mono',monospace;font-weight:500;font-size:12px;white-space:nowrap;line-height:1.3}
+.beeper{font-size:11px;padding:3px 10px;border-radius:7px;border:1px solid var(--border);cursor:pointer;background:transparent;color:var(--text2);transition:all .15s}
+.beeper.on{background:var(--fan-bg);color:var(--fan);border-color:var(--fan)}
+.log{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rl);padding:12px 14px;font-family:'DM Mono',monospace;font-size:11.5px;max-height:160px;overflow-y:auto}
+.ll{padding:2px 0;display:flex;gap:10px}
+.lt{color:var(--text3);min-width:48px;flex-shrink:0}
+.l-ok{color:var(--ok)}.l-warn{color:var(--warn)}.l-err{color:var(--err)}.l-info{color:var(--text2)}
+.spinner{display:inline-block;width:12px;height:12px;border:1.5px solid var(--border2);border-top-color:var(--text2);border-radius:50%;animation:spin .5s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty{font-size:13px;color:var(--text3);padding:12px 0}
+.tile{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rl);padding:12px 13px;transition:border-color .15s}
+.tile-on{border-color:var(--border2)}
+.dbtn{width:32px;height:32px;border-radius:50%;border:1px solid var(--border);background:transparent;color:var(--text2);font-size:11px;cursor:pointer;transition:all .15s}
+.dbtn.on{background:var(--cool-bg);color:var(--cool);border-color:var(--cool)}
+.sch-row{display:flex;align-items:flex-start;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);gap:8px}
+.sch-row:last-child{border-bottom:none}
+.sch-name{font-size:13px;font-weight:500}
+.sch-meta{font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:2px}
+.sch-acts{font-size:11px;color:var(--text2);margin-top:2px}
+.sch-last{font-size:10px;color:var(--text3);margin-top:2px}
+.tog{position:relative;width:34px;height:18px;flex-shrink:0}
+.tog input{opacity:0;width:0;height:0}
+.tog-sl{position:absolute;inset:0;background:var(--bg3);border-radius:18px;cursor:pointer;border:1px solid var(--border2);transition:.2s}
+.tog-sl:before{content:'';position:absolute;width:12px;height:12px;left:2px;top:2px;background:var(--text3);border-radius:50%;transition:.2s}
+.tog input:checked+.tog-sl{background:var(--cool-bg);border-color:var(--cool)}
+.tog input:checked+.tog-sl:before{transform:translateX(16px);background:var(--cool)}
+</style>
+</head>
+<body>
+
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+  <div>
+    <h1>HVAC Dashboard</h1>
+    <p class="sub">ESPHome · SLWF-01pro · Midea</p>
+  </div>
+  <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+    <button class="btn" onclick="pollAll()" style="font-size:12px">↺ Poll</button>
+    <button class="btn" onclick="openScheduleModal()" style="font-size:12px">+ Schedule</button>
+    <button class="btn" onclick="openRateSettings()" style="font-size:12px" id="rate-btn">⚡ Rates</button>
+    <button class="btn" onclick="toggleDevicePanel()" style="font-size:12px" id="devices-btn">⚙ Devices</button>
+  </div>
+</div>
+
+<!-- Devices panel — hidden by default, slides in as overlay -->
+<div id="device-panel" style="display:none;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl);padding:14px 16px;margin-bottom:16px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+    <span style="font-size:13px;font-weight:500">Devices</span>
+    <button class="btn bico" onclick="addDevice()" title="Add device" style="font-size:14px">+</button>
+  </div>
+  <div id="ip-list"></div>
+</div>
+
+<!-- Unit tiles -->
+<div id="unit-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;margin-bottom:16px"></div>
+
+<!-- Summary stats -->
+<div class="grid" style="margin-bottom:14px">
+  <div class="card"><div class="clabel">Online</div><div class="cval" id="s-online">—</div></div>
+  <div class="card"><div class="clabel">Avg indoor</div><div class="cval" id="s-temp">—</div></div>
+  <div class="card"><div class="clabel">Avg outdoor</div><div class="cval" id="s-out">—</div></div>
+  <div class="card"><div class="clabel">Avg set pt</div><div class="cval" id="s-set">—</div></div>
+  <div class="card"><div class="clabel">Est load</div><div class="cval" id="s-estload">—</div></div>
+  <div class="card" id="cost-card">
+    <div class="clabel" id="cost-rate-label">Est cost</div>
+    <div class="cval" style="font-size:14px;display:flex;gap:8px;align-items:baseline;margin-top:2px">
+      <span id="s-costday">—</span>
+      <span style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace">day</span>
+      <span id="s-costmo">—</span>
+      <span style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace">mo</span>
+    </div>
+  </div>
+  <div class="card" id="peak-card" style="display:none">
+    <div class="clabel">⚡ Peak rate</div>
+    <div style="font-size:12px;font-weight:500;color:var(--warn);margin-top:2px;line-height:1.3" id="peak-label">—</div>
+    <div style="font-size:10px;color:var(--text3);margin-top:1px" id="peak-ends">—</div>
+  </div>
+  <div class="card"><div class="clabel">Last poll</div><div style="font-size:13px;font-weight:500;font-family:'DM Mono',monospace;margin-top:2px" id="s-time">—</div></div>
+</div>
+
+<!-- Usage tracking — collapsible -->
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer" onclick="toggleSection('usage-body','usage-arrow')">
+  <span class="sec" style="margin:0;flex:1">Usage</span>
+  <div style="display:flex;gap:6px;align-items:center" onclick="event.stopPropagation()">
+    <select id="usage-month-sel" class="inp" style="font-size:11px;padding:2px 6px" onchange="refreshUsageView()"></select>
+    <button class="btn" style="font-size:11px;padding:2px 8px" onclick="event.stopPropagation();toggleSection('usage-body','usage-arrow');refreshUsageView()">30 day</button>
+  </div>
+  <span id="usage-arrow" style="font-size:11px;color:var(--text3)">▶</span>
+</div>
+<div id="usage-body" style="display:none;margin-bottom:16px">
+  <div id="usage-content" style="font-size:12px;color:var(--text2);padding:8px 0">Loading…</div>
+</div>
+
+<!-- Schedules — collapsible -->
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer" onclick="toggleSection('sched-body','sched-arrow')">
+  <span class="sec" style="margin:0;flex:1">Schedules</span>
+  <span id="sched-arrow" style="font-size:11px;color:var(--text3)">▶</span>
+</div>
+<div id="sched-body" style="display:none;margin-bottom:16px">
+  <div class="ucard"><div id="schedule-list"><div class="empty">No schedules yet.</div></div></div>
+</div>
+
+<!-- Log — collapsible with filters -->
+<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">
+  <div style="display:flex;align-items:center;gap:6px;cursor:pointer;flex:1" onclick="toggleSection('log-body','log-arrow')">
+    <span class="sec" style="margin:0">Log</span>
+    <span id="log-arrow" style="font-size:11px;color:var(--text3)">▼</span>
+  </div>
+  <select id="log-filter" class="inp" style="font-size:11px;padding:2px 6px" onchange="renderLog()">
+    <option value="all">All levels</option>
+    <option value="err+">✗ Errors only</option>
+    <option value="warn+">⚠ Warn &amp; above</option>
+    <option value="ok+">✓ OK &amp; above</option>
+    <option value="err">✗ Errors</option>
+    <option value="warn">⚠ Warnings</option>
+    <option value="ok">✓ OK</option>
+    <option value="info">ℹ Info</option>
+  </select>
+  <input type="text" id="log-search" class="inp" placeholder="search…" style="font-size:11px;padding:2px 6px;width:100px" oninput="renderLog()">
+  <button class="btn" onclick="clearLog()" style="font-size:11px;padding:2px 8px">Clear</button>
+</div>
+<div id="log-body">
+  <div class="log" id="log-box"></div>
+</div>
+
+<!-- Rate settings modal -->
+<div id="rate-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;align-items:center;justify-content:center">
+  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl);padding:20px;width:340px;max-width:95vw">
+    <div style="font-size:14px;font-weight:500;margin-bottom:16px">⚡ Electricity Rate Settings</div>
+
+    <div class="clabel" style="margin-bottom:4px">PROVIDER</div>
+    <input type="text" id="rs-provider" class="inp" style="width:100%;margin-bottom:12px" placeholder="e.g. Coopeguanacaste">
+
+    <div style="display:flex;gap:10px;margin-bottom:12px">
+      <div style="flex:1">
+        <div class="clabel" style="margin-bottom:4px">EXCHANGE RATE (₡/USD)</div>
+        <input type="number" id="rs-xr" class="inp" style="width:100%" min="1">
+      </div>
+      <div style="flex:1">
+        <div class="clabel" style="margin-bottom:4px">EST. MONTHLY kWh</div>
+        <input type="number" id="rs-kwh" class="inp" style="width:100%" min="1" placeholder="400">
+      </div>
+    </div>
+
+    <div style="margin-bottom:12px">
+      <div class="clabel" style="margin-bottom:4px">AC DAILY RUNTIME (hrs)</div>
+      <input type="number" id="rs-hrs" class="inp" style="width:100px" min="1" max="24" step="0.5">
+    </div>
+
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+      <input type="checkbox" id="rs-tiered" onchange="toggleTieredUI()">
+      <label for="rs-tiered" style="font-size:13px">Tiered / block rates</label>
+    </div>
+
+    <div id="rs-tiers-section">
+      <div class="clabel" style="margin-bottom:6px">TIERS (₡/kWh)</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Each tier applies to kWh up to that threshold</div>
+      <div id="rs-tiers"></div>
+    </div>
+
+    <div id="rs-flat-section" style="display:none">
+      <div class="clabel" style="margin-bottom:4px">FLAT RATE (USD/kWh)</div>
+      <input type="number" id="rs-flat" class="inp" style="width:100px" min="0" step="0.001">
+    </div>
+
+    <div style="background:var(--bg3);border-radius:8px;padding:8px 10px;font-size:11px;margin-top:12px;font-family:'DM Mono',monospace" id="rs-preview"></div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button class="btn" onclick="closeRateSettings()">Cancel</button>
+      <button class="btn" onclick="saveRateSettingsUI()" style="border-color:var(--ok);color:var(--ok)">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Schedule modal -->
+<div id="sch-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;align-items:center;justify-content:center">
+  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl);padding:20px;width:340px;max-width:95vw">
+    <div style="font-size:14px;font-weight:500;margin-bottom:16px" id="sch-modal-title">Add schedule</div>
+
+    <div class="clabel" style="margin-bottom:4px">DEVICE</div>
+    <select id="sch-device" class="inp" style="width:100%;margin-bottom:12px"></select>
+
+    <div class="clabel" style="margin-bottom:4px">TIME</div>
+    <input type="time" id="sch-time" class="inp" style="width:100%;margin-bottom:12px">
+
+    <div class="clabel" style="margin-bottom:6px">DAYS</div>
+    <div style="display:flex;gap:5px;margin-bottom:6px">
+      <button class="btn" onclick="selectDays('all')" style="font-size:11px;padding:3px 8px">Every day</button>
+      <button class="btn" onclick="selectDays('weekdays')" style="font-size:11px;padding:3px 8px">Weekdays</button>
+      <button class="btn" onclick="selectDays('weekends')" style="font-size:11px;padding:3px 8px">Weekends</button>
+    </div>
+    <div style="display:flex;gap:5px;margin-bottom:14px">
+      <button class="dbtn" data-d="0">Su</button>
+      <button class="dbtn" data-d="1">Mo</button>
+      <button class="dbtn" data-d="2">Tu</button>
+      <button class="dbtn" data-d="3">We</button>
+      <button class="dbtn" data-d="4">Th</button>
+      <button class="dbtn" data-d="5">Fr</button>
+      <button class="dbtn" data-d="6">Sa</button>
+    </div>
+
+    <div class="clabel" style="margin-bottom:8px">ACTIONS</div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:8px;font-size:13px">
+        <input type="checkbox" id="sch-power-en">
+        <label for="sch-power-en">Power</label>
+        <select id="sch-power" class="inp" style="margin-left:4px">
+          <option value="on">On</option>
+          <option value="off">Off</option>
+        </select>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;font-size:13px">
+        <input type="checkbox" id="sch-mode-en">
+        <label for="sch-mode-en">Mode</label>
+        <select id="sch-mode" class="inp" style="margin-left:4px">
+          <option value="COOL">cool</option>
+          <option value="HEAT">heat</option>
+          <option value="HEAT_COOL">auto</option>
+          <option value="FAN_ONLY">fan</option>
+          <option value="DRY">dry</option>
+        </select>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;font-size:13px">
+        <input type="checkbox" id="sch-temp-en">
+        <label for="sch-temp-en">Temp</label>
+        <input type="number" id="sch-temp" class="inp" min="17" max="30" value="24" style="width:66px;margin-left:4px"> °C
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn" onclick="closeSchModal()">Cancel</button>
+      <button class="btn" onclick="saveSchedule()" style="border-color:var(--ok);color:var(--ok)">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const ENTITY='air_conditioner';
+const MODES=['COOL','HEAT','HEAT_COOL','FAN_ONLY','DRY'];
+const MODE_LABEL={COOL:'cool',HEAT:'heat',HEAT_COOL:'auto',FAN_ONLY:'fan',DRY:'dry'};
+const STORAGE_KEY='hvac_devices';
+
+const DEFAULTS=[
+  {host:'air-conditioner-c44741.lan',name:'Master BR',btu:24000,seer:20,maxTemp:null},
+  {host:'air-conditioner-c44a95.lan',name:'Kitchen',btu:24000,seer:20,maxTemp:null},
+  {host:'air-conditioner-c44a70.lan',name:'Main LR',btu:24000,seer:20,maxTemp:null},
+  {host:'air-conditioner-c44502.lan',name:'Guest LR',btu:24000,seer:20,maxTemp:null},
+  {host:'air-conditioner-c446a8.lan',name:'Blue BR',btu:24000,seer:20,maxTemp:null},
+];
+
+function loadDevices(){
+  try{
+    const saved=JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if(saved&&saved.length)return saved.map(d=>({...d,btu:d.btu||24000,seer:d.seer||20,maxTemp:d.maxTemp||null,state:null,extras:{},loading:false,busy:false,pollTime:null}));
+  }catch(_){}
+  return DEFAULTS.map(d=>({...d,state:null,extras:{},loading:false,busy:false,pollTime:null}));
+}
+
+function saveDevices(){
+  try{localStorage.setItem(STORAGE_KEY,JSON.stringify(devices.map(d=>({host:d.host,name:d.name,btu:d.btu||24000,seer:d.seer||20,maxTemp:d.maxTemp||null}))));}catch(_){}
+}
+
+let devices=loadDevices();
+devices.forEach(d=>{d._onTimeMinutes=loadOnTime(d.host);});
+
+const ts=()=>new Date().toTimeString().slice(0,5);
+
+const logEntries=[];
+
+function addLog(msg,type='info'){
+  logEntries.unshift({msg,type,time:ts()});
+  if(logEntries.length>200)logEntries.pop();
+  renderLog();
+}
+
+const LOG_LEVELS={err:3,warn:2,ok:1,info:0};
+
+function matchesFilter(entry,filter){
+  if(filter==='all')return true;
+  if(filter.endsWith('+')){
+    const level=filter.slice(0,-1);
+    return(LOG_LEVELS[entry.type]||0)>=(LOG_LEVELS[level]||0);
+  }
+  return entry.type===filter;
+}
+
+function renderLog(){
+  const box=document.getElementById('log-box');
+  const filter=document.getElementById('log-filter')?.value||'all';
+  const search=(document.getElementById('log-search')?.value||'').toLowerCase();
+  const filtered=logEntries.filter(e=>{
+    if(!matchesFilter(e,filter))return false;
+    if(search&&!e.msg.toLowerCase().includes(search))return false;
+    return true;
+  });
+  box.innerHTML=filtered.slice(0,100).map(e=>
+    `<div class="ll"><span class="lt">${e.time}</span><span class="l-${e.type}">${e.msg}</span></div>`
+  ).join('');
+}
+
+function clearLog(){
+  logEntries.length=0;
+  renderLog();
+}
+
+async function fetchWithRetry(url,opts={},retries=3,delayMs=800){
+  let lastErr;
+  for(let i=0;i<retries;i++){
+    try{
+      const r=await fetch(url,{signal:AbortSignal.timeout(5000),...opts});
+      if(!r.ok)throw new Error(`HTTP ${r.status}`);
+      return r;
+    }catch(e){
+      lastErr=e;
+      if(i<retries-1)await new Promise(res=>setTimeout(res,delayMs*(i+1)));
+    }
+  }
+  throw lastErr;
+}
+
+async function fetchState(host){
+  const r=await fetchWithRetry(`http://${host}/climate/${ENTITY}`);
+  return r.json();
+}
+
+async function fetchSensors(host){
+  const paths={
+    outdoor_temp:'sensor/air_conditioner_outdoor_temperature',
+    uptime:'sensor/air_conditioner_uptime_days',
+    beeper:'switch/air_conditioner_beeper',
+  };
+  const out={};
+  await Promise.all(Object.entries(paths).map(async([k,p])=>{
+    try{const r=await fetchWithRetry(`http://${host}/${p}`,{},2,500);out[k]=await r.json();}
+    catch(_){}
+  }));
+  return out;
+}
+
+async function sendCmd(host,payload){
+  const params=new URLSearchParams(payload).toString();
+  const r=await fetch(`http://${host}/climate/${ENTITY}/set?${params}`,{
+    method:'POST',signal:AbortSignal.timeout(5000)
+  });
+  if(!r.ok)throw new Error(`HTTP ${r.status}`);
+  const text=await r.text();
+  return text?JSON.parse(text):{};
+}
+
+// ── Electricity rate settings ────────────────────────────
+const RATE_SETTINGS_KEY='hvac_rate_settings';
+const RATE_DEFAULTS={
+  provider:'Coopeguanacaste',
+  exchangeRate:530,        // CRC per USD
+  monthlyKwh:400,          // estimated total monthly household kWh
+  dailyHrs:8,              // assumed AC runtime hours/day
+  tiered:true,
+  tiers:[
+    {upTo:200, colonesPerKwh:62},   // 0–200 kWh
+    {upTo:500, colonesPerKwh:82},   // 201–500 kWh
+    {upTo:999999, colonesPerKwh:140} // 500+ kWh
+  ]
+};
+
+function loadRateSettings(){
+  try{
+    const s=JSON.parse(localStorage.getItem(RATE_SETTINGS_KEY));
+    if(s)return{...RATE_DEFAULTS,...s};
+  }catch(_){}
+  return{...RATE_DEFAULTS};
+}
+function saveRateSettings(s){
+  try{localStorage.setItem(RATE_SETTINGS_KEY,JSON.stringify(s));}catch(_){}
+}
+
+let rateSettings=loadRateSettings();
+
+// determine which tier the household is in based on monthly kWh
+function effectiveRateUsd(){
+  if(!rateSettings.tiered)return rateSettings.flatRate||0.14;
+  const kwh=rateSettings.monthlyKwh||400;
+  const xr=rateSettings.exchangeRate||530;
+  for(const t of rateSettings.tiers){
+    if(kwh<=t.upTo)return t.colonesPerKwh/xr;
+  }
+  return rateSettings.tiers[rateSettings.tiers.length-1].colonesPerKwh/xr;
+}
+
+function currentRate(){
+  const rate=effectiveRateUsd();
+  return{rate,label:rateSettings.provider||'Custom'};
+}
+
+function estCostDay(watts){
+  if(!watts||watts===0)return 0;
+  return(watts/1000)*rateSettings.dailyHrs*effectiveRateUsd();
+}
+
+function estCostMonth(watts){return estCostDay(watts)*30;}
+
+function fmtCost(usd){
+  if(usd==null||usd===0)return'—';
+  return'$'+usd.toFixed(2);
+}
+
+function updatePeakCard(){
+  const rate=effectiveRateUsd();
+  document.getElementById('cost-rate-label').textContent=`Est cost · $${rate.toFixed(3)}/kWh`;
+
+  // hide peak card — not applicable
+  document.getElementById('peak-card').style.display='none';
+}
+
+const BTU_OPTIONS=[12000,18000,24000];
+const SEER_OPTIONS=[14,16,18,20,22,24];
+function seerToEer(seer){return(seer||20)*0.875;}
+function maxWatts(btu,seer){return Math.round(btu/seerToEer(seer));}
+
+function safeFloat(v){const n=parseFloat(v);return isNaN(n)?null:n;}
+
+function estWatts(state,extras,btu,seer){
+  if(!state||state.mode==='OFF'||state.mode==='FAN_ONLY')return 0;
+  if(!btu)return null;
+  const indoor=safeFloat(state.current_temperature);
+  const target=safeFloat(state.target_temperature);
+  const outdoor=safeFloat(extras?.outdoor_temp?.value);
+  if(indoor==null||target==null)return null;
+  const deltaT=Math.abs(indoor-target);
+  const outdoorPenalty=outdoor!=null&&state.mode!=='HEAT'?Math.max(0,(outdoor-25)/20):0;
+  const loadFactor=Math.min(1,0.2+(deltaT/8)*0.8+outdoorPenalty*0.3);
+  return Math.round(maxWatts(btu,seer)*loadFactor);
+}
+
+function toF(c){const n=safeFloat(c);return n!=null?Math.round(n*9/5+32):null;}
+function fmtCF(c){const n=safeFloat(c);return n!=null?`${n.toFixed(1)}°C<br><span style="color:var(--text3);font-size:10px;font-weight:400">${toF(n)}°F</span>`:'—';}
+
+function fmtUptime(days){
+  if(days==null)return'—';
+  const total=Math.round(days*24*60);
+  const d=Math.floor(total/1440);
+  const h=Math.floor((total%1440)/60);
+  const m=total%60;
+  return[d?d+'d':'',h?h+'h':'',m?m+'m':''].filter(Boolean).join(' ')||'0m';
+}
+
+async function withBusy(i,fn){
+  const d=devices[i];
+  if(d.busy)return;
+  d.busy=true;renderUnits();
+  try{await fn(d);}finally{d.busy=false;renderUnits();}
+}
+
+async function pollDevice(i){
+  const d=devices[i];
+  d.loading=true;renderIPList();
+  try{
+    const[s,x]=await Promise.all([fetchState(d.host),fetchSensors(d.host)]);
+
+    // ── reboot detection ──────────────────────────────────
+    const prevUptime=safeFloat(d.extras?.uptime?.value);
+    const newUptime=safeFloat(x.uptime?.value);
+    if(prevUptime!=null&&newUptime!=null&&newUptime<prevUptime-0.001){
+      addLog(`${d.name}: ⚠ dongle rebooted (uptime reset from ${fmtUptime(prevUptime)} to ${fmtUptime(newUptime)})`,'warn');
+    }
+
+    d.state=s;d.extras=x;
+    if(!d.pollTime)d.pollTime=Date.now();
+
+    // ── on-time tracking ─────────────────────────────────
+    const now=Date.now();
+    const prevMode=d._lastMode;
+    const curMode=s.mode;
+    const isOn=curMode!=='OFF';
+    if(!d._lastPollTime)d._lastPollTime=now;
+    const elapsed=(now-d._lastPollTime)/1000/60; // mins since last poll
+    if(prevMode&&prevMode!=='OFF'){
+      // was on during the interval — accumulate
+      d._onTimeMinutes=(d._onTimeMinutes||0)+elapsed;
+      saveOnTime(d.host,d._onTimeMinutes);
+    }
+    // log mode change
+    if(prevMode&&prevMode!==curMode){
+      if(isOn) addLog(`${d.name}: turned on (${curMode})`,'ok');
+      else addLog(`${d.name}: turned off (was ${prevMode}, on for ${fmtUptime((d._onTimeMinutes||0)/60/24)})`,'info');
+    }
+    d._lastMode=curMode;
+    d._lastPollTime=now;
+
+    // apply saved beeper state — push to device if it disagrees
+    const savedBeeper=loadBeeperState();
+    if(savedBeeper[d.host]&&d.extras.beeper){
+      const savedVal=savedBeeper[d.host];
+      const deviceVal=d.extras.beeper.value;
+      d.extras.beeper.value=savedVal; // always show saved state in UI
+      if(deviceVal!==savedVal){
+        // device disagrees — push saved state to it silently
+        const endpoint=savedVal==='ON'?'turn_on':'turn_off';
+        fetch(`http://${d.host}/switch/air_conditioner_beeper/${endpoint}`,{method:'POST',signal:AbortSignal.timeout(3000)})
+          .then(()=>addLog(`${d.name}: beeper synced → ${savedVal.toLowerCase()}`,'info'))
+          .catch(()=>{});
+      }
+    }
+    const ind=s.current_temperature!=null?safeFloat(s.current_temperature)?.toFixed(1)+'°C':'—';
+    const ot=x.outdoor_temp?.value!=null?', out '+safeFloat(x.outdoor_temp.value)?.toFixed(1)+'°C':'';
+    addLog(`${d.name}: indoor ${ind}${ot}, mode=${s.mode}, set=${s.target_temperature}°C`,'ok');
+  }catch(e){
+    d.state={error:e.message};d.extras={};
+    addLog(`${d.name} (${d.host}): ${e.message}`,'err');
+  }finally{
+    d.loading=false;renderAll();
+  }
+}
+
+// ── Usage persistence API ────────────────────────────────
+const API_BASE=window.location.origin+'/api';
+let _lastPollEpoch=null;
+
+async function recordUsage(){
+  if(!_lastPollEpoch){_lastPollEpoch=Date.now();return;}
+  const interval=(Date.now()-_lastPollEpoch)/1000/60;
+  _lastPollEpoch=Date.now();
+  for(const d of devices){
+    if(!d.state||d.state.error)continue;
+    const watts=estWatts(d.state,d.extras,d.btu,d.seer);
+    try{
+      await fetch(`${API_BASE}/record`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          host:d.host,
+          name:d.name,
+          mode:d.state.mode||'OFF',
+          indoor_temp:safeFloat(d.state.current_temperature),
+          outdoor_temp:safeFloat(d.extras?.outdoor_temp?.value),
+          target_temp:safeFloat(d.state.target_temperature),
+          est_watts:watts||0,
+          interval_minutes:interval,
+        })
+      });
+    }catch(_){}
+  }
+}
+
+async function fetchMonthlySummary(month){
+  try{
+    const r=await fetch(`${API_BASE}/summary${month?'?month='+month:''}`);
+    return r.ok?await r.json():null;
+  }catch(_){return null;}
+}
+
+async function fetchRolling30(){
+  try{
+    const r=await fetch(`${API_BASE}/rolling30`);
+    return r.ok?await r.json():null;
+  }catch(_){return null;}
+}
+
+async function pollAll(){
+  addLog('Polling all devices…','info');
+  document.getElementById('s-time').textContent='…';
+  await Promise.all(devices.map((_,i)=>pollDevice(i)));
+  updateSummary();
+  document.getElementById('s-time').textContent=ts();
+  runMaxTempMonitor();
+  recordUsage();
+  refreshUsageView();
+}
+
+async function setMode(i,mode){
+  await withBusy(i,async d=>{
+    try{await sendCmd(d.host,{mode});d.state.mode=mode;addLog(`${d.name}: mode → ${mode}`,'ok');}
+    catch(e){addLog(`${d.name}: mode failed — ${e.message}`,'err');}
+  });
+}
+
+// debounce timers and pending temps per device
+const tempTimers={};
+const pendingTemps={};
+
+async function adjustTemp(i,delta){
+  const d=devices[i];
+  if(!d.state)return;
+  // compute next from pending or current
+  const base=pendingTemps[i]!=null?pendingTemps[i]:Math.round(safeFloat(d.state.target_temperature)||22);
+  const next=Math.min(30,Math.max(17,base+delta));
+  pendingTemps[i]=next;
+  // optimistic display immediately
+  d.state.target_temperature=String(next);
+  renderUnits();updateSummary();
+  // debounce — only send after 600ms of no further clicks
+  clearTimeout(tempTimers[i]);
+  tempTimers[i]=setTimeout(async()=>{
+    const target=pendingTemps[i];
+    delete pendingTemps[i];
+    try{
+      await sendCmd(d.host,{target_temperature:target});
+      addLog(`${d.name}: set → ${target}°C`,'ok');
+      // confirm from device after short delay
+      setTimeout(async()=>{
+        try{
+          const s=await fetchState(d.host);
+          const confirmed=safeFloat(s.target_temperature);
+          if(confirmed!=null&&confirmed!==target){
+            addLog(`${d.name}: ⚠ device reports ${confirmed}°C (expected ${target}°C) — retrying`,'warn');
+            // resend the intended temp
+            try{
+              await sendCmd(d.host,{target_temperature:target});
+              d.state.target_temperature=String(target);
+              addLog(`${d.name}: ↩ corrected → ${target}°C`,'ok');
+            }catch(e2){addLog(`${d.name}: correction failed — ${e2.message}`,'err');}
+          }else{
+            d.state.target_temperature=String(confirmed??target);
+          }
+          renderUnits();updateSummary();
+        }catch(_){}
+      },1500);
+    }catch(e){
+      addLog(`${d.name}: temp failed — ${e.message}`,'err');
+      // re-poll to get actual state
+      try{const s=await fetchState(d.host);d.state=s;renderUnits();updateSummary();}catch(_){}
+    }
+  },600);
+}
+
+async function togglePower(i){
+  await withBusy(i,async d=>{
+    const on=d.state?.mode!=='OFF';
+    const mode=on?'OFF':(d.state?._prev||'COOL');
+    try{
+      await sendCmd(d.host,{mode});
+      if(!on&&d.state)d.state._prev=d.state.mode;
+      d.state.mode=mode;
+      addLog(`${d.name}: ${on?'turned off':'turned on'}`,'ok');
+    }catch(e){addLog(`${d.name}: power failed — ${e.message}`,'err');}
+    updateSummary();
+  });
+}
+
+const ONTIME_KEY='hvac_ontime';
+function saveOnTime(host,mins){
+  try{
+    const d=JSON.parse(localStorage.getItem(ONTIME_KEY)||'{}');
+    d[host]=Math.round(mins);
+    localStorage.setItem(ONTIME_KEY,JSON.stringify(d));
+  }catch(_){}
+}
+function loadOnTime(host){
+  try{return JSON.parse(localStorage.getItem(ONTIME_KEY)||'{}')[host]||0;}catch(_){return 0;}
+}
+
+function fmtOnTime(mins){
+  if(!mins||mins<1)return'0m';
+  const h=Math.floor(mins/60);
+  const m=Math.round(mins%60);
+  const d=Math.floor(h/24);
+  const rh=h%24;
+  return[d?d+'d':'',rh?rh+'h':'',m?m+'m':''].filter(Boolean).join(' ')||'0m';
+}
+
+function saveBeeperState(){
+  const state={};
+  devices.forEach(d=>{if(d.extras?.beeper!==undefined)state[d.host]=d.extras.beeper.value;});
+  try{localStorage.setItem(BEEPER_KEY,JSON.stringify(state));}catch(_){}
+}
+
+function loadBeeperState(){
+  try{return JSON.parse(localStorage.getItem(BEEPER_KEY))||{};}catch(_){return{};}
+}
+
+async function toggleBeeper(i){
+  await withBusy(i,async d=>{
+    const on=d.extras?.beeper?.value==='ON';
+    try{
+      await fetch(`http://${d.host}/switch/air_conditioner_beeper/${on?'turn_off':'turn_on'}`,{method:'POST',signal:AbortSignal.timeout(3000)});
+      if(!d.extras)d.extras={};
+      if(!d.extras.beeper)d.extras.beeper={};
+      d.extras.beeper.value=on?'OFF':'ON';
+      saveBeeperState();
+      addLog(`${d.name}: beeper ${on?'off':'on'}`,'ok');
+    }catch(e){addLog(`${d.name}: beeper failed — ${e.message}`,'err');}
+  });
+}
+
+function addDevice(){
+  const el=document.getElementById('device-panel');
+  const btn=document.getElementById('devices-btn');
+  if(el.style.display==='none'){
+    el.style.display='block';
+    btn.style.borderColor='var(--cool)';btn.style.color='var(--cool)';
+  }
+  devices.push({host:'esphome-device.lan',name:'New unit',btu:24000,seer:20,maxTemp:null,state:null,extras:{},loading:false,busy:false,pollTime:null});
+  saveDevices();
+  renderIPList();addLog('Device added — edit hostname and name, then Poll.','info');
+}
+
+function removeDevice(i){
+  const n=devices.splice(i,1)[0].name;
+  saveDevices();
+  addLog(`Removed ${n}`,'warn');renderAll();
+}
+
+function renderIPList(){
+  document.getElementById('ip-list').innerHTML=devices.map((d,i)=>`
+    <div class="irow">
+      <input class="inp" value="${d.name}" placeholder="Name" oninput="devices[${i}].name=this.value;saveDevices()" style="width:88px">
+      <input class="inp" value="${d.host}" placeholder="hostname or IP" oninput="devices[${i}].host=this.value;saveDevices()" style="width:200px">
+      <select class="inp" onchange="devices[${i}].btu=+this.value;saveDevices()" style="width:68px">
+        ${BTU_OPTIONS.map(b=>`<option value="${b}" ${d.btu===b?'selected':''}>${b/1000}K</option>`).join('')}
+      </select>
+      <select class="inp" onchange="devices[${i}].seer=+this.value;saveDevices()" style="width:68px" title="SEER rating">
+        ${SEER_OPTIONS.map(s=>`<option value="${s}" ${(d.seer||20)===s?'selected':''}>${s} SEER</option>`).join('')}
+      </select>
+      <input type="number" class="inp" value="${d.maxTemp||''}" placeholder="Max°C" min="17" max="35"
+        title="If room exceeds this temp while AC is off, auto-turn on until cooled"
+        oninput="devices[${i}].maxTemp=this.value?+this.value:null;saveDevices()"
+        style="width:68px">
+      ${d.loading?'<span class="spinner"></span>':`<button class="btn bico" onclick="pollDevice(${i}).then(updateSummary)" title="Poll">↺</button>`}
+      <button class="btn bico" onclick="removeDevice(${i})" style="color:#ef4444" title="Remove">✕</button>
+    </div>
+  `).join('');
+}
+
+function renderUnits(){
+  const el=document.getElementById('unit-list');
+  if(!devices.some(d=>d.state)){el.innerHTML='<div class="empty" style="padding:8px 0">Polling devices…</div>';return;}
+  el.innerHTML=devices.map((d,i)=>{
+    const s=d.state;
+    if(!s)return`<div class="tile"><div class="uname"><span class="dot d-off"></span>${d.name}</div><div class="uhost">${d.host}</div><div style="font-size:11px;color:var(--text3);margin-top:6px">not polled</div></div>`;
+    if(s.error)return`<div class="tile"><div class="uname"><span class="dot d-err"></span>${d.name}</div><div class="uhost" style="color:var(--err)">${s.error}</div></div>`;
+    const on=s.mode!=='OFF';
+    const busy=d.busy;
+    const dis=!on||busy?'disabled':'';
+    const x=d.extras||{};
+    const fv=v=>{const n=safeFloat(v);return n!=null?n.toFixed(1):'—';};
+    return`<div class="tile ${on?'tile-on':''}">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:8px">
+        <div style="display:flex;align-items:center;gap:6px;min-width:0;flex:1">
+          <span class="dot ${on?'d-on':'d-off'}" style="flex-shrink:0"></span>
+          <span class="uname">${d.name}</span>
+          ${busy?'<span class="spinner"></span>':''}
+        </div>
+        <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
+          <button class="btn bico" onclick="adjustTemp(${i},-1)" ${dis} style="width:24px;height:24px">−</button>
+          <div class="tdisp" style="line-height:1.2;text-align:center">${on&&s.target_temperature!=null?`${safeFloat(s.target_temperature)}°C<br><span style="font-size:10px;color:var(--text3);font-weight:400">${toF(s.target_temperature)}°F</span>`:'<span style="color:var(--text3);font-size:11px">off</span>'}</div>
+          <button class="btn bico" onclick="adjustTemp(${i},1)" ${dis} style="width:24px;height:24px">+</button>
+          ${x.beeper!==undefined?`<button class="beeper ${x.beeper?.value==='ON'?'on':''}" onclick="toggleBeeper(${i})" ${busy?'disabled':''} style="font-size:11px;padding:0 7px;height:24px;border-radius:7px">🔔</button>`:''}
+          <button class="pbtn ${on?'on':'off'}" onclick="togglePower(${i})" ${busy?'disabled':''} style="width:24px;height:24px">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18.36 6.64A9 9 0 1 1 5.64 6.64"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+          </button>
+        </div>
+      </div>
+      <div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:8px">
+        ${MODES.map(m=>`<button onclick="setMode(${i},'${m}')" ${busy?'disabled':''} style="flex:1;padding:3px 0;font-size:10px;border:none;border-right:1px solid var(--border);cursor:pointer;transition:all .15s;background:${s.mode===m?`var(--${m==='COOL'?'cool':m==='HEAT'?'heat':m==='HEAT_COOL'?'auto':m==='FAN_ONLY'?'fan':'dry'}-bg)`:'transparent'};color:${s.mode===m?`var(--${m==='COOL'?'cool':m==='HEAT'?'heat':m==='HEAT_COOL'?'auto':m==='FAN_ONLY'?'fan':'dry'})`:'var(--text3)'};font-weight:${s.mode===m?'600':'400'}" ${busy||(!on&&m!==s.mode)?'disabled':''}">${MODE_LABEL[m]}</button>`).join('')}
+      </div>
+      <div style="display:flex;gap:5px">
+        <div class="stat" style="flex:1;text-align:center"><div class="slabel">In</div><div class="sval">${safeFloat(s.current_temperature)?.toFixed(1)}°C<br><span style="color:var(--text3);font-size:10px">${toF(s.current_temperature)}°F</span></div></div>
+        <div class="stat" style="flex:1;text-align:center"><div class="slabel">Out</div><div class="sval" style="${safeFloat(x.outdoor_temp?.value)>30?'color:var(--heat)':''}">${x.outdoor_temp?.value!=null?safeFloat(x.outdoor_temp.value)?.toFixed(1)+'°C':'—'}${x.outdoor_temp?.value!=null?`<br><span style="color:var(--text3);font-size:10px">${toF(x.outdoor_temp.value)}°F</span>`:''}</div></div>
+        <div class="stat" style="flex:1;text-align:center"><div class="slabel">~W</div><div class="sval">${(()=>{const w=estWatts(s,x,d.btu,d.seer);return w===0?'<span style="color:var(--text3)">off</span>':w!=null?w+'W':'—';})()}</div></div>
+      </div>
+      <div style="margin-top:5px;font-size:10px;font-family:'DM Mono',monospace;color:var(--text3);display:flex;gap:8px;flex-wrap:wrap">
+        <span>on <span style="color:var(--text2)">${fmtOnTime(d._onTimeMinutes||0)}</span></span>
+        <span>·</span>
+        <span>up <span style="color:var(--text2)">${fmtUptime(safeFloat(x.uptime?.value))}</span></span>
+        ${d.maxTemp!=null?`<span>·</span><span>max <span style="color:${safeFloat(s.current_temperature)>=d.maxTemp?'var(--err)':'var(--text2)'}">${d.maxTemp}°C/${toF(d.maxTemp)}°F</span>${d._maxTempActive?' <span style="color:var(--err)">●</span>':''}</span>`:''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function updateSummary(){
+  const live=devices.filter(d=>d.state&&!d.state.error);
+  const on=live.filter(d=>d.state.mode!=='OFF');
+  document.getElementById('s-online').innerHTML=`${live.length}<span> / ${devices.length}</span>`;
+  const avg=arr=>arr.length?(arr.reduce((a,b)=>a+b)/arr.length):null;
+  const temps=on.filter(d=>d.state.current_temperature!=null).map(d=>parseFloat(d.state.current_temperature));
+  const t=avg(temps);document.getElementById('s-temp').innerHTML=t!=null?`${t.toFixed(1)}<span>°C</span> <span style="font-size:11px;color:#4f5769">${Math.round(t*9/5+32)}°F</span>`:'—';
+  const outs=live.filter(d=>d.extras?.outdoor_temp?.value!=null).map(d=>parseFloat(d.extras.outdoor_temp.value));
+  const o=avg(outs);document.getElementById('s-out').innerHTML=o!=null?`${o.toFixed(1)}<span>°C</span> <span style="font-size:11px;color:#4f5769">${Math.round(o*9/5+32)}°F</span>`:'—';
+  const sets=on.filter(d=>d.state.target_temperature!=null).map(d=>parseFloat(d.state.target_temperature));
+  const sp=avg(sets);document.getElementById('s-set').innerHTML=sp!=null?`${sp.toFixed(1)}<span>°C</span> <span style="font-size:11px;color:#4f5769">${Math.round(sp*9/5+32)}°F</span>`:'—';
+  const totalEst=live.reduce((sum,d)=>{const w=estWatts(d.state,d.extras,d.btu,d.seer);return w!=null?sum+w:sum;},0);
+  document.getElementById('s-estload').innerHTML=totalEst>0?totalEst+'<span> W</span>':'<span>—</span>';
+  const dayTotal=live.reduce((sum,d)=>{const w=estWatts(d.state,d.extras,d.btu,d.seer);return sum+estCostDay(w);},0);
+  const moTotal=live.reduce((sum,d)=>{const w=estWatts(d.state,d.extras,d.btu,d.seer);return sum+estCostMonth(w);},0);
+  document.getElementById('s-costday').textContent=dayTotal>0?'$'+dayTotal.toFixed(2):'—';
+  document.getElementById('s-costmo').textContent=moTotal>0?'$'+moTotal.toFixed(2):'—';
+  updatePeakCard();
+}
+
+function toggleDevicePanel(){
+  const el=document.getElementById('device-panel');
+  const btn=document.getElementById('devices-btn');
+  const open=el.style.display==='none';
+  el.style.display=open?'block':'none';
+  btn.style.borderColor=open?'var(--cool)':'var(--border2)';
+  btn.style.color=open?'var(--cool)':'var(--text)';
+}
+
+function toggleSection(bodyId,arrowId){
+  const el=document.getElementById(bodyId);
+  const arrow=document.getElementById(arrowId);
+  const open=el.style.display==='none';
+  el.style.display=open?'block':'none';
+  if(arrow)arrow.textContent=open?'▼':'▶';
+}
+
+function renderAll(){renderIPList();renderUnits();updateSummary();}
+
+// ── Max temp monitor ──────────────────────────────────────
+async function runMaxTempMonitor(){
+
+  for(let i=0;i<devices.length;i++){
+    const d=devices[i];
+    if(d.maxTemp==null||!d.state||d.state.error)continue;
+    const indoor=safeFloat(d.state.current_temperature);
+    if(indoor==null)continue;
+    const on=d.state.mode!=='OFF';
+
+    if(indoor>=d.maxTemp&&!on&&!d._maxTempActive){
+      d._maxTempActive=true;
+      addLog(`${d.name}: 🌡 ${indoor}°C ≥ max ${d.maxTemp}°C — auto on`,'warn');
+      try{await sendCmd(d.host,{mode:'COOL'});d.state.mode='COOL';renderUnits();}
+      catch(e){addLog(`${d.name}: auto-on failed — ${e.message}`,'err');d._maxTempActive=false;}
+    }
+
+    if(indoor<d.maxTemp&&d._maxTempActive){
+      d._maxTempActive=false;
+      addLog(`${d.name}: 🌡 ${indoor}°C < max ${d.maxTemp}°C — auto off`,'ok');
+      try{await sendCmd(d.host,{mode:'OFF'});d.state.mode='OFF';renderUnits();}
+      catch(e){addLog(`${d.name}: auto-off failed — ${e.message}`,'err');}
+    }
+  }
+}
+
+// ── Rate settings UI ─────────────────────────────────────
+function openRateSettings(){
+  const s=rateSettings;
+  document.getElementById('rs-provider').value=s.provider||'Coopeguanacaste';
+  document.getElementById('rs-xr').value=s.exchangeRate||530;
+  document.getElementById('rs-kwh').value=s.monthlyKwh||400;
+  document.getElementById('rs-hrs').value=s.dailyHrs||8;
+  document.getElementById('rs-tiered').checked=s.tiered!==false;
+  document.getElementById('rs-flat').value=s.flatRate||0.14;
+  renderTierInputs();
+  toggleTieredUI();
+  updateRatePreview();
+  document.getElementById('rate-modal').style.display='flex';
+}
+function closeRateSettings(){document.getElementById('rate-modal').style.display='none';}
+function renderTierInputs(){
+  const tiers=rateSettings.tiers||RATE_DEFAULTS.tiers;
+  document.getElementById('rs-tiers').innerHTML=tiers.map((t,i)=>`
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:12px">
+      <span style="color:var(--text3);width:24px">T${i+1}</span>
+      <span style="color:var(--text3)">≤</span>
+      <input type="number" class="inp" id="rt-upto-${i}" value="${t.upTo===999999?'':t.upTo}" ${t.upTo===999999?'disabled placeholder="∞"':''} style="width:60px">
+      <span style="color:var(--text3)">kWh @</span>
+      <input type="number" class="inp" id="rt-rate-${i}" value="${t.colonesPerKwh}" style="width:60px">
+      <span style="color:var(--text3)">₡/kWh</span>
+    </div>
+  `).join('');
+}
+function toggleTieredUI(){
+  const tiered=document.getElementById('rs-tiered').checked;
+  document.getElementById('rs-tiers-section').style.display=tiered?'block':'none';
+  document.getElementById('rs-flat-section').style.display=tiered?'none':'block';
+  updateRatePreview();
+}
+function updateRatePreview(){
+  const xr=+document.getElementById('rs-xr')?.value||530;
+  const kwh=+document.getElementById('rs-kwh')?.value||400;
+  const hrs=+document.getElementById('rs-hrs')?.value||8;
+  const tiered=document.getElementById('rs-tiered')?.checked;
+  let rate;
+  if(tiered){
+    const tiers=rateSettings.tiers||RATE_DEFAULTS.tiers;
+    for(const t of tiers){if(kwh<=t.upTo){rate=t.colonesPerKwh/xr;break;}}
+    rate=rate||(tiers[tiers.length-1].colonesPerKwh/xr);
+  }else{rate=+document.getElementById('rs-flat')?.value||0.14;}
+  const prev=document.getElementById('rs-preview');
+  if(prev)prev.innerHTML=`<span style="color:var(--text3)">At ${kwh} kWh/mo →</span> $${rate.toFixed(3)}/kWh<br><span style="color:var(--text3)">1kW × ${hrs}h/day =</span> $${(rate*hrs).toFixed(3)}/day`;
+}
+function saveRateSettingsUI(){
+  const tiered=document.getElementById('rs-tiered').checked;
+  const tiers=(rateSettings.tiers||RATE_DEFAULTS.tiers).map((t,i)=>({
+    upTo:t.upTo===999999?999999:(+document.getElementById(`rt-upto-${i}`)?.value||t.upTo),
+    colonesPerKwh:+document.getElementById(`rt-rate-${i}`)?.value||t.colonesPerKwh
+  }));
+  rateSettings={
+    provider:document.getElementById('rs-provider').value||'Coopeguanacaste',
+    exchangeRate:+document.getElementById('rs-xr').value||530,
+    monthlyKwh:+document.getElementById('rs-kwh').value||400,
+    dailyHrs:+document.getElementById('rs-hrs').value||8,
+    tiered,tiers,
+    flatRate:+document.getElementById('rs-flat').value||0.14,
+  };
+  saveRateSettings(rateSettings);
+  updatePeakCard();updateSummary();
+  addLog(`Rates saved: $${effectiveRateUsd().toFixed(3)}/kWh · ${rateSettings.provider} · ${rateSettings.monthlyKwh} kWh/mo`,'ok');
+  closeRateSettings();
+}
+
+const DAY_NAMES=['Su','Mo','Tu','We','Th','Fr','Sa'];
+let schedules=[];
+let editSchIdx=null;
+
+function loadSchedules(){
+  try{const d=JSON.parse(localStorage.getItem(SCH_KEY));if(Array.isArray(d))schedules=d;}catch(_){}
+}
+function saveSchedules(){
+  try{localStorage.setItem(SCH_KEY,JSON.stringify(schedules));}catch(_){}
+}
+
+function openScheduleModal(idx=null){
+  editSchIdx=idx;
+  document.getElementById('sch-modal-title').textContent=idx!==null?'Edit schedule':'Add schedule';
+  // populate device list
+  const sel=document.getElementById('sch-device');
+  sel.innerHTML=devices.map((d,i)=>`<option value="${i}">${d.name}</option>`).join('');
+  // reset day buttons
+  document.querySelectorAll('.dbtn').forEach(b=>b.classList.remove('on'));
+  if(idx!==null){
+    const s=schedules[idx];
+    sel.value=devices.findIndex(d=>d.host===s.host);
+    document.getElementById('sch-time').value=s.time;
+    s.days.forEach(d=>document.querySelector(`.dbtn[data-d="${d}"]`)?.classList.add('on'));
+    document.getElementById('sch-power-en').checked=s.power!==null;
+    document.getElementById('sch-power').value=s.power||'on';
+    document.getElementById('sch-mode-en').checked=s.mode!==null;
+    document.getElementById('sch-mode').value=s.mode||'COOL';
+    document.getElementById('sch-temp-en').checked=s.temp!==null;
+    document.getElementById('sch-temp').value=s.temp||24;
+  }else{
+    document.getElementById('sch-time').value='07:00';
+    document.getElementById('sch-power-en').checked=false;
+    document.getElementById('sch-mode-en').checked=false;
+    document.getElementById('sch-temp-en').checked=false;
+  }
+  const m=document.getElementById('sch-modal');
+  m.style.display='flex';
+}
+
+function selectDays(preset){
+  const map={all:[0,1,2,3,4,5,6],weekdays:[1,2,3,4,5],weekends:[0,6]};
+  const days=map[preset]||[];
+  document.querySelectorAll('.dbtn').forEach(b=>b.classList.toggle('on',days.includes(+b.dataset.d)));
+}
+
+function closeSchModal(){
+  document.getElementById('sch-modal').style.display='none';
+}
+
+function saveSchedule(){
+  const deviceIdx=+document.getElementById('sch-device').value;
+  const time=document.getElementById('sch-time').value;
+  const days=[...document.querySelectorAll('.dbtn.on')].map(b=>+b.dataset.d);
+  const powerEn=document.getElementById('sch-power-en').checked;
+  const modeEn=document.getElementById('sch-mode-en').checked;
+  const tempEn=document.getElementById('sch-temp-en').checked;
+  if(!time){alert('Set a time.');return;}
+  if(!days.length){alert('Select at least one day.');return;}
+  if(!powerEn&&!modeEn&&!tempEn){alert('Enable at least one action.');return;}
+  const sch={
+    id:editSchIdx!==null?schedules[editSchIdx].id:Date.now(),
+    host:devices[deviceIdx].host,
+    deviceName:devices[deviceIdx].name,
+    time,days,
+    power:powerEn?document.getElementById('sch-power').value:null,
+    mode:modeEn?document.getElementById('sch-mode').value:null,
+    temp:tempEn?+document.getElementById('sch-temp').value:null,
+    enabled:editSchIdx!==null?schedules[editSchIdx].enabled:true,
+    lastRun:null,
+  };
+  if(editSchIdx!==null)schedules[editSchIdx]=sch;
+  else schedules.push(sch);
+  saveSchedules();renderSchedules();closeSchModal();
+  addLog(`Schedule saved: ${sch.deviceName} @ ${sch.time} [${days.map(d=>DAY_NAMES[d]).join(',')}]`,'ok');
+}
+
+function deleteSchedule(idx){
+  const n=schedules[idx].deviceName;
+  schedules.splice(idx,1);
+  saveSchedules();renderSchedules();
+  addLog(`Schedule removed for ${n}`,'warn');
+}
+
+function toggleScheduleEnabled(idx){
+  schedules[idx].enabled=!schedules[idx].enabled;
+  saveSchedules();renderSchedules();
+}
+
+function fmtDays(days){
+  const s=days.slice().sort((a,b)=>a-b);
+  if(s.length===7)return'every day';
+  if(JSON.stringify(s)==='[1,2,3,4,5]')return'weekdays';
+  if(JSON.stringify(s)==='[0,6]')return'weekends';
+  return s.map(d=>DAY_NAMES[d]).join(', ');
+}
+
+function fmtActions(s){
+  const p=[];
+  if(s.power)p.push(`power ${s.power}`);
+  if(s.mode)p.push(`mode ${s.mode.toLowerCase()}`);
+  if(s.temp)p.push(`temp ${s.temp}°C`);
+  return p.join(' · ')||'—';
+}
+
+function nextFireMs(s){
+  const now=new Date();
+  const [hh,mm]=s.time.split(':').map(Number);
+  const dow=now.getDay();
+  // find soonest matching day
+  for(let offset=0;offset<8;offset++){
+    const day=(dow+offset)%7;
+    if(!s.days.includes(day))continue;
+    const candidate=new Date(now);
+    candidate.setDate(now.getDate()+offset);
+    candidate.setHours(hh,mm,0,0);
+    if(candidate>now)return candidate.getTime();
+  }
+  return Infinity;
+}
+
+function fmtNext(s){
+  const ms=nextFireMs(s);
+  if(ms===Infinity)return'';
+  const diff=ms-Date.now();
+  const mins=Math.round(diff/60000);
+  if(mins<60)return`in ${mins}m`;
+  if(mins<1440)return`in ${Math.floor(mins/60)}h ${mins%60}m`;
+  return`in ${Math.floor(mins/1440)}d ${Math.floor((mins%1440)/60)}h`;
+}
+
+function renderSchedules(){
+  const el=document.getElementById('schedule-list');
+  if(!schedules.length){el.innerHTML='<div class="empty">No schedules yet.</div>';return;}
+  const sorted=[...schedules.map((s,i)=>({s,i}))].sort((a,b)=>{
+    if(!a.s.enabled&&b.s.enabled)return 1;
+    if(a.s.enabled&&!b.s.enabled)return -1;
+    return nextFireMs(a.s)-nextFireMs(b.s);
+  });
+  el.innerHTML=sorted.map(({s,i})=>`
+    <div class="sch-row">
+      <div>
+        <div class="sch-name">${s.deviceName} <span style="font-family:'DM Mono',monospace;color:var(--text2);font-weight:400">${s.time}</span>${s.enabled?`<span style="font-size:10px;color:var(--text3);margin-left:6px">${fmtNext(s)}</span>`:''}</div>
+        <div class="sch-meta">${fmtDays(s.days)}</div>
+        <div class="sch-acts">${fmtActions(s)}</div>
+        ${s.lastRun?`<div class="sch-last">last ran ${s.lastRun}</div>`:''}
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+        <label class="tog">
+          <input type="checkbox" ${s.enabled?'checked':''} onchange="toggleScheduleEnabled(${i})">
+          <span class="tog-sl"></span>
+        </label>
+        <button class="btn bico" onclick="openScheduleModal(${i})" title="Edit">✎</button>
+        <button class="btn bico" onclick="deleteSchedule(${i})" style="color:#ef4444" title="Delete">✕</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function runSchedule(s){
+  const d=devices.find(dev=>dev.host===s.host);
+  if(!d){addLog(`Schedule: ${s.host} not found`,'warn');return;}
+  addLog(`Schedule: ${d.name} @ ${s.time}`,'info');
+  if(s.power==='off'){
+    try{await sendCmd(d.host,{mode:'OFF'});addLog(`${d.name}: off`,'ok');}
+    catch(e){addLog(`${d.name}: off failed — ${e.message}`,'err');}
+  }else{
+    if(s.power==='on'){
+      const startMode=s.mode||d.state?._prev||'COOL';
+      try{await sendCmd(d.host,{mode:startMode});addLog(`${d.name}: on → ${startMode}`,'ok');}
+      catch(e){addLog(`${d.name}: on failed — ${e.message}`,'err');}
+    }else if(s.mode){
+      try{await sendCmd(d.host,{mode:s.mode});addLog(`${d.name}: mode → ${s.mode}`,'ok');}
+      catch(e){addLog(`${d.name}: mode failed — ${e.message}`,'err');}
+    }
+    if(s.temp){
+      try{await sendCmd(d.host,{target_temperature:s.temp});addLog(`${d.name}: temp → ${s.temp}°C`,'ok');}
+      catch(e){addLog(`${d.name}: temp failed — ${e.message}`,'err');}
+    }
+  }
+  s.lastRun=ts();saveSchedules();renderSchedules();
+}
+
+function checkSchedules(){
+  const now=new Date();
+  const hhmm=now.toTimeString().slice(0,5);
+  const dow=now.getDay();
+  schedules.forEach(s=>{
+    if(!s.enabled||s.time!==hhmm||!s.days.includes(dow))return;
+    if(s.lastRun===ts())return; // already ran this minute
+    runSchedule(s);
+  });
+}
+
+// wire up day buttons
+document.querySelectorAll('.dbtn').forEach(b=>b.addEventListener('click',()=>b.classList.toggle('on')));
+
+loadSchedules();renderSchedules();
+setInterval(checkSchedules,15000);
+
+// ── Usage view ───────────────────────────────────────────
+function initMonthSelector(){
+  const sel=document.getElementById('usage-month-sel');
+  if(!sel)return;
+  const months=[];
+  const now=new Date();
+  for(let i=0;i<6;i++){
+    const d=new Date(now.getFullYear(),now.getMonth()-i,1);
+    const key=d.toISOString().slice(0,7);
+    const label=d.toLocaleString('default',{month:'long',year:'numeric'});
+    months.push({key,label});
+  }
+  sel.innerHTML=months.map((m,i)=>`<option value="${m.key}" ${i===0?'selected':''}>${m.label}</option>`).join('');
+}
+
+function fmtHours(h){
+  if(h==null||h===0)return'0h';
+  const d=Math.floor(h/24);
+  const hh=Math.floor(h%24);
+  const m=Math.round((h%1)*60);
+  return[d?d+'d':'',hh?hh+'h':'',(!d&&m)?m+'m':''].filter(Boolean).join(' ')||'0h';
+}
+
+function renderUsageTable(devices,title,showDaily){
+  if(!devices||!devices.length)return`<div style="color:var(--text3);padding:8px 0">No data for this period yet.</div>`;
+  const rate=effectiveRateUsd();
+  let html=`<div style="font-size:11px;color:var(--text3);margin-bottom:8px">${title}</div>`;
+  html+=`<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr style="color:var(--text3);font-size:10px;font-family:'DM Mono',monospace">
+      <th style="text-align:left;padding:3px 6px 3px 0">Device</th>
+      <th style="text-align:right;padding:3px 6px">Runtime</th>
+      <th style="text-align:right;padding:3px 6px">kWh</th>
+      <th style="text-align:right;padding:3px 6px">Est cost</th>
+      <th style="text-align:right;padding:3px 6px">Peak W</th>
+      <th style="text-align:right;padding:3px 6px">Days on</th>
+    </tr></thead><tbody>`;
+  let totKwh=0,totCost=0;
+  for(const d of devices.sort((a,b)=>b.est_kwh-a.est_kwh)){
+    const cost=d.est_kwh*rate;
+    totKwh+=d.est_kwh;totCost+=cost;
+    html+=`<tr style="border-top:1px solid var(--border)">
+      <td style="padding:5px 6px 5px 0;font-weight:500;color:var(--text)">${d.name}</td>
+      <td style="text-align:right;padding:5px 6px;font-family:'DM Mono',monospace">${fmtHours(d.runtime_hours)}</td>
+      <td style="text-align:right;padding:5px 6px;font-family:'DM Mono',monospace">${d.est_kwh.toFixed(1)}</td>
+      <td style="text-align:right;padding:5px 6px;font-family:'DM Mono',monospace;color:var(--ok)">$${cost.toFixed(2)}</td>
+      <td style="text-align:right;padding:5px 6px;font-family:'DM Mono',monospace;color:var(--text3)">${d.peak_watts||0}W</td>
+      <td style="text-align:right;padding:5px 6px;font-family:'DM Mono',monospace;color:var(--text3)">${d.days_active||0}</td>
+    </tr>`;
+    if(showDaily&&d.daily&&d.daily.length){
+      html+=`<tr><td colspan="6" style="padding:0 0 6px 12px">
+        <div style="display:flex;gap:2px;align-items:flex-end;height:32px;margin-top:4px">`;
+      const maxKwh=Math.max(...d.daily.map(x=>x.kwh),0.01);
+      const allDays=[];
+      const today=new Date();
+      for(let j=29;j>=0;j--){
+        const dd=new Date(today);dd.setDate(today.getDate()-j);
+        allDays.push(dd.toISOString().slice(0,10));
+      }
+      for(const day of allDays){
+        const rec=d.daily.find(x=>x.date===day);
+        const h=rec?Math.max(2,Math.round((rec.kwh/maxKwh)*30)):0;
+        const title=rec?`${day}: ${rec.kwh.toFixed(2)} kWh, ${fmtHours(rec.runtime_h)}`:`${day}: no data`;
+        html+=`<div title="${title}" style="width:6px;height:${h}px;background:${h>0?'var(--cool)':'var(--border)'};border-radius:1px;flex-shrink:0"></div>`;
+      }
+      html+=`</div></td></tr>`;
+    }
+  }
+  html+=`<tr style="border-top:1px solid var(--border2);font-weight:500">
+    <td style="padding:5px 6px 5px 0;color:var(--text)">Total</td>
+    <td></td>
+    <td style="text-align:right;padding:5px 6px;font-family:'DM Mono',monospace">${totKwh.toFixed(1)}</td>
+    <td style="text-align:right;padding:5px 6px;font-family:'DM Mono',monospace;color:var(--ok)">$${totCost.toFixed(2)}</td>
+    <td colspan="2"></td>
+  </tr></tbody></table>`;
+  return html;
+}
+
+async function refreshUsageView(){
+  const body=document.getElementById('usage-body');
+  if(!body||body.style.display==='none')return;
+  const sel=document.getElementById('usage-month-sel');
+  const month=sel?.value;
+  const content=document.getElementById('usage-content');
+  content.textContent='Loading…';
+  const[monthly,rolling]=await Promise.all([fetchMonthlySummary(month),fetchRolling30()]);
+  if(!monthly&&!rolling){
+    content.innerHTML='<div style="color:var(--warn)">⚠ Usage API not reachable — make sure the container is running.</div>';
+    return;
+  }
+  let html='';
+  if(monthly){
+    const d=new Date(month+'-01');
+    const label=d.toLocaleString('default',{month:'long',year:'numeric'});
+    html+=renderUsageTable(monthly.devices,`${label} — monthly totals`,false);
+  }
+  if(rolling){
+    html+=`<div style="margin-top:16px"></div>`;
+    html+=renderUsageTable(rolling.devices,`Rolling 30 days (${rolling.from} → ${rolling.to}) — bars = daily kWh`,true);
+  }
+  content.innerHTML=html;
+}
+
+addLog('Auto-polling every 60s.','info');
+renderIPList();renderUnits();
+initMonthSelector();
+pollAll();
+setInterval(pollAll,60000);
+setInterval(()=>{updatePeakCard();runMaxTempMonitor();},30000);
+updatePeakCard();
+</script>
+</body>
+</html>

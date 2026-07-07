@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  hvac-dashboard:
+    build: .
+    container_name: hvac-dashboard
+    restart: always
+    ports:
+      - "8080:80"
+    volumes:
+      - hvac-data:/data
+    environment:
+      - DATA_FILE=/data/hvac_usage.json
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  hvac-data:
+    driver: local
