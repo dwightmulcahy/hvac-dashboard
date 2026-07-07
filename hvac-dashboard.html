@@ -102,6 +102,7 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
     <p class="sub">ESPHome · SLWF-01pro · Midea</p>
   </div>
   <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+    <span id="api-status" style="font-size:11px;font-family:'DM Mono',monospace;padding:3px 8px;border-radius:6px;background:var(--bg3);color:var(--text3)">⬤ API</span>
     <button class="btn" onclick="pollAll()" style="font-size:12px">↺ Poll</button>
     <button class="btn" onclick="openScheduleModal()" style="font-size:12px">+ Schedule</button>
     <button class="btn" onclick="openRateSettings()" style="font-size:12px" id="rate-btn">⚡ Rates</button>
@@ -1263,6 +1264,7 @@ async function refreshUsageView(){
 // ── Init ─────────────────────────────────────────────────
 async function init(){
   addLog('Connecting to API…','info');
+  await checkApiStatus();
   await loadDevicesFromAPI();
   await loadSchedulesFromAPI();
   renderIPList();renderUnits();renderSchedules();
@@ -1284,13 +1286,42 @@ async function initRateSettingsFromAPI(){
   }catch(_){}
 }
 
-// fetch version from API for about modal
-fetch(`${API}/`).then(r=>r.json()).then(d=>{
-  const el=document.getElementById('about-version');
-  if(el&&d.version)el.textContent=d.version;
-}).catch(_=>{});
+// API status indicator
+function setApiStatus(ok, version){
+  const el=document.getElementById('api-status');
+  if(!el)return;
+  if(ok){
+    el.style.background='var(--fan-bg)';
+    el.style.color='var(--ok)';
+    el.textContent=`⬤ API ${version||''}`;
+    el.title='API connected';
+  }else{
+    el.style.background='rgba(239,68,68,.15)';
+    el.style.color='var(--err)';
+    el.textContent='⬤ API offline';
+    el.title='API unreachable — schedules and automation are not running';
+  }
+}
+
+async function checkApiStatus(){
+  try{
+    const r=await fetch(`${API}/`,{signal:AbortSignal.timeout(3000)});
+    if(r.ok){
+      const d=await r.json();
+      setApiStatus(true, d.version||'');
+      const el=document.getElementById('about-version');
+      if(el&&d.version)el.textContent=d.version;
+    }else{
+      setApiStatus(false);
+    }
+  }catch(_){
+    setApiStatus(false);
+    addLog('⚠ API unreachable — schedules and automation paused','err');
+  }
+}
 
 init();
+setInterval(checkApiStatus, 30000);
 setInterval(pollAll,60000);
 setInterval(()=>{updatePeakCard();runMaxTempMonitor();fetchServerLogs();},30000);
 updatePeakCard();
