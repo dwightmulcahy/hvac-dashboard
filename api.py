@@ -8,7 +8,7 @@ Endpoints:
   DELETE /reset       — clear all data (admin)
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
@@ -76,7 +76,6 @@ def record(snap: UsageSnapshot):
         data = load_data()
         now = datetime.datetime.utcnow().isoformat()
         day = today_key()
-        month = month_key()
 
         # initialise device registry
         if snap.host not in data["devices"]:
