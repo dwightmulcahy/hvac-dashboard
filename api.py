@@ -666,7 +666,7 @@ async def get_logs(level: Optional[str] = None, limit: int = 100):
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "service": "HVAC Automation API", "devices": len(_state["devices"]), "schedules": len(_state["schedules"])}
+    return {"status": "ok", "service": "HVAC Automation API", "version": "v1.0.2", "devices": len(_state["devices"]), "schedules": len(_state["schedules"])}
 
 @app.delete("/reset")
 async def reset():
