@@ -9,7 +9,6 @@ import datetime
 import json
 import logging
 import os
-import threading
 from typing import Optional, List
 
 import httpx
@@ -188,9 +187,9 @@ async def _fetch_state(host: str) -> Optional[dict]:
 
 async def _fetch_sensors(host: str) -> dict:
     paths = {
-        "outdoor_temp": f"sensor/air_conditioner_outdoor_temperature",
-        "uptime_days":  f"sensor/air_conditioner_uptime_days",
-        "beeper":       f"switch/air_conditioner_beeper",
+        "outdoor_temp": "sensor/air_conditioner_outdoor_temperature",
+        "uptime_days":  "sensor/air_conditioner_uptime_days",
+        "beeper":       "switch/air_conditioner_beeper",
     }
     out = {}
     async with httpx.AsyncClient(timeout=3) as client:
@@ -365,10 +364,6 @@ async def _check_max_temp(device: dict):
 async def _check_schedules():
     now = datetime.datetime.now()
     hhmm = now.strftime("%H:%M")
-    dow = now.weekday()  # 0=Mon … 6=Sun — convert from JS (0=Sun)
-    # JS uses 0=Sun, Python uses 0=Mon — map JS days
-    js_dow = (dow + 1) % 7  # Python Mon=0 → JS Tue=2... adjust
-    # simpler: use isoweekday: Mon=1..Sun=7, JS: Sun=0..Sat=6
     js_day = now.isoweekday() % 7  # Sun=0, Mon=1 ... Sat=6
 
     for sch in _state["schedules"]:
