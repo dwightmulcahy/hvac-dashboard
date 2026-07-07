@@ -305,39 +305,71 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
 const ENTITY='air_conditioner';
 const MODES=['COOL','HEAT','HEAT_COOL','FAN_ONLY','DRY'];
 const MODE_LABEL={COOL:'cool',HEAT:'heat',HEAT_COOL:'auto',FAN_ONLY:'fan',DRY:'dry'};
-const STORAGE_KEY='hvac_devices';
+// ── API base ──────────────────────────────────────────────
+const API=window.location.origin+'/api';
 
-const DEFAULTS=[
-  {host:'air-conditioner-c44741.lan',name:'Master BR',btu:24000,seer:20,maxTemp:null},
-  {host:'air-conditioner-c44a95.lan',name:'Kitchen',btu:24000,seer:20,maxTemp:null},
-  {host:'air-conditioner-c44a70.lan',name:'Main LR',btu:24000,seer:20,maxTemp:null},
-  {host:'air-conditioner-c44502.lan',name:'Guest LR',btu:24000,seer:20,maxTemp:null},
-  {host:'air-conditioner-c446a8.lan',name:'Blue BR',btu:24000,seer:20,maxTemp:null},
-];
+// ── Devices — backed by API ───────────────────────────────
+let devices=[];
 
-function loadDevices(){
+async function loadDevicesFromAPI(){
   try{
-    const saved=JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if(saved&&saved.length)return saved.map(d=>({...d,btu:d.btu||24000,seer:d.seer||20,maxTemp:d.maxTemp||null,state:null,extras:{},loading:false,busy:false,pollTime:null}));
+    const r=await fetch(`${API}/devices`);
+    if(r.ok){
+      const data=await r.json();
+      devices=data.devices.map(d=>({
+        ...d,
+        state:d.state&&!d.state.error?d.state:null,
+        extras:{
+          outdoor_temp:d.state?.outdoor_temp!=null?{value:d.state.outdoor_temp}:undefined,
+          uptime:{value:d.state?.uptime_days},
+          beeper:{value:d.beeper||'OFF'},
+        },
+        loading:false,busy:false,pollTime:d.state?Date.now():null,
+        _onTimeMinutes:d._on_time_minutes||0,
+        _maxTempActive:d._max_temp_active||false,
+        maxTemp:d.max_temp||null,
+      }));
+    }
+  }catch(e){addLog('API not reachable — running in direct mode','warn');}
+}
+
+async function saveDeviceToAPI(d){
+  try{
+    await fetch(`${API}/devices/${encodeURIComponent(d.host)}`,{
+      method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({host:d.host,name:d.name,btu:d.btu||24000,seer:d.seer||20,max_temp:d.maxTemp||null,beeper:d.beeper||'OFF'})
+    });
   }catch(_){}
-  return DEFAULTS.map(d=>({...d,state:null,extras:{},loading:false,busy:false,pollTime:null}));
 }
 
-function saveDevices(){
-  try{localStorage.setItem(STORAGE_KEY,JSON.stringify(devices.map(d=>({host:d.host,name:d.name,btu:d.btu||24000,seer:d.seer||20,maxTemp:d.maxTemp||null}))));}catch(_){}
-}
-
-let devices=loadDevices();
-devices.forEach(d=>{d._onTimeMinutes=loadOnTime(d.host);});
+function saveDevices(){devices.forEach(d=>saveDeviceToAPI(d));}
 
 const ts=()=>new Date().toTimeString().slice(0,5);
 
+// ── Log — merge local + server logs ──────────────────────
 const logEntries=[];
 
 function addLog(msg,type='info'){
   logEntries.unshift({msg,type,time:ts()});
   if(logEntries.length>200)logEntries.pop();
   renderLog();
+}
+
+async function fetchServerLogs(){
+  try{
+    const r=await fetch(`${API}/logs?limit=100`);
+    if(r.ok){
+      const data=await r.json();
+      // merge server logs in — deduplicate by msg+time
+      const existing=new Set(logEntries.map(e=>e.time+e.msg));
+      data.logs.forEach(l=>{
+        if(!existing.has(l.time+l.msg))logEntries.push(l);
+      });
+      logEntries.sort((a,b)=>b.time.localeCompare(a.time));
+      if(logEntries.length>200)logEntries.length=200;
+      renderLog();
+    }
+  }catch(_){}
 }
 
 const LOG_LEVELS={err:3,warn:2,ok:1,info:0};
@@ -365,11 +397,30 @@ function renderLog(){
   ).join('');
 }
 
-function clearLog(){
-  logEntries.length=0;
-  renderLog();
+function clearLog(){logEntries.length=0;renderLog();}
+
+// ── AC commands — go through API ──────────────────────────
+async function sendCmd(host,payload){
+  try{
+    const r=await fetch(`${API}/devices/${encodeURIComponent(host)}/cmd`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({params:payload}),signal:AbortSignal.timeout(5000)
+    });
+    if(!r.ok)throw new Error(`HTTP ${r.status}`);
+    return {};
+  }catch(e){
+    // fallback: send directly to device
+    const params=new URLSearchParams(payload).toString();
+    const r=await fetch(`http://${host}/climate/air_conditioner/set?${params}`,{
+      method:'POST',signal:AbortSignal.timeout(5000)
+    });
+    if(!r.ok)throw new Error(`HTTP ${r.status}`);
+    const text=await r.text();
+    return text?JSON.parse(text):{};
+  }
 }
 
+// kept for direct polling fallback
 async function fetchWithRetry(url,opts={},retries=3,delayMs=800){
   let lastErr;
   for(let i=0;i<retries;i++){
@@ -383,35 +434,6 @@ async function fetchWithRetry(url,opts={},retries=3,delayMs=800){
     }
   }
   throw lastErr;
-}
-
-async function fetchState(host){
-  const r=await fetchWithRetry(`http://${host}/climate/${ENTITY}`);
-  return r.json();
-}
-
-async function fetchSensors(host){
-  const paths={
-    outdoor_temp:'sensor/air_conditioner_outdoor_temperature',
-    uptime:'sensor/air_conditioner_uptime_days',
-    beeper:'switch/air_conditioner_beeper',
-  };
-  const out={};
-  await Promise.all(Object.entries(paths).map(async([k,p])=>{
-    try{const r=await fetchWithRetry(`http://${host}/${p}`,{},2,500);out[k]=await r.json();}
-    catch(_){}
-  }));
-  return out;
-}
-
-async function sendCmd(host,payload){
-  const params=new URLSearchParams(payload).toString();
-  const r=await fetch(`http://${host}/climate/${ENTITY}/set?${params}`,{
-    method:'POST',signal:AbortSignal.timeout(5000)
-  });
-  if(!r.ok)throw new Error(`HTTP ${r.status}`);
-  const text=await r.text();
-  return text?JSON.parse(text):{};
 }
 
 // ── Electricity rate settings ────────────────────────────
@@ -517,115 +539,21 @@ async function withBusy(i,fn){
   try{await fn(d);}finally{d.busy=false;renderUnits();}
 }
 
+// pollDevice is now handled server-side
+// kept as no-op for compatibility with any remaining calls
 async function pollDevice(i){
-  const d=devices[i];
-  d.loading=true;renderIPList();
-  try{
-    const[s,x]=await Promise.all([fetchState(d.host),fetchSensors(d.host)]);
-
-    // ── reboot detection ──────────────────────────────────
-    const prevUptime=safeFloat(d.extras?.uptime?.value);
-    const newUptime=safeFloat(x.uptime?.value);
-    if(prevUptime!=null&&newUptime!=null&&newUptime<prevUptime-0.001){
-      addLog(`${d.name}: ⚠ dongle rebooted (uptime reset from ${fmtUptime(prevUptime)} to ${fmtUptime(newUptime)})`,'warn');
-    }
-
-    d.state=s;d.extras=x;
-    if(!d.pollTime)d.pollTime=Date.now();
-
-    // ── on-time tracking ─────────────────────────────────
-    const now=Date.now();
-    const prevMode=d._lastMode;
-    const curMode=s.mode;
-    const isOn=curMode!=='OFF';
-    if(!d._lastPollTime)d._lastPollTime=now;
-    const elapsed=(now-d._lastPollTime)/1000/60; // mins since last poll
-    if(prevMode&&prevMode!=='OFF'){
-      // was on during the interval — accumulate
-      d._onTimeMinutes=(d._onTimeMinutes||0)+elapsed;
-      saveOnTime(d.host,d._onTimeMinutes);
-    }
-    // log mode change
-    if(prevMode&&prevMode!==curMode){
-      if(isOn) addLog(`${d.name}: turned on (${curMode})`,'ok');
-      else addLog(`${d.name}: turned off (was ${prevMode}, on for ${fmtUptime((d._onTimeMinutes||0)/60/24)})`,'info');
-    }
-    d._lastMode=curMode;
-    d._lastPollTime=now;
-
-    // apply saved beeper state — push to device if it disagrees
-    const savedBeeper=loadBeeperState();
-    if(savedBeeper[d.host]&&d.extras.beeper){
-      const savedVal=savedBeeper[d.host];
-      const deviceVal=d.extras.beeper.value;
-      d.extras.beeper.value=savedVal; // always show saved state in UI
-      if(deviceVal!==savedVal){
-        // device disagrees — push saved state to it silently
-        const endpoint=savedVal==='ON'?'turn_on':'turn_off';
-        fetch(`http://${d.host}/switch/air_conditioner_beeper/${endpoint}`,{method:'POST',signal:AbortSignal.timeout(3000)})
-          .then(()=>addLog(`${d.name}: beeper synced → ${savedVal.toLowerCase()}`,'info'))
-          .catch(()=>{});
-      }
-    }
-    const ind=s.current_temperature!=null?safeFloat(s.current_temperature)?.toFixed(1)+'°C':'—';
-    const ot=x.outdoor_temp?.value!=null?', out '+safeFloat(x.outdoor_temp.value)?.toFixed(1)+'°C':'';
-    addLog(`${d.name}: indoor ${ind}${ot}, mode=${s.mode}, set=${s.target_temperature}°C`,'ok');
-  }catch(e){
-    d.state={error:e.message};d.extras={};
-    addLog(`${d.name} (${d.host}): ${e.message}`,'err');
-  }finally{
-    d.loading=false;renderAll();
-  }
-}
-
-// ── Usage persistence API ────────────────────────────────
-const API_BASE=window.location.origin+'/api';
-let _lastPollEpoch=null;
-
-async function recordUsage(){
-  if(!_lastPollEpoch){_lastPollEpoch=Date.now();return;}
-  const interval=(Date.now()-_lastPollEpoch)/1000/60;
-  _lastPollEpoch=Date.now();
-  for(const d of devices){
-    if(!d.state||d.state.error)continue;
-    const watts=estWatts(d.state,d.extras,d.btu,d.seer);
-    try{
-      await fetch(`${API_BASE}/record`,{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-          host:d.host,
-          name:d.name,
-          mode:d.state.mode||'OFF',
-          indoor_temp:safeFloat(d.state.current_temperature),
-          outdoor_temp:safeFloat(d.extras?.outdoor_temp?.value),
-          target_temp:safeFloat(d.state.target_temperature),
-          est_watts:watts||0,
-          interval_minutes:interval,
-        })
-      });
-    }catch(_){}
-  }
-}
-
-async function fetchMonthlySummary(month){
-  try{
-    const r=await fetch(`${API_BASE}/summary${month?'?month='+month:''}`);
-    return r.ok?await r.json():null;
-  }catch(_){return null;}
-}
-
-async function fetchRolling30(){
-  try{
-    const r=await fetch(`${API_BASE}/rolling30`);
-    return r.ok?await r.json():null;
-  }catch(_){return null;}
+  // server polls devices — just refresh from API
+  await loadDevicesFromAPI();
+  renderAll();
+  updateSummary();
 }
 
 async function pollAll(){
-  addLog('Polling all devices…','info');
+  addLog('Refreshing from API…','info');
   document.getElementById('s-time').textContent='…';
-  await Promise.all(devices.map((_,i)=>pollDevice(i)));
+  await loadDevicesFromAPI();
+  // also refresh server logs
+  await fetchServerLogs();
   updateSummary();
   document.getElementById('s-time').textContent=ts();
   runMaxTempMonitor();
@@ -703,18 +631,6 @@ async function togglePower(i){
   });
 }
 
-const ONTIME_KEY='hvac_ontime';
-function saveOnTime(host,mins){
-  try{
-    const d=JSON.parse(localStorage.getItem(ONTIME_KEY)||'{}');
-    d[host]=Math.round(mins);
-    localStorage.setItem(ONTIME_KEY,JSON.stringify(d));
-  }catch(_){}
-}
-function loadOnTime(host){
-  try{return JSON.parse(localStorage.getItem(ONTIME_KEY)||'{}')[host]||0;}catch(_){return 0;}
-}
-
 function fmtOnTime(mins){
   if(!mins||mins<1)return'0m';
   const h=Math.floor(mins/60);
@@ -724,26 +640,19 @@ function fmtOnTime(mins){
   return[d?d+'d':'',rh?rh+'h':'',m?m+'m':''].filter(Boolean).join(' ')||'0m';
 }
 
-function saveBeeperState(){
-  const state={};
-  devices.forEach(d=>{if(d.extras?.beeper!==undefined)state[d.host]=d.extras.beeper.value;});
-  try{localStorage.setItem(BEEPER_KEY,JSON.stringify(state));}catch(_){}
-}
-
-function loadBeeperState(){
-  try{return JSON.parse(localStorage.getItem(BEEPER_KEY))||{};}catch(_){return{};}
-}
-
 async function toggleBeeper(i){
   await withBusy(i,async d=>{
     const on=d.extras?.beeper?.value==='ON';
+    const newState=on?'off':'on';
     try{
-      await fetch(`http://${d.host}/switch/air_conditioner_beeper/${on?'turn_off':'turn_on'}`,{method:'POST',signal:AbortSignal.timeout(3000)});
-      if(!d.extras)d.extras={};
-      if(!d.extras.beeper)d.extras.beeper={};
-      d.extras.beeper.value=on?'OFF':'ON';
-      saveBeeperState();
-      addLog(`${d.name}: beeper ${on?'off':'on'}`,'ok');
+      const r=await fetch(`${API}/devices/${encodeURIComponent(d.host)}/beeper/${newState}`,{method:'POST'});
+      if(r.ok){
+        if(!d.extras)d.extras={};
+        if(!d.extras.beeper)d.extras.beeper={};
+        d.extras.beeper.value=on?'OFF':'ON';
+        d.beeper=on?'OFF':'ON';
+        addLog(`${d.name}: beeper ${newState}`,'ok');
+      }
     }catch(e){addLog(`${d.name}: beeper failed — ${e.message}`,'err');}
   });
 }
@@ -755,15 +664,17 @@ function addDevice(){
     el.style.display='block';
     btn.style.borderColor='var(--cool)';btn.style.color='var(--cool)';
   }
-  devices.push({host:'esphome-device.lan',name:'New unit',btu:24000,seer:20,maxTemp:null,state:null,extras:{},loading:false,busy:false,pollTime:null});
-  saveDevices();
+  const newDevice={host:'esphome-device.lan',name:'New unit',btu:24000,seer:20,maxTemp:null,beeper:'OFF',state:null,extras:{},loading:false,busy:false,pollTime:null,_onTimeMinutes:0};
+  devices.push(newDevice);
+  saveDeviceToAPI(newDevice);
   renderIPList();addLog('Device added — edit hostname and name, then Poll.','info');
 }
 
 function removeDevice(i){
-  const n=devices.splice(i,1)[0].name;
-  saveDevices();
-  addLog(`Removed ${n}`,'warn');renderAll();
+  const d=devices[i];
+  fetch(`${API}/devices/${encodeURIComponent(d.host)}`,{method:'DELETE'}).catch(_=>{});
+  devices.splice(i,1);
+  addLog(`Removed ${d.name}`,'warn');renderAll();
 }
 
 function renderIPList(){
@@ -962,6 +873,8 @@ function saveRateSettingsUI(){
     flatRate:+document.getElementById('rs-flat').value||0.14,
   };
   saveRateSettings(rateSettings);
+  // push to API
+  fetch(`${API}/settings`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(rateSettings)}).catch(_=>{});
   updatePeakCard();updateSummary();
   addLog(`Rates saved: $${effectiveRateUsd().toFixed(3)}/kWh · ${rateSettings.provider} · ${rateSettings.monthlyKwh} kWh/mo`,'ok');
   closeRateSettings();
@@ -971,12 +884,15 @@ const DAY_NAMES=['Su','Mo','Tu','We','Th','Fr','Sa'];
 let schedules=[];
 let editSchIdx=null;
 
-function loadSchedules(){
-  try{const d=JSON.parse(localStorage.getItem(SCH_KEY));if(Array.isArray(d))schedules=d;}catch(_){}
+async function loadSchedulesFromAPI(){
+  try{
+    const r=await fetch(`${API}/schedules`);
+    if(r.ok){const data=await r.json();schedules=data.schedules||[];}
+  }catch(_){}
 }
-function saveSchedules(){
-  try{localStorage.setItem(SCH_KEY,JSON.stringify(schedules));}catch(_){}
-}
+
+function loadSchedules(){loadSchedulesFromAPI();}
+function saveSchedules(){} // no-op, API handles persistence
 
 function openScheduleModal(idx=null){
   editSchIdx=idx;
@@ -988,7 +904,7 @@ function openScheduleModal(idx=null){
   document.querySelectorAll('.dbtn').forEach(b=>b.classList.remove('on'));
   if(idx!==null){
     const s=schedules[idx];
-    sel.value=devices.findIndex(d=>d.host===s.host);
+    sel.value=devices.findIndex(d=>d.host===(s.device_host||s.host));
     document.getElementById('sch-time').value=s.time;
     s.days.forEach(d=>document.querySelector(`.dbtn[data-d="${d}"]`)?.classList.add('on'));
     document.getElementById('sch-power-en').checked=s.power!==null;
@@ -1028,32 +944,39 @@ function saveSchedule(){
   if(!days.length){alert('Select at least one day.');return;}
   if(!powerEn&&!modeEn&&!tempEn){alert('Enable at least one action.');return;}
   const sch={
-    id:editSchIdx!==null?schedules[editSchIdx].id:Date.now(),
-    host:devices[deviceIdx].host,
-    deviceName:devices[deviceIdx].name,
+    id:editSchIdx!==null?schedules[editSchIdx].id:null,
+    device_host:devices[deviceIdx].host,
+    device_name:devices[deviceIdx].name,
     time,days,
     power:powerEn?document.getElementById('sch-power').value:null,
     mode:modeEn?document.getElementById('sch-mode').value:null,
     temp:tempEn?+document.getElementById('sch-temp').value:null,
     enabled:editSchIdx!==null?schedules[editSchIdx].enabled:true,
-    lastRun:null,
   };
-  if(editSchIdx!==null)schedules[editSchIdx]=sch;
-  else schedules.push(sch);
-  saveSchedules();renderSchedules();closeSchModal();
-  addLog(`Schedule saved: ${sch.deviceName} @ ${sch.time} [${days.map(d=>DAY_NAMES[d]).join(',')}]`,'ok');
+  // send to API
+  const method=editSchIdx!==null?'PUT':'POST';
+  const url=editSchIdx!==null?`${API}/schedules/${schedules[editSchIdx].id}`:`${API}/schedules`;
+  fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(sch)})
+    .then(()=>loadSchedulesFromAPI().then(renderSchedules))
+    .catch(e=>addLog(`Schedule save failed: ${e.message}`,'err'));
+  closeSchModal();
+  addLog(`Schedule saved: ${sch.device_name} @ ${sch.time} [${days.map(d=>DAY_NAMES[d]).join(',')}]`,'ok');
 }
 
 function deleteSchedule(idx){
-  const n=schedules[idx].deviceName;
-  schedules.splice(idx,1);
-  saveSchedules();renderSchedules();
-  addLog(`Schedule removed for ${n}`,'warn');
+  const s=schedules[idx];
+  fetch(`${API}/schedules/${s.id}`,{method:'DELETE'})
+    .then(()=>loadSchedulesFromAPI().then(renderSchedules))
+    .catch(_=>{});
+  addLog(`Schedule removed for ${s.device_name||s.device_name||s.deviceName}`,'warn');
 }
 
 function toggleScheduleEnabled(idx){
-  schedules[idx].enabled=!schedules[idx].enabled;
-  saveSchedules();renderSchedules();
+  const s=schedules[idx];
+  fetch(`${API}/schedules/${s.id}`,{method:'PATCH'})
+    .then(r=>r.json())
+    .then(data=>{s.enabled=data.enabled;renderSchedules();})
+    .catch(_=>{s.enabled=!s.enabled;renderSchedules();});
 }
 
 function fmtDays(days){
@@ -1109,7 +1032,7 @@ function renderSchedules(){
   el.innerHTML=sorted.map(({s,i})=>`
     <div class="sch-row">
       <div>
-        <div class="sch-name">${s.deviceName} <span style="font-family:'DM Mono',monospace;color:var(--text2);font-weight:400">${s.time}</span>${s.enabled?`<span style="font-size:10px;color:var(--text3);margin-left:6px">${fmtNext(s)}</span>`:''}</div>
+        <div class="sch-name">${s.device_name||s.deviceName} <span style="font-family:'DM Mono',monospace;color:var(--text2);font-weight:400">${s.time}</span>${s.enabled?`<span style="font-size:10px;color:var(--text3);margin-left:6px">${fmtNext(s)}</span>`:''}</div>
         <div class="sch-meta">${fmtDays(s.days)}</div>
         <div class="sch-acts">${fmtActions(s)}</div>
         ${s.lastRun?`<div class="sch-last">last ran ${s.lastRun}</div>`:''}
@@ -1127,7 +1050,7 @@ function renderSchedules(){
 }
 
 async function runSchedule(s){
-  const d=devices.find(dev=>dev.host===s.host);
+  const d=devices.find(dev=>dev.host===(s.device_host||s.host));
   if(!d){addLog(`Schedule: ${s.host} not found`,'warn');return;}
   addLog(`Schedule: ${d.name} @ ${s.time}`,'info');
   if(s.power==='off'){
@@ -1167,7 +1090,23 @@ document.querySelectorAll('.dbtn').forEach(b=>b.addEventListener('click',()=>b.c
 loadSchedules();renderSchedules();
 setInterval(checkSchedules,15000);
 
-// ── Usage view ───────────────────────────────────────────
+// ── Usage fetch ───────────────────────────────────────────
+let _lastPollEpoch=null;
+function recordUsage(){} // handled server-side now
+
+async function fetchMonthlySummary(month){
+  try{
+    const r=await fetch(`${API}/usage/summary${month?'?month='+month:''}`);
+    return r.ok?await r.json():null;
+  }catch(_){return null;}
+}
+
+async function fetchRolling30(){
+  try{
+    const r=await fetch(`${API}/usage/rolling30`);
+    return r.ok?await r.json():null;
+  }catch(_){return null;}
+}
 function initMonthSelector(){
   const sel=document.getElementById('usage-month-sel');
   if(!sel)return;
@@ -1269,12 +1208,33 @@ async function refreshUsageView(){
   content.innerHTML=html;
 }
 
-addLog('Auto-polling every 60s.','info');
-renderIPList();renderUnits();
-initMonthSelector();
-pollAll();
+// ── Init ─────────────────────────────────────────────────
+async function init(){
+  addLog('Connecting to API…','info');
+  await loadDevicesFromAPI();
+  await loadSchedulesFromAPI();
+  renderIPList();renderUnits();renderSchedules();
+  initMonthSelector();
+  initRateSettingsFromAPI();
+  updatePeakCard();
+  addLog('Ready — refreshing every 60s','ok');
+  // initial poll
+  pollAll();
+}
+
+async function initRateSettingsFromAPI(){
+  try{
+    const r=await fetch(`${API}/settings`);
+    if(r.ok){
+      const s=await r.json();
+      rateSettings={...rateSettings,...s};
+    }
+  }catch(_){}
+}
+
+init();
 setInterval(pollAll,60000);
-setInterval(()=>{updatePeakCard();runMaxTempMonitor();},30000);
+setInterval(()=>{updatePeakCard();runMaxTempMonitor();fetchServerLogs();},30000);
 updatePeakCard();
 </script>
 </body>
