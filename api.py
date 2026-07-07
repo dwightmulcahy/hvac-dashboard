@@ -20,7 +20,15 @@ from pydantic import BaseModel
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("hvac")
 
-app = FastAPI(title="HVAC Automation API")
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    asyncio.create_task(_background_worker())
+    _add_log("HVAC API started", "info")
+    yield
+
+app = FastAPI(title="HVAC Automation API", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 DATA_FILE = os.environ.get("DATA_FILE", "/data/hvac_state.json")
@@ -434,10 +442,7 @@ async def _background_worker():
 
         await asyncio.sleep(interval)
 
-@app.on_event("startup")
-async def startup():
-    asyncio.create_task(_background_worker())
-    _add_log("HVAC API started", "info")
+
 
 # ═══════════════════════════════════════════════════════════
 # REST API
@@ -559,7 +564,7 @@ async def delete_schedule(sch_id: str):
         _save_raw(_state)
     return {"ok": True}
 
-@app.patch("/schedules/{sch_id}/toggle")
+@app.post("/schedules/{sch_id}/toggle")
 async def toggle_schedule(sch_id: str):
     sch = next((s for s in _state["schedules"] if s["id"] == sch_id), None)
     if not sch:

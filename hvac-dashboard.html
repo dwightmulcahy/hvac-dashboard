@@ -973,7 +973,7 @@ function deleteSchedule(idx){
 
 function toggleScheduleEnabled(idx){
   const s=schedules[idx];
-  fetch(`${API}/schedules/${s.id}`,{method:'PATCH'})
+  fetch(`${API}/schedules/${s.id}/toggle`,{method:'POST'})
     .then(r=>r.json())
     .then(data=>{s.enabled=data.enabled;renderSchedules();})
     .catch(_=>{s.enabled=!s.enabled;renderSchedules();});
