@@ -413,13 +413,15 @@ async function loadDevicesFromAPI(){
           outdoor_temp:d.state?.outdoor_temp!=null?{value:d.state.outdoor_temp}:existing?.extras?.outdoor_temp,
           uptime:{value:d.state?.uptime_days},
           beeper:{value:d.beeper||'OFF'},
-        wifi_signal:{value:d.state?.wifi_signal??null},
+          wifi_signal:{value:d.state?.wifi_signal??null},
         },
         loading:false,busy:existing?.busy||false,pollTime:existing?.pollTime||null,
         _onTimeMinutes:d._on_time_minutes||existing?._onTimeMinutes||0,
         _maxTempActive:d._max_temp_active||false,
         maxTemp:d.max_temp||null,
         watchdog_minutes:d.watchdog_minutes||5,
+        lock_temp:d.lock_temp||false,
+        locked_target_temp:d.locked_target_temp||null,
         stale:d.state?.stale||false,
         last_seen:d.state?.last_seen||d._last_seen||null,
         retry_queue_depth:d._retry_queue?.length||0,
@@ -435,7 +437,8 @@ async function saveDeviceToAPI(d){
     await fetch(`${API}/devices/${encodeURIComponent(d.host)}`,{
       method:'PUT',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({host:d.host,name:d.name,btu:d.btu||24000,seer:d.seer||20,
-        max_temp:d.maxTemp||null,beeper:d.beeper||'OFF',watchdog_minutes:d.watchdog_minutes||5})
+        max_temp:d.maxTemp||null,beeper:d.beeper||'OFF',watchdog_minutes:d.watchdog_minutes||5,
+        lock_temp:d.lock_temp||false,locked_target_temp:d.locked_target_temp||null})
     });
   }catch(_){}
 }
@@ -832,6 +835,28 @@ function fmtOnTime(mins){
   return[d?d+'d':'',rh?rh+'h':'',m?m+'m':''].filter(Boolean).join(' ')||'0m';
 }
 
+async function toggleLockTemp(i){
+  const d=devices[i];
+  const newLock=!d.lock_temp;
+  const target=newLock?safeFloat(d.state?.target_temperature):null;
+  if(newLock&&target==null){
+    addLog(`${d.name}: can't lock — no setpoint (is unit on?)`, 'warn');
+    return;
+  }
+  try{
+    const r=await fetch(`${API}/devices/${encodeURIComponent(d.host)}/lock`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({lock:newLock,target_temp:target})
+    });
+    if(r.ok){
+      d.lock_temp=newLock;
+      d.locked_target_temp=target;
+      addLog(`${d.name}: temp ${newLock?'🔒 locked at '+target+'°C':'🔓 unlocked'}`,'ok');
+      renderUnits();
+    }
+  }catch(e){addLog(`${d.name}: lock failed — ${e.message}`,'err');}
+}
+
 async function toggleBeeper(i){
   await withBusy(i,async d=>{
     const on=d.extras?.beeper?.value==='ON';
@@ -972,6 +997,8 @@ function renderUnits(){
           <div class="tdisp" style="line-height:1.2;text-align:center">${on&&s.target_temperature!=null?`${safeFloat(s.target_temperature)}°C<br><span style="font-size:10px;color:var(--text3);font-weight:400">${toF(s.target_temperature)}°F</span>`:'<span style="color:var(--text3);font-size:11px">off</span>'}</div>
           <button class="btn bico" onclick="adjustTemp(${i},1)" ${dis} style="width:24px;height:24px">+</button>
           ${x.beeper!==undefined?`<button class="beeper ${x.beeper?.value==='ON'?'on':''}" onclick="toggleBeeper(${i})" ${busy?'disabled':''} style="font-size:11px;padding:0 7px;height:24px;border-radius:7px">🔔</button>`:''}
+          <button onclick="toggleLockTemp(${i})" title="${d.lock_temp?'Locked at '+d.locked_target_temp+'°C — click to unlock':'Click to lock temp at current setpoint'}"
+            style="width:24px;height:24px;border-radius:7px;border:1px solid ${d.lock_temp?'var(--warn)':'var(--border)'};background:transparent;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;color:${d.lock_temp?'var(--warn)':'var(--text3)'}">${d.lock_temp?'🔒':'🔓'}</button>
           <button class="pbtn ${on?'on':'off'}" onclick="togglePower(${i})" ${busy?'disabled':''} style="width:24px;height:24px">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18.36 6.64A9 9 0 1 1 5.64 6.64"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
           </button>

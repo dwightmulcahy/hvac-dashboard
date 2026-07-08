@@ -68,6 +68,8 @@ DEVICE_DEFAULTS = {
     "max_temp": None,
     "beeper": "OFF",
     "watchdog_minutes": 5,
+    "lock_temp": False,
+    "locked_target_temp": None,
     "_max_temp_active": False,
     "_last_poll": None,
     "_last_seen": None,
@@ -331,6 +333,21 @@ async def _poll_device(device: dict):
 
     _add_log(f"{name}: {state.get('current_temperature')}°C in, {ds.get('outdoor_temp')}°C out, mode={cur_mode}", "ok")
 
+    # ── override protection ───────────────────────────────
+    if device.get("lock_temp") and device.get("locked_target_temp") is not None:
+        if cur_mode not in ("OFF", "FAN_ONLY"):
+            reported = state.get("target_temperature")
+            locked = device["locked_target_temp"]
+            try:
+                if reported is not None and abs(float(reported) - float(locked)) >= 0.5:
+                    _add_log(f"{name}: 🔒 remote override detected ({reported}°C → locking back to {locked}°C)", "warn")
+                    ok = await _send_cmd(host, {"target_temperature": locked})
+                    if ok:
+                        ds["target_temperature"] = str(locked)
+                        _add_log(f"{name}: 🔒 temp restored to {locked}°C", "ok")
+            except Exception as e:
+                _add_log(f"{name}: lock restore failed — {e}", "err")
+
     # ── drain retry queue ─────────────────────────────────
     queue = device.get("_retry_queue", [])
     if queue:
@@ -528,6 +545,8 @@ class DeviceConfig(BaseModel):
     max_temp: Optional[float] = None
     beeper: str = "OFF"
     watchdog_minutes: int = 5
+    lock_temp: bool = False
+    locked_target_temp: Optional[float] = None
 
 @app.get("/devices")
 async def get_devices():
@@ -589,6 +608,23 @@ async def send_device_cmd(host: str, payload: CommandPayload):
             device["_retry_queue"].append(payload.params)
             _add_log(f"{device['name']}: command queued for retry {payload.params}", "warn")
     return {"ok": ok, "queued": not ok}
+
+@app.post("/devices/{host:path}/lock")
+async def set_lock_temp(host: str, data: dict):
+    """Enable/disable temp lock. body: {lock: bool, target_temp: float|null}"""
+    device = next((d for d in _state["devices"] if d["host"] == host), None)
+    if not device:
+        return {"ok": False, "error": "not found"}
+    device["lock_temp"] = data.get("lock", False)
+    if data.get("target_temp") is not None:
+        device["locked_target_temp"] = float(data["target_temp"])
+    elif not device["lock_temp"]:
+        device["locked_target_temp"] = None
+    async with _lock:
+        _save_raw(_state)
+    status = "locked" if device["lock_temp"] else "unlocked"
+    _add_log(f"{device['name']}: temp {status} at {device.get('locked_target_temp')}°C", "info")
+    return {"ok": True, "lock_temp": device["lock_temp"], "locked_target_temp": device.get("locked_target_temp")}
 
 @app.post("/devices/{host:path}/beeper/{state}")
 async def set_beeper(host: str, state: str):
