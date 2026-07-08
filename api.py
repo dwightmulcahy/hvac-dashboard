@@ -67,11 +67,15 @@ DEVICE_DEFAULTS = {
     "seer": 20,
     "max_temp": None,
     "beeper": "OFF",
+    "watchdog_minutes": 5,
     "_max_temp_active": False,
     "_last_poll": None,
+    "_last_seen": None,
+    "_stale": False,
     "_last_mode": None,
     "_last_poll_epoch": None,
     "_on_time_minutes": 0.0,
+    "_retry_queue": [],
 }
 
 SCHEDULE_DEFAULTS = {
@@ -232,8 +236,21 @@ async def _poll_device(device: dict):
     state = await _fetch_state(host)
     if state is None:
         _add_log(f"{name}: unreachable", "err")
-        _state["device_state"][host] = {"error": "unreachable", "host": host}
+        prev_stale = device.get("_stale", False)
+        device["_stale"] = True
+        if not prev_stale:
+            _add_log(f"{name}: 🔴 went offline", "err")
+        _state["device_state"][host] = {"error": "unreachable", "host": host,
+                                         "last_seen": device.get("_last_seen")}
         return
+
+    # ── watchdog: mark recovered if was stale ─────────────
+    if device.get("_stale"):
+        device["_stale"] = False
+        _add_log(f"{name}: 🟢 back online", "ok")
+
+    device["_last_seen"] = _now_iso()
+    device["_stale"] = False
 
     sensors = await _fetch_sensors(host)
 
@@ -283,9 +300,19 @@ async def _poll_device(device: dict):
     device["_last_mode"] = cur_mode
     device["_last_poll_epoch"] = now_epoch
     device["_last_poll"] = _now_iso()
+    ds["last_seen"] = device["_last_seen"]
+    ds["stale"] = False
     _state["device_state"][host] = ds
 
     _add_log(f"{name}: {state.get('current_temperature')}°C in, {ds.get('outdoor_temp')}°C out, mode={cur_mode}", "ok")
+
+    # ── drain retry queue ─────────────────────────────────
+    queue = device.get("_retry_queue", [])
+    if queue:
+        retry = queue.pop(0)
+        device["_retry_queue"] = queue
+        _add_log(f"{name}: retrying queued command {retry}", "info")
+        await _send_cmd(host, retry)
 
 # ── Usage recording ───────────────────────────────────────
 
@@ -326,7 +353,28 @@ def _record_usage(device: dict, ds: dict, interval_mins: float):
         except: pass
     bucket["snapshots"] += 1
 
-# ── Max temp guard ────────────────────────────────────────
+# ── Watchdog ──────────────────────────────────────────────
+
+def _check_watchdog(device: dict):
+    """Mark device stale if last_seen exceeds watchdog_minutes threshold."""
+    last_seen = device.get("_last_seen")
+    if not last_seen:
+        return
+    threshold = device.get("watchdog_minutes", 5)
+    try:
+        last_dt = datetime.datetime.fromisoformat(last_seen)
+        elapsed = (datetime.datetime.utcnow() - last_dt).total_seconds() / 60
+        was_stale = device.get("_stale", False)
+        if elapsed > threshold and not was_stale:
+            device["_stale"] = True
+            ds = _state["device_state"].get(device["host"], {})
+            ds["stale"] = True
+            _add_log(f"{device['name']}: ⚠ no response for {int(elapsed)}m (watchdog: {threshold}m)", "warn")
+    except Exception:
+        pass
+
+
+
 
 async def _check_max_temp(device: dict):
     max_temp = device.get("max_temp")
@@ -421,6 +469,8 @@ async def _background_worker():
             for device in _state["devices"]:
                 await _poll_device(device)
                 await _check_max_temp(device)
+                # watchdog — check if device has gone stale
+                _check_watchdog(device)
 
             # Check schedules (once per minute)
             hhmm = datetime.datetime.now().strftime("%H:%M")
@@ -452,6 +502,7 @@ class DeviceConfig(BaseModel):
     seer: int = 20
     max_temp: Optional[float] = None
     beeper: str = "OFF"
+    watchdog_minutes: int = 5
 
 @app.get("/devices")
 async def get_devices():
@@ -500,7 +551,15 @@ async def send_device_cmd(host: str, payload: CommandPayload):
     if ok:
         ds = _state["device_state"].get(host, {})
         ds.update(payload.params)
-    return {"ok": ok}
+    else:
+        # queue for retry when device comes back online
+        device = next((d for d in _state["devices"] if d["host"] == host), None)
+        if device is not None:
+            if "_retry_queue" not in device:
+                device["_retry_queue"] = []
+            device["_retry_queue"].append(payload.params)
+            _add_log(f"{device['name']}: command queued for retry {payload.params}", "warn")
+    return {"ok": ok, "queued": not ok}
 
 @app.post("/devices/{host:path}/beeper/{state}")
 async def set_beeper(host: str, state: str):
@@ -664,9 +723,107 @@ async def get_logs(level: Optional[str] = None, limit: int = 100):
 
 # ── System ────────────────────────────────────────────────
 
+@app.get("/usage/export-csv")
+async def export_csv(month: Optional[str] = None):
+    """Export monthly usage as CSV."""
+    from fastapi.responses import StreamingResponse
+    import io
+    import csv
+    target = month or _month()
+    usage = _state["usage"]
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Date", "Device", "Host", "Runtime (hrs)", "Est kWh", "Peak W", "Snapshots"])
+    for day in sorted(usage["daily"].keys()):
+        if not day.startswith(target):
+            continue
+        for host, bucket in usage["daily"][day].items():
+            name = usage["devices"].get(host, {}).get("name", host)
+            writer.writerow([
+                day, name, host,
+                round(bucket["runtime_minutes"] / 60, 2),
+                round(bucket["est_kwh"], 3),
+                round(bucket["peak_watts"], 0),
+                bucket["snapshots"],
+            ])
+    output.seek(0)
+    filename = f"hvac-usage-{target}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+@app.get("/health")
+async def health():
+    """Detailed health check — per-device status and staleness."""
+    now = datetime.datetime.utcnow()
+    device_health = []
+    for d in _state["devices"]:
+        last_seen = d.get("_last_seen")
+        elapsed = None
+        if last_seen:
+            try:
+                elapsed = round((now - datetime.datetime.fromisoformat(last_seen)).total_seconds() / 60, 1)
+            except Exception:
+                pass
+        device_health.append({
+            "host": d["host"],
+            "name": d["name"],
+            "stale": d.get("_stale", False),
+            "last_seen": last_seen,
+            "minutes_since_seen": elapsed,
+            "watchdog_minutes": d.get("watchdog_minutes", 5),
+            "retry_queue_depth": len(d.get("_retry_queue", [])),
+        })
+    all_ok = all(not d["stale"] for d in device_health) if device_health else False
+    return {
+        "status": "ok" if all_ok else "degraded",
+        "devices": device_health,
+        "total": len(_state["devices"]),
+        "stale": sum(1 for d in device_health if d["stale"]),
+        "timestamp": now.isoformat(),
+    }
+
+@app.get("/backup")
+async def backup():
+    """Export full state as JSON for backup."""
+    async with _lock:
+        data = _load_raw()
+    # strip internal runtime fields before export
+    export = {
+        "devices": [
+            {k: v for k, v in d.items() if not k.startswith("_")}
+            for d in data.get("devices", [])
+        ],
+        "schedules": data.get("schedules", []),
+        "settings": data.get("settings", {}),
+        "exported_at": _now_iso(),
+    }
+    return export
+
+@app.post("/restore")
+async def restore(data: dict):
+    """Restore devices, schedules and settings from a backup."""
+    async with _lock:
+        if "devices" in data:
+            for cfg in data["devices"]:
+                existing = next((d for d in _state["devices"] if d["host"] == cfg.get("host")), None)
+                if existing:
+                    existing.update(cfg)
+                else:
+                    _state["devices"].append({**DEVICE_DEFAULTS, **cfg})
+        if "schedules" in data:
+            _state["schedules"] = data["schedules"]
+        if "settings" in data:
+            _state["settings"].update(data["settings"])
+        _save_raw(_state)
+    return {"ok": True, "message": "Restore complete"}
+
 @app.get("/")
 async def root():
-    return {"status": "ok", "service": "HVAC Automation API", "version": "v1.0.2", "devices": len(_state["devices"]), "schedules": len(_state["schedules"])}
+    return {"status": "ok", "service": "HVAC Automation API", "version": "v1.1.0",
+            "devices": len(_state["devices"]), "schedules": len(_state["schedules"])}
 
 @app.delete("/reset")
 async def reset():

@@ -18,6 +18,17 @@
   --ok:#22c55e;--warn:#f59e0b;--err:#ef4444;
   --r:10px;--rl:14px;
 }
+:root.light{
+  --bg:#f3f4f8;--bg2:#ffffff;--bg3:#e8eaf0;
+  --border:#00000012;--border2:#00000022;
+  --text:#1a1e2e;--text2:#5a6278;--text3:#9099b0;
+  --cool:#2563eb;--cool-bg:#dbeafe;
+  --heat:#ea6a0a;--heat-bg:#ffedd5;
+  --auto:#9333ea;--auto-bg:#f3e8ff;
+  --fan:#059669;--fan-bg:#d1fae5;
+  --dry:#db2777;--dry-bg:#fce7f3;
+  --ok:#16a34a;--warn:#d97706;--err:#dc2626;
+}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:24px 20px;max-width:960px;margin:0 auto}
 h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
@@ -106,7 +117,9 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
     <button class="btn" onclick="pollAll()" style="font-size:12px">↺ Poll</button>
     <button class="btn" onclick="openScheduleModal()" style="font-size:12px">+ Schedule</button>
     <button class="btn" onclick="openRateSettings()" style="font-size:12px" id="rate-btn">⚡ Rates</button>
+    <button class="btn" id="vacation-btn" onclick="toggleVacationMode()" style="font-size:12px" title="Sets all units to high max-temp guard and pauses schedules">🌴 Vacation</button>
     <button class="btn" onclick="toggleDevicePanel()" style="font-size:12px" id="devices-btn">⚙ Devices</button>
+    <button class="btn" onclick="toggleTheme()" style="font-size:12px" id="theme-btn" title="Toggle dark/light mode">☀️</button>
     <button class="btn" onclick="document.getElementById('about-modal').style.display='flex'" style="font-size:12px">ℹ About</button>
   </div>
 </div>
@@ -190,6 +203,11 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
       <span style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace">mo</span>
     </div>
   </div>
+  <div class="card">
+    <div class="clabel">Month projection</div>
+    <div style="font-size:14px;font-weight:500;margin-top:2px" id="s-proj-cost">—</div>
+    <div style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:2px" id="s-proj-label">—</div>
+  </div>
   <div class="card" id="peak-card" style="display:none">
     <div class="clabel">⚡ Peak rate</div>
     <div style="font-size:12px;font-weight:500;color:var(--warn);margin-top:2px;line-height:1.3" id="peak-label">—</div>
@@ -198,12 +216,22 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
   <div class="card"><div class="clabel">Last poll</div><div style="font-size:13px;font-weight:500;font-family:'DM Mono',monospace;margin-top:2px" id="s-time">—</div></div>
 </div>
 
+<!-- Per-device cost breakdown — collapsible -->
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer" onclick="toggleSection('cost-body','cost-arrow')">
+  <span class="sec" style="margin:0;flex:1">Cost breakdown</span>
+  <span id="cost-arrow" style="font-size:11px;color:var(--text3)">▶</span>
+</div>
+<div id="cost-body" style="display:none;margin-bottom:16px">
+  <div class="ucard"><div id="cost-breakdown-content"><div class="empty">No data yet.</div></div></div>
+</div>
+
 <!-- Usage tracking — collapsible -->
 <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer" onclick="toggleSection('usage-body','usage-arrow')">
   <span class="sec" style="margin:0;flex:1">Usage</span>
   <div style="display:flex;gap:6px;align-items:center" onclick="event.stopPropagation()">
     <select id="usage-month-sel" class="inp" style="font-size:11px;padding:2px 6px" onchange="refreshUsageView()"></select>
     <button class="btn" style="font-size:11px;padding:2px 8px" onclick="event.stopPropagation();toggleSection('usage-body','usage-arrow');refreshUsageView()">30 day</button>
+    <button class="btn" style="font-size:11px;padding:2px 8px" onclick="event.stopPropagation();exportCSV()" title="Download CSV">⬇ CSV</button>
   </div>
   <span id="usage-arrow" style="font-size:11px;color:var(--text3)">▶</span>
 </div>
@@ -224,6 +252,7 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
 <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">
   <div style="display:flex;align-items:center;gap:6px;cursor:pointer;flex:1" onclick="toggleSection('log-body','log-arrow')">
     <span class="sec" style="margin:0">Log</span>
+    <span id="log-badge" style="display:none;background:var(--err);color:#fff;font-size:9px;font-weight:600;padding:1px 5px;border-radius:9px;font-family:'DM Mono',monospace"></span>
     <span id="log-arrow" style="font-size:11px;color:var(--text3)">▼</span>
   </div>
   <select id="log-filter" class="inp" style="font-size:11px;padding:2px 6px" onchange="renderLog()">
@@ -381,6 +410,10 @@ async function loadDevicesFromAPI(){
         _onTimeMinutes:d._on_time_minutes||0,
         _maxTempActive:d._max_temp_active||false,
         maxTemp:d.max_temp||null,
+        watchdog_minutes:d.watchdog_minutes||5,
+        stale:d.state?.stale||false,
+        last_seen:d.state?.last_seen||d._last_seen||null,
+        retry_queue_depth:d._retry_queue?.length||0,
       }));
     }
   }catch(e){addLog('API not reachable — running in direct mode','warn');}
@@ -390,7 +423,8 @@ async function saveDeviceToAPI(d){
   try{
     await fetch(`${API}/devices/${encodeURIComponent(d.host)}`,{
       method:'PUT',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({host:d.host,name:d.name,btu:d.btu||24000,seer:d.seer||20,max_temp:d.maxTemp||null,beeper:d.beeper||'OFF'})
+      body:JSON.stringify({host:d.host,name:d.name,btu:d.btu||24000,seer:d.seer||20,
+        max_temp:d.maxTemp||null,beeper:d.beeper||'OFF',watchdog_minutes:d.watchdog_minutes||5})
     });
   }catch(_){}
 }
@@ -399,13 +433,69 @@ function saveDevices(){devices.forEach(d=>saveDeviceToAPI(d));}
 
 const ts=()=>new Date().toTimeString().slice(0,5);
 
+// ── Theme ─────────────────────────────────────────────────
+let _theme=localStorage.getItem('hvac_theme')||'dark';
+function applyTheme(t){
+  _theme=t;
+  document.documentElement.classList.toggle('light',t==='light');
+  const btn=document.getElementById('theme-btn');
+  if(btn)btn.textContent=t==='light'?'🌙':'☀️';
+  localStorage.setItem('hvac_theme',t);
+}
+function toggleTheme(){applyTheme(_theme==='dark'?'light':'dark');}
+
+// ── Vacation mode ─────────────────────────────────────────
+let vacationMode=localStorage.getItem('hvac_vacation')==='true';
+const VACATION_MAX_TEMP=32;
+
+function applyVacationMode(enabled){
+  vacationMode=enabled;
+  localStorage.setItem('hvac_vacation',enabled);
+  const btn=document.getElementById('vacation-btn');
+  if(btn){
+    btn.style.borderColor=enabled?'var(--warn)':'var(--border2)';
+    btn.style.color=enabled?'var(--warn)':'var(--text)';
+    btn.textContent=enabled?'🌴 Vacation ●':'🌴 Vacation';
+  }
+  if(enabled){
+    devices.forEach(d=>{d._vacationOrigMaxTemp=d.maxTemp;d.maxTemp=VACATION_MAX_TEMP;saveDeviceToAPI(d);});
+    schedules.forEach(s=>{if(s.enabled){s._vacationPaused=true;fetch(`${API}/schedules/${s.id}/toggle`,{method:'POST'}).catch(_=>{});}});
+    addLog(`🌴 Vacation mode ON — max temp ${VACATION_MAX_TEMP}°C, schedules paused`,'warn');
+  }else{
+    devices.forEach(d=>{d.maxTemp=d._vacationOrigMaxTemp||null;delete d._vacationOrigMaxTemp;saveDeviceToAPI(d);});
+    schedules.forEach(s=>{if(s._vacationPaused){delete s._vacationPaused;fetch(`${API}/schedules/${s.id}/toggle`,{method:'POST'}).catch(_=>{});}});
+    addLog('🌴 Vacation mode OFF — settings restored','ok');
+  }
+  renderUnits();
+}
+function toggleVacationMode(){applyVacationMode(!vacationMode);}
+
+// ── Log badge ─────────────────────────────────────────────
+let _unreadWarns=0;
+
 // ── Log — merge local + server logs ──────────────────────
 const logEntries=[];
 
 function addLog(msg,type='info'){
   logEntries.unshift({msg,type,time:ts()});
   if(logEntries.length>200)logEntries.pop();
+  const logBody=document.getElementById('log-body');
+  const isCollapsed=logBody&&logBody.style.display==='none';
+  if(isCollapsed&&(type==='warn'||type==='err')){
+    _unreadWarns++;
+    updateLogBadge();
+  }
   renderLog();
+}
+
+function updateLogBadge(){
+  const badge=document.getElementById('log-badge');
+  if(!badge)return;
+  if(_unreadWarns>0){
+    badge.style.display='inline';
+    badge.textContent=_unreadWarns>99?'99+':String(_unreadWarns);
+    badge.style.background=logEntries.find(e=>e.type==='err')?'var(--err)':'var(--warn)';
+  }else{badge.style.display='none';}
 }
 
 async function fetchServerLogs(){
@@ -745,6 +835,11 @@ function renderIPList(){
         title="If room exceeds this temp while AC is off, auto-turn on until cooled"
         oninput="devices[${i}].maxTemp=this.value?+this.value:null;saveDevices()"
         style="width:68px">
+      <input type="number" class="inp" value="${d.watchdog_minutes||5}" min="1" max="60"
+        title="Alert if no response for this many minutes"
+        oninput="devices[${i}].watchdog_minutes=+this.value;saveDevices()"
+        style="width:52px">
+      <span style="font-size:10px;color:var(--text3)">m⌚</span>
       ${d.loading?'<span class="spinner"></span>':`<button class="btn bico" onclick="pollDevice(${i}).then(updateSummary)" title="Poll">↺</button>`}
       <button class="btn bico" onclick="removeDevice(${i})" style="color:#ef4444" title="Remove">✕</button>
     </div>
@@ -763,12 +858,14 @@ function renderUnits(){
     const dis=!on||busy?'disabled':'';
     const x=d.extras||{};
     const fv=v=>{const n=safeFloat(v);return n!=null?n.toFixed(1):'—';};
-    return`<div class="tile ${on?'tile-on':''}">
+    return`<div class="tile ${on?'tile-on':''}" style="${d.stale?'border-color:var(--warn)':''}">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:8px">
         <div style="display:flex;align-items:center;gap:6px;min-width:0;flex:1">
           <span class="dot ${on?'d-on':'d-off'}" style="flex-shrink:0"></span>
           <span class="uname">${d.name}</span>
           ${busy?'<span class="spinner"></span>':''}
+          ${d.stale?'<span style="font-size:10px;color:var(--warn);font-family:\'DM Mono\',monospace" title="Device not responding">⚠ stale</span>':''}
+          ${d.retry_queue_depth?`<span style="font-size:10px;color:var(--warn);font-family:'DM Mono',monospace" title="${d.retry_queue_depth} command(s) queued for retry">↺${d.retry_queue_depth}</span>`:''}
         </div>
         <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
           <button class="btn bico" onclick="adjustTemp(${i},-1)" ${dis} style="width:24px;height:24px">−</button>
@@ -815,7 +912,71 @@ function updateSummary(){
   const moTotal=live.reduce((sum,d)=>{const w=estWatts(d.state,d.extras,d.btu,d.seer);return sum+estCostMonth(w);},0);
   document.getElementById('s-costday').textContent=dayTotal>0?'$'+dayTotal.toFixed(2):'—';
   document.getElementById('s-costmo').textContent=moTotal>0?'$'+moTotal.toFixed(2):'—';
+  // cost projection
+  const now=new Date();
+  const dom=now.getDate();
+  const dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
+  const projEl=document.getElementById('s-proj-cost');
+  const projLbl=document.getElementById('s-proj-label');
+  if(projEl&&projLbl){
+    if(dayTotal>0){
+      const proj=dayTotal*dim;
+      projEl.innerHTML=`<span style="color:var(--ok)">$${proj.toFixed(2)}</span>`;
+      projLbl.textContent=`${dim-dom}d left · $${dayTotal.toFixed(2)}/day`;
+    }else{projEl.textContent='—';projLbl.textContent='';}
+  }
+  renderCostBreakdown(live);
   updatePeakCard();
+}
+
+function renderCostBreakdown(live){
+  const el=document.getElementById('cost-breakdown-content');
+  if(!el)return;
+  if(!live||!live.length){el.innerHTML='<div class="empty">No devices online.</div>';return;}
+  const totalW=live.reduce((s,d)=>s+(estWatts(d.state,d.extras,d.btu,d.seer)||0),0);
+  const rows=live.map(d=>{
+    const w=estWatts(d.state,d.extras,d.btu,d.seer)||0;
+    return{name:d.name,w,day:estCostDay(w),mo:estCostMonth(w),
+      share:totalW>0?Math.round(w/totalW*100):0,on:d.state?.mode!=='OFF'};
+  }).sort((a,b)=>b.day-a.day);
+  const totDay=rows.reduce((s,r)=>s+r.day,0);
+  const totMo=rows.reduce((s,r)=>s+r.mo,0);
+  el.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr style="color:var(--text3);font-size:10px;font-family:'DM Mono',monospace">
+      <th style="text-align:left;padding:3px 6px 3px 0">Device</th>
+      <th style="text-align:right;padding:3px 6px">~W</th>
+      <th style="text-align:right;padding:3px 6px">$/day</th>
+      <th style="text-align:right;padding:3px 6px">$/mo</th>
+      <th style="text-align:right;padding:3px 6px">Share</th>
+    </tr></thead><tbody>
+    ${rows.map(r=>`<tr style="border-top:1px solid var(--border)">
+      <td style="padding:5px 6px 5px 0;color:${r.on?'var(--text)':'var(--text3)'}">
+        <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${r.on?'var(--ok)':'var(--text3)'};margin-right:5px;vertical-align:middle"></span>${r.name}
+      </td>
+      <td style="text-align:right;padding:5px 6px;font-family:'DM Mono',monospace">${r.w?r.w+'W':'off'}</td>
+      <td style="text-align:right;padding:5px 6px;font-family:'DM Mono',monospace;color:var(--ok)">$${r.day.toFixed(2)}</td>
+      <td style="text-align:right;padding:5px 6px;font-family:'DM Mono',monospace;color:var(--ok)">$${r.mo.toFixed(2)}</td>
+      <td style="text-align:right;padding:5px 6px">
+        <div style="display:flex;align-items:center;gap:4px;justify-content:flex-end">
+          <div style="width:36px;height:4px;background:var(--border);border-radius:2px;overflow:hidden">
+            <div style="width:${r.share}%;height:100%;background:var(--cool)"></div>
+          </div>
+          <span style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace">${r.share}%</span>
+        </div>
+      </td>
+    </tr>`).join('')}
+    <tr style="border-top:1px solid var(--border2);font-weight:500">
+      <td style="padding:5px 6px 5px 0">Total</td><td></td>
+      <td style="text-align:right;padding:5px 6px;font-family:'DM Mono',monospace;color:var(--ok)">$${totDay.toFixed(2)}</td>
+      <td style="text-align:right;padding:5px 6px;font-family:'DM Mono',monospace;color:var(--ok)">$${totMo.toFixed(2)}</td>
+      <td></td>
+    </tr></tbody></table>`;
+}
+
+function exportCSV(){
+  const sel=document.getElementById('usage-month-sel');
+  const month=sel?.value||new Date().toISOString().slice(0,7);
+  window.location.href=`${API}/usage/export-csv?month=${month}`;
 }
 
 function toggleDevicePanel(){
@@ -833,6 +994,7 @@ function toggleSection(bodyId,arrowId){
   const open=el.style.display==='none';
   el.style.display=open?'block':'none';
   if(arrow)arrow.textContent=open?'▼':'▶';
+  if(bodyId==='log-body'&&open){_unreadWarns=0;updateLogBadge();}
 }
 
 function renderAll(){renderIPList();renderUnits();updateSummary();}
@@ -1263,6 +1425,8 @@ async function refreshUsageView(){
 
 // ── Init ─────────────────────────────────────────────────
 async function init(){
+  applyTheme(_theme);
+  applyVacationMode(vacationMode);
   addLog('Connecting to API…','info');
   await checkApiStatus();
   await loadDevicesFromAPI();
@@ -1272,7 +1436,6 @@ async function init(){
   initRateSettingsFromAPI();
   updatePeakCard();
   addLog('Ready — refreshing every 60s','ok');
-  // initial poll
   pollAll();
 }
 
