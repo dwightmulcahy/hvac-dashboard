@@ -902,6 +902,8 @@ function renderIPList(){
       <span style="font-size:10px;color:var(--text3)">m⌚</span>
       <button class="btn bico" id="save-btn-${i}" onclick="saveDeviceRow(${i})" title="Save changes"
         style="color:var(--text3);cursor:not-allowed" disabled>✓</button>
+      <button class="btn bico" onclick="copyHost(${i})" title="Copy hostname to clipboard">⎘</button>
+      <button class="btn bico" onclick="testBeep(${i})" title="Test — send a beep to verify device is responding">🔔</button>
       ${d.loading?'<span class="spinner"></span>':`<button class="btn bico" onclick="pollDevice(${i}).then(updateSummary)" title="Poll">↺</button>`}
       <button class="btn bico" onclick="removeDevice(${i})" style="color:#ef4444" title="Remove">✕</button>
     </div>
@@ -983,12 +985,15 @@ function renderUnits(){
         <div class="stat" style="flex:1;text-align:center"><div class="slabel">Out</div><div class="sval" style="${safeFloat(x.outdoor_temp?.value)>30?'color:var(--heat)':''}">${x.outdoor_temp?.value!=null?safeFloat(x.outdoor_temp.value)?.toFixed(1)+'°C':'—'}${x.outdoor_temp?.value!=null?`<br><span style="color:var(--text3);font-size:10px">${toF(x.outdoor_temp.value)}°F</span>`:''}</div></div>
         <div class="stat" style="flex:1;text-align:center"><div class="slabel">~W</div><div class="sval">${(()=>{const w=estWatts(s,x,d.btu,d.seer);return w===0?'<span style="color:var(--text3)">off</span>':w!=null?w+'W':'—';})()}</div></div>
       </div>
-      <div style="margin-top:5px;font-size:10px;font-family:'DM Mono',monospace;color:var(--text3);display:flex;gap:8px;flex-wrap:wrap">
-        <span>on <span style="color:var(--text2)">${fmtOnTime(d._onTimeMinutes||0)}</span></span>
+      <div style="margin-top:5px;font-size:10px;font-family:'DM Mono',monospace;color:var(--text3);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <span title="Total time AC has been on">on <span style="color:var(--text2)">${fmtOnTime(d._onTimeMinutes||0)}</span>
+          <button onclick="resetOnTime(${i})" title="Reset on-time counter" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:9px;padding:0 1px;line-height:1" onmouseover="this.style.color='var(--err)'" onmouseout="this.style.color='var(--text3)'">↺</button>
+        </span>
         <span>·</span>
         <span>up <span style="color:var(--text2)">${fmtUptime(safeFloat(x.uptime?.value))}</span></span>
         ${(()=>{const sig=x.wifi_signal?.value??d.state?.wifi_signal;const w=fmtWifi(sig);return sig!=null?(w?`<span>·</span><span title="${w.label}" style="color:${w.color}">${w.bar}</span>`:`<span>·</span><span style="color:var(--text3);font-size:10px">${sig}dBm</span>`):'';})()}
         ${d.maxTemp!=null?`<span>·</span><span>max <span style="color:${safeFloat(s.current_temperature)>=d.maxTemp?'var(--err)':'var(--text2)'}">${d.maxTemp}°C/${toF(d.maxTemp)}°F</span>${d._maxTempActive?' <span style="color:var(--err)">●</span>':''}</span>`:''}
+        ${d.last_seen?`<span>·</span><span title="Last successful poll">📡 ${fmtAgo(d.last_seen)}</span>`:''}
       </div>
     </div>`;
   }).join('');
@@ -1103,6 +1108,59 @@ function toggleSection(bodyId,arrowId){
 }
 
 function renderAll(){renderIPList();renderUnits();updateSummary();}
+
+function resetOnTime(i){
+  const d=devices[i];
+  d._onTimeMinutes=0;
+  // persist reset to API
+  fetch(`${API}/devices/${encodeURIComponent(d.host)}`,{
+    method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({host:d.host,name:d.name,btu:d.btu||24000,seer:d.seer||20,
+      max_temp:d.maxTemp||null,beeper:d.beeper||'OFF',watchdog_minutes:d.watchdog_minutes||5})
+  }).catch(_=>{});
+  addLog(`${d.name}: on-time reset`,'info');
+  renderUnits();
+}
+
+function copyHost(i){
+  const host=devices[i].host;
+  navigator.clipboard.writeText(host).then(()=>{
+    addLog(`Copied: ${host}`,'info');
+  }).catch(()=>{
+    // fallback for non-https
+    const el=document.createElement('textarea');
+    el.value=host;document.body.appendChild(el);
+    el.select();document.execCommand('copy');document.body.removeChild(el);
+    addLog(`Copied: ${host}`,'info');
+  });
+}
+
+async function testBeep(i){
+  const d=devices[i];
+  addLog(`${d.name}: sending test beep…`,'info');
+  try{
+    // beep on then off after 500ms
+    await fetch(`${API}/devices/${encodeURIComponent(d.host)}/beeper/on`,{method:'POST'});
+    setTimeout(async()=>{
+      await fetch(`${API}/devices/${encodeURIComponent(d.host)}/beeper/off`,{method:'POST'});
+    },500);
+    addLog(`${d.name}: ✓ beep sent — device is responding`,'ok');
+  }catch(e){
+    addLog(`${d.name}: ✗ beep failed — ${e.message}`,'err');
+  }
+}
+
+function fmtAgo(isoStr){
+  if(!isoStr)return'—';
+  try{
+    const secs=Math.floor((Date.now()-new Date(isoStr+'Z').getTime())/1000);
+    if(secs<60)return`${secs}s ago`;
+    if(secs<3600)return`${Math.floor(secs/60)}m ago`;
+    return`${Math.floor(secs/3600)}h ago`;
+  }catch(_){return'—';}
+}
+
+
 
 // ── Max temp monitor ──────────────────────────────────────
 async function runMaxTempMonitor(){
