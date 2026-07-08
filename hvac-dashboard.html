@@ -283,11 +283,15 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
     <div style="display:flex;gap:10px;margin-bottom:12px">
       <div style="flex:1">
         <div class="clabel" style="margin-bottom:4px">EXCHANGE RATE (₡/USD)</div>
-        <input type="number" id="rs-xr" class="inp" style="width:100%" min="1">
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="number" id="rs-xr" class="inp" style="flex:1" min="1" oninput="updateRatePreview()">
+          <button class="btn" onclick="fetchLiveExchangeRate()" style="font-size:11px;padding:2px 8px;white-space:nowrap" id="rs-xr-fetch">↻ Live</button>
+        </div>
+        <div id="rs-xr-status" style="font-size:10px;color:var(--text3);margin-top:3px;font-family:'DM Mono',monospace"></div>
       </div>
       <div style="flex:1">
         <div class="clabel" style="margin-bottom:4px">EST. MONTHLY kWh</div>
-        <input type="number" id="rs-kwh" class="inp" style="width:100%" min="1" placeholder="400">
+        <input type="number" id="rs-kwh" class="inp" style="width:100%" min="1" placeholder="400" oninput="updateRatePreview()">
       </div>
     </div>
 
@@ -618,14 +622,14 @@ async function fetchWithRetry(url,opts={},retries=3,delayMs=800){
 const RATE_SETTINGS_KEY='hvac_rate_settings';
 const RATE_DEFAULTS={
   provider:'Coopeguanacaste',
-  exchangeRate:530,        // CRC per USD
+  exchangeRate:455,        // CRC per USD — updated July 2026 (was 530)
   monthlyKwh:400,          // estimated total monthly household kWh
   dailyHrs:8,              // assumed AC runtime hours/day
   tiered:true,
   tiers:[
-    {upTo:200, colonesPerKwh:62},   // 0–200 kWh
-    {upTo:500, colonesPerKwh:82},   // 201–500 kWh
-    {upTo:999999, colonesPerKwh:140} // 500+ kWh
+    {upTo:200, colonesPerKwh:56},   // 0–200 kWh  (2026 Coopeguanacaste, -9.34% from 2025 ₡62)
+    {upTo:500, colonesPerKwh:74},   // 201–500 kWh (2026 Coopeguanacaste, -9.34% from 2025 ₡82)
+    {upTo:999999, colonesPerKwh:127} // 500+ kWh   (2026 Coopeguanacaste, -9.34% from 2025 ₡140)
   ]
 };
 
@@ -810,9 +814,9 @@ async function togglePower(i){
 }
 
 function fmtWifi(dbm){
-  if(dbm==null||dbm===undefined)return null;
-  const v=parseFloat(dbm);
-  if(isNaN(v))return null;
+  if(dbm==null||dbm===undefined||dbm==='')return null;
+  const v=parseFloat(String(dbm));
+  if(isNaN(v)||v===0)return null;
   if(v>=-50)return{bar:'▂▄▆█',color:'var(--ok)',label:`${v}dBm`};
   if(v>=-60)return{bar:'▂▄▆_',color:'var(--ok)',label:`${v}dBm`};
   if(v>=-70)return{bar:'▂▄__',color:'var(--warn)',label:`${v}dBm`};
@@ -983,7 +987,7 @@ function renderUnits(){
         <span>on <span style="color:var(--text2)">${fmtOnTime(d._onTimeMinutes||0)}</span></span>
         <span>·</span>
         <span>up <span style="color:var(--text2)">${fmtUptime(safeFloat(x.uptime?.value))}</span></span>
-        ${(()=>{const sig=x.wifi_signal?.value??d.state?.wifi_signal;const w=fmtWifi(sig);return w?`<span>·</span><span title="${w.label}" style="color:${w.color}">${w.bar}</span>`:'';})()}
+        ${(()=>{const sig=x.wifi_signal?.value??d.state?.wifi_signal;const w=fmtWifi(sig);return sig!=null?(w?`<span>·</span><span title="${w.label}" style="color:${w.color}">${w.bar}</span>`:`<span>·</span><span style="color:var(--text3);font-size:10px">${sig}dBm</span>`):'';})()}
         ${d.maxTemp!=null?`<span>·</span><span>max <span style="color:${safeFloat(s.current_temperature)>=d.maxTemp?'var(--err)':'var(--text2)'}">${d.maxTemp}°C/${toF(d.maxTemp)}°F</span>${d._maxTempActive?' <span style="color:var(--err)">●</span>':''}</span>`:''}
       </div>
     </div>`;
@@ -1127,6 +1131,30 @@ async function runMaxTempMonitor(){
 }
 
 // ── Rate settings UI ─────────────────────────────────────
+async function fetchLiveExchangeRate(){
+  const btn=document.getElementById('rs-xr-fetch');
+  const status=document.getElementById('rs-xr-status');
+  if(btn)btn.textContent='⌛';
+  if(status)status.textContent='Fetching…';
+  try{
+    // Use frankfurter.app — free, no key required, ECB data
+    const r=await fetch('https://api.frankfurter.app/latest?from=USD&to=CRC',
+      {signal:AbortSignal.timeout(5000)});
+    if(!r.ok)throw new Error(`HTTP ${r.status}`);
+    const data=await r.json();
+    const rate=Math.round(data.rates?.CRC);
+    if(!rate)throw new Error('No CRC rate');
+    document.getElementById('rs-xr').value=rate;
+    const date=data.date||'today';
+    if(status)status.textContent=`₡${rate}/USD as of ${date}`;
+    updateRatePreview();
+  }catch(e){
+    if(status)status.textContent=`Failed: ${e.message}`;
+  }finally{
+    if(btn)btn.textContent='↻ Live';
+  }
+}
+
 function openRateSettings(){
   const s=rateSettings;
   document.getElementById('rs-provider').value=s.provider||'Coopeguanacaste';
