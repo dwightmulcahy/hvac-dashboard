@@ -195,6 +195,13 @@ async def _fetch_sensors(host: str) -> dict:
         "uptime_days":  "sensor/air_conditioner_uptime_days",
         "beeper":       "switch/air_conditioner_beeper",
     }
+    # wifi signal sensor name varies by firmware version — try both
+    wifi_paths = [
+        "sensor/air_conditioner_wi-fi_signal",
+        "sensor/air_conditioner_wi_fi_signal",
+        "sensor/wi-fi_signal",
+        "sensor/wifi_signal",
+    ]
     out = {}
     async with httpx.AsyncClient(timeout=3) as client:
         for key, path in paths.items():
@@ -206,6 +213,15 @@ async def _fetch_sensors(host: str) -> dict:
                     break
                 except:
                     await asyncio.sleep(0.5)
+        # try wifi paths until one works
+        for wp in wifi_paths:
+            try:
+                r = await client.get(f"http://{host}/{wp}")
+                if r.status_code == 200:
+                    out["wifi_signal"] = r.json()
+                    break
+            except:
+                pass
     return out
 
 async def _send_cmd(host: str, params: dict) -> bool:
@@ -268,6 +284,15 @@ async def _poll_device(device: dict):
             except:
                 pass
         ds["uptime_days"] = new_uptime
+    if "wifi_signal" in sensors:
+        raw = sensors["wifi_signal"].get("value")
+        # ESPHome returns value as number (-43) or string ("-43 dBm")
+        if raw is not None:
+            try:
+                ds["wifi_signal"] = float(str(raw).split()[0])
+            except Exception:
+                ds["wifi_signal"] = raw
+        log.debug(f"{name}: wifi={ds.get('wifi_signal')}dBm")
 
     # beeper sync — push saved state if device disagrees
     saved_beeper = device.get("beeper", "OFF")
@@ -518,6 +543,7 @@ async def add_device(cfg: DeviceConfig):
     if existing:
         existing.update(cfg.dict())
     else:
+        # check for duplicates before adding
         _state["devices"].append({**DEVICE_DEFAULTS, **cfg.dict()})
     async with _lock:
         _save_raw(_state)
@@ -527,8 +553,11 @@ async def add_device(cfg: DeviceConfig):
 async def update_device(host: str, cfg: DeviceConfig):
     device = next((d for d in _state["devices"] if d["host"] == host), None)
     if not device:
-        return {"ok": False, "error": "not found"}
-    device.update(cfg.dict())
+        # host not found — check if new host already exists (avoid duplicate)
+        if not any(d["host"] == cfg.host for d in _state["devices"]):
+            _state["devices"].append({**DEVICE_DEFAULTS, **cfg.dict()})
+    else:
+        device.update(cfg.dict())
     async with _lock:
         _save_raw(_state)
     return {"ok": True}
@@ -822,7 +851,7 @@ async def restore(data: dict):
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "service": "HVAC Automation API", "version": "v1.1.0",
+    return {"status": "ok", "service": "HVAC Automation API", "version": "v1.1.0", "build": "7/6/2026",
             "devices": len(_state["devices"]), "schedules": len(_state["schedules"])}
 
 @app.delete("/reset")

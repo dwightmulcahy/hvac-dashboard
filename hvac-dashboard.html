@@ -134,7 +134,7 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
     <div style="font-size:12px;color:var(--text2);line-height:1.8;font-family:'DM Mono',monospace">
       <div style="margin-bottom:12px">
         <span style="color:var(--text3)">Version</span><br>
-        <span id="about-version">v1.0.0</span>
+        <span id="about-version">v1.1.0 (build 7/6/2026)</span>
       </div>
       <div style="margin-bottom:12px">
         <span style="color:var(--text3)">Developer</span><br>
@@ -396,31 +396,38 @@ let devices=[];
 async function loadDevicesFromAPI(){
   try{
     const r=await fetch(`${API}/devices`);
-    if(r.ok){
-      const data=await r.json();
-      devices=data.devices.map(d=>({
+    if(!r.ok)return;
+    const data=await r.json();
+    // merge API response into local array — preserve UI state for existing devices
+    const apiDevices=data.devices;
+    const merged=apiDevices.map(d=>{
+      const existing=devices.find(x=>x.host===d.host);
+      return {
         ...d,
-        state:d.state&&!d.state.error?d.state:null,
+        state:d.state&&!d.state.error?d.state:(existing?.state||null),
         extras:{
-          outdoor_temp:d.state?.outdoor_temp!=null?{value:d.state.outdoor_temp}:undefined,
+          outdoor_temp:d.state?.outdoor_temp!=null?{value:d.state.outdoor_temp}:existing?.extras?.outdoor_temp,
           uptime:{value:d.state?.uptime_days},
           beeper:{value:d.beeper||'OFF'},
+        wifi_signal:{value:d.state?.wifi_signal??null},
         },
-        loading:false,busy:false,pollTime:d.state?Date.now():null,
-        _onTimeMinutes:d._on_time_minutes||0,
+        loading:false,busy:existing?.busy||false,pollTime:existing?.pollTime||null,
+        _onTimeMinutes:d._on_time_minutes||existing?._onTimeMinutes||0,
         _maxTempActive:d._max_temp_active||false,
         maxTemp:d.max_temp||null,
         watchdog_minutes:d.watchdog_minutes||5,
         stale:d.state?.stale||false,
         last_seen:d.state?.last_seen||d._last_seen||null,
         retry_queue_depth:d._retry_queue?.length||0,
-      }));
-    }
+      };
+    });
+    devices=merged;
   }catch(e){addLog('API not reachable — running in direct mode','warn');}
 }
 
 async function saveDeviceToAPI(d){
   try{
+    // use PUT to update — device must already exist in API
     await fetch(`${API}/devices/${encodeURIComponent(d.host)}`,{
       method:'PUT',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({host:d.host,name:d.name,btu:d.btu||24000,seer:d.seer||20,
@@ -448,7 +455,7 @@ function toggleTheme(){applyTheme(_theme==='dark'?'light':'dark');}
 let vacationMode=localStorage.getItem('hvac_vacation')==='true';
 const VACATION_MAX_TEMP=32;
 
-function applyVacationMode(enabled){
+async function applyVacationMode(enabled){
   vacationMode=enabled;
   localStorage.setItem('hvac_vacation',enabled);
   const btn=document.getElementById('vacation-btn');
@@ -458,12 +465,40 @@ function applyVacationMode(enabled){
     btn.textContent=enabled?'🌴 Vacation ●':'🌴 Vacation';
   }
   if(enabled){
-    devices.forEach(d=>{d._vacationOrigMaxTemp=d.maxTemp;d.maxTemp=VACATION_MAX_TEMP;saveDeviceToAPI(d);});
-    schedules.forEach(s=>{if(s.enabled){s._vacationPaused=true;fetch(`${API}/schedules/${s.id}/toggle`,{method:'POST'}).catch(_=>{});}});
-    addLog(`🌴 Vacation mode ON — max temp ${VACATION_MAX_TEMP}°C, schedules paused`,'warn');
+    // turn off all devices and set high max-temp guard
+    for(const d of devices){
+      d._vacationOrigMaxTemp=d.maxTemp;
+      d._vacationOrigMode=d.state?.mode;
+      d.maxTemp=VACATION_MAX_TEMP;
+      saveDeviceToAPI(d);
+      // turn off if currently on
+      if(d.state&&d.state.mode!=='OFF'){
+        try{await sendCmd(d.host,{mode:'OFF'});d.state.mode='OFF';}catch(_){}
+      }
+    }
+    // pause all enabled schedules
+    schedules.forEach(s=>{
+      if(s.enabled){
+        s._vacationPaused=true;
+        fetch(`${API}/schedules/${s.id}/toggle`,{method:'POST'}).catch(_=>{});
+      }
+    });
+    addLog(`🌴 Vacation mode ON — all units off, max temp ${VACATION_MAX_TEMP}°C, schedules paused`,'warn');
   }else{
-    devices.forEach(d=>{d.maxTemp=d._vacationOrigMaxTemp||null;delete d._vacationOrigMaxTemp;saveDeviceToAPI(d);});
-    schedules.forEach(s=>{if(s._vacationPaused){delete s._vacationPaused;fetch(`${API}/schedules/${s.id}/toggle`,{method:'POST'}).catch(_=>{});}});
+    // restore original max-temp per device
+    for(const d of devices){
+      d.maxTemp=d._vacationOrigMaxTemp??null;
+      delete d._vacationOrigMaxTemp;
+      delete d._vacationOrigMode;
+      saveDeviceToAPI(d);
+    }
+    // resume paused schedules
+    schedules.forEach(s=>{
+      if(s._vacationPaused){
+        delete s._vacationPaused;
+        fetch(`${API}/schedules/${s.id}/toggle`,{method:'POST'}).catch(_=>{});
+      }
+    });
     addLog('🌴 Vacation mode OFF — settings restored','ok');
   }
   renderUnits();
@@ -774,6 +809,16 @@ async function togglePower(i){
   });
 }
 
+function fmtWifi(dbm){
+  if(dbm==null||dbm===undefined)return null;
+  const v=parseFloat(dbm);
+  if(isNaN(v))return null;
+  if(v>=-50)return{bar:'▂▄▆█',color:'var(--ok)',label:`${v}dBm`};
+  if(v>=-60)return{bar:'▂▄▆_',color:'var(--ok)',label:`${v}dBm`};
+  if(v>=-70)return{bar:'▂▄__',color:'var(--warn)',label:`${v}dBm`};
+  return{bar:'▂___',color:'var(--err)',label:`${v}dBm`};
+}
+
 function fmtOnTime(mins){
   if(!mins||mins<1)return'0m';
   const h=Math.floor(mins/60);
@@ -800,17 +845,24 @@ async function toggleBeeper(i){
   });
 }
 
-function addDevice(){
+async function addDevice(){
   const el=document.getElementById('device-panel');
   const btn=document.getElementById('devices-btn');
   if(el.style.display==='none'){
     el.style.display='block';
     btn.style.borderColor='var(--cool)';btn.style.color='var(--cool)';
   }
-  const newDevice={host:'esphome-device.lan',name:'New unit',btu:24000,seer:20,maxTemp:null,beeper:'OFF',state:null,extras:{},loading:false,busy:false,pollTime:null,_onTimeMinutes:0};
-  devices.push(newDevice);
-  saveDeviceToAPI(newDevice);
-  renderIPList();addLog('Device added — edit hostname and name, then Poll.','info');
+  try{
+    await fetch(`${API}/devices`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({host:'esphome-device.lan',name:'New unit',
+        btu:24000,seer:20,max_temp:null,beeper:'OFF',watchdog_minutes:5})
+    });
+  }catch(_){}
+  // reload from API — device is now persisted server-side
+  await loadDevicesFromAPI();
+  renderIPList();
+  addLog('Device added — edit hostname and name.','info');
 }
 
 function removeDevice(i){
@@ -822,28 +874,69 @@ function removeDevice(i){
 
 function renderIPList(){
   document.getElementById('ip-list').innerHTML=devices.map((d,i)=>`
-    <div class="irow">
-      <input class="inp" value="${d.name}" placeholder="Name" oninput="devices[${i}].name=this.value;saveDevices()" style="width:88px">
-      <input class="inp" value="${d.host}" placeholder="hostname or IP" oninput="devices[${i}].host=this.value;saveDevices()" style="width:200px">
-      <select class="inp" onchange="devices[${i}].btu=+this.value;saveDevices()" style="width:68px">
+    <div class="irow" data-orig-host="${d.host}">
+      <input class="inp" value="${d.name}" placeholder="Name"
+        oninput="devices[${i}].name=this.value;setDeviceDirty(${i})"
+        style="width:88px">
+      <input class="inp" value="${d.host}" placeholder="hostname or IP"
+        oninput="devices[${i}].host=this.value;setDeviceDirty(${i})"
+        style="width:200px">
+      <select class="inp" onchange="devices[${i}].btu=+this.value;saveDeviceToAPI(devices[${i}])" style="width:68px">
         ${BTU_OPTIONS.map(b=>`<option value="${b}" ${d.btu===b?'selected':''}>${b/1000}K</option>`).join('')}
       </select>
-      <select class="inp" onchange="devices[${i}].seer=+this.value;saveDevices()" style="width:68px" title="SEER rating">
+      <select class="inp" onchange="devices[${i}].seer=+this.value;saveDeviceToAPI(devices[${i}])" style="width:68px" title="SEER rating">
         ${SEER_OPTIONS.map(s=>`<option value="${s}" ${(d.seer||20)===s?'selected':''}>${s} SEER</option>`).join('')}
       </select>
       <input type="number" class="inp" value="${d.maxTemp||''}" placeholder="Max°C" min="17" max="35"
         title="If room exceeds this temp while AC is off, auto-turn on until cooled"
-        oninput="devices[${i}].maxTemp=this.value?+this.value:null;saveDevices()"
+        onchange="devices[${i}].maxTemp=this.value?+this.value:null;saveDeviceToAPI(devices[${i}])"
         style="width:68px">
       <input type="number" class="inp" value="${d.watchdog_minutes||5}" min="1" max="60"
         title="Alert if no response for this many minutes"
-        oninput="devices[${i}].watchdog_minutes=+this.value;saveDevices()"
+        onchange="devices[${i}].watchdog_minutes=+this.value;saveDeviceToAPI(devices[${i}])"
         style="width:52px">
       <span style="font-size:10px;color:var(--text3)">m⌚</span>
+      <button class="btn bico" id="save-btn-${i}" onclick="saveDeviceRow(${i})" title="Save changes"
+        style="color:var(--text3);cursor:not-allowed" disabled>✓</button>
       ${d.loading?'<span class="spinner"></span>':`<button class="btn bico" onclick="pollDevice(${i}).then(updateSummary)" title="Poll">↺</button>`}
       <button class="btn bico" onclick="removeDevice(${i})" style="color:#ef4444" title="Remove">✕</button>
     </div>
   `).join('');
+}
+
+function setDeviceDirty(i){
+  const btn=document.getElementById(`save-btn-${i}`);
+  if(btn){btn.disabled=false;btn.style.color='var(--ok)';btn.style.cursor='pointer';}
+}
+
+async function saveDeviceRow(i){
+  const d=devices[i];
+  // get the original host from the row's data attribute
+  const row=document.querySelectorAll('.irow')[i];
+  const origHost=row?.dataset?.origHost||d.host;
+
+  // if hostname changed, delete old entry first
+  if(origHost&&origHost!==d.host){
+    try{await fetch(`${API}/devices/${encodeURIComponent(origHost)}`,{method:'DELETE'});}catch(_){}
+  }
+
+  // save with POST (create or update by new host)
+  try{
+    await fetch(`${API}/devices`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({host:d.host,name:d.name,btu:d.btu||24000,
+        seer:d.seer||20,max_temp:d.maxTemp||null,
+        beeper:d.beeper||'OFF',watchdog_minutes:d.watchdog_minutes||5})
+    });
+  }catch(_){}
+
+  // reload and poll
+  await loadDevicesFromAPI();
+  renderIPList();
+  await pollDevice(i);
+  updateSummary();
+  renderUnits();
+  addLog(`${d.name} saved`,'ok');
 }
 
 function renderUnits(){
@@ -851,8 +944,9 @@ function renderUnits(){
   if(!devices.some(d=>d.state)){el.innerHTML='<div class="empty" style="padding:8px 0">Polling devices…</div>';return;}
   el.innerHTML=devices.map((d,i)=>{
     const s=d.state;
-    if(!s)return`<div class="tile"><div class="uname"><span class="dot d-off"></span>${d.name}</div><div class="uhost">${d.host}</div><div style="font-size:11px;color:var(--text3);margin-top:6px">not polled</div></div>`;
+    if(!s)return`<div class="tile"><div class="uname"><span class="dot d-off"></span>${d.name}</div><div class="uhost">${d.host}</div><div style="font-size:11px;color:var(--text3);margin-top:6px">⏳ waiting for first poll…</div></div>`;
     if(s.error)return`<div class="tile"><div class="uname"><span class="dot d-err"></span>${d.name}</div><div class="uhost" style="color:var(--err)">${s.error}</div></div>`;
+    if(s.current_temperature==null&&s.mode==='OFF'&&!d.pollTime)return`<div class="tile"><div class="uname"><span class="dot d-off"></span>${d.name}</div><div class="uhost">${d.host}</div><div style="font-size:11px;color:var(--text3);margin-top:6px">⏳ waiting for first poll…</div></div>`;
     const on=s.mode!=='OFF';
     const busy=d.busy;
     const dis=!on||busy?'disabled':'';
@@ -881,7 +975,7 @@ function renderUnits(){
         ${MODES.map(m=>`<button onclick="setMode(${i},'${m}')" ${busy?'disabled':''} style="flex:1;padding:3px 0;font-size:10px;border:none;border-right:1px solid var(--border);cursor:pointer;transition:all .15s;background:${s.mode===m?`var(--${m==='COOL'?'cool':m==='HEAT'?'heat':m==='HEAT_COOL'?'auto':m==='FAN_ONLY'?'fan':'dry'}-bg)`:'transparent'};color:${s.mode===m?`var(--${m==='COOL'?'cool':m==='HEAT'?'heat':m==='HEAT_COOL'?'auto':m==='FAN_ONLY'?'fan':'dry'})`:'var(--text3)'};font-weight:${s.mode===m?'600':'400'}" ${busy||(!on&&m!==s.mode)?'disabled':''}">${MODE_LABEL[m]}</button>`).join('')}
       </div>
       <div style="display:flex;gap:5px">
-        <div class="stat" style="flex:1;text-align:center"><div class="slabel">In</div><div class="sval">${safeFloat(s.current_temperature)?.toFixed(1)}°C<br><span style="color:var(--text3);font-size:10px">${toF(s.current_temperature)}°F</span></div></div>
+        <div class="stat" style="flex:1;text-align:center"><div class="slabel">In</div><div class="sval">${fmtCF(s.current_temperature)}</div></div>
         <div class="stat" style="flex:1;text-align:center"><div class="slabel">Out</div><div class="sval" style="${safeFloat(x.outdoor_temp?.value)>30?'color:var(--heat)':''}">${x.outdoor_temp?.value!=null?safeFloat(x.outdoor_temp.value)?.toFixed(1)+'°C':'—'}${x.outdoor_temp?.value!=null?`<br><span style="color:var(--text3);font-size:10px">${toF(x.outdoor_temp.value)}°F</span>`:''}</div></div>
         <div class="stat" style="flex:1;text-align:center"><div class="slabel">~W</div><div class="sval">${(()=>{const w=estWatts(s,x,d.btu,d.seer);return w===0?'<span style="color:var(--text3)">off</span>':w!=null?w+'W':'—';})()}</div></div>
       </div>
@@ -889,6 +983,7 @@ function renderUnits(){
         <span>on <span style="color:var(--text2)">${fmtOnTime(d._onTimeMinutes||0)}</span></span>
         <span>·</span>
         <span>up <span style="color:var(--text2)">${fmtUptime(safeFloat(x.uptime?.value))}</span></span>
+        ${(()=>{const sig=x.wifi_signal?.value??d.state?.wifi_signal;const w=fmtWifi(sig);return w?`<span>·</span><span title="${w.label}" style="color:${w.color}">${w.bar}</span>`:'';})()}
         ${d.maxTemp!=null?`<span>·</span><span>max <span style="color:${safeFloat(s.current_temperature)>=d.maxTemp?'var(--err)':'var(--text2)'}">${d.maxTemp}°C/${toF(d.maxTemp)}°F</span>${d._maxTempActive?' <span style="color:var(--err)">●</span>':''}</span>`:''}
       </div>
     </div>`;
@@ -995,6 +1090,12 @@ function toggleSection(bodyId,arrowId){
   el.style.display=open?'block':'none';
   if(arrow)arrow.textContent=open?'▼':'▶';
   if(bodyId==='log-body'&&open){_unreadWarns=0;updateLogBadge();}
+  if(bodyId==='usage-body'&&open){
+    // show spinner immediately, fetch in background
+    const content=document.getElementById('usage-content');
+    if(content)content.innerHTML='<div style="color:var(--text3);padding:8px 0;font-size:12px">⏳ Loading usage data…</div>';
+    refreshUsageView();
+  }
 }
 
 function renderAll(){renderIPList();renderUnits();updateSummary();}
@@ -1399,12 +1500,11 @@ function renderUsageTable(devices,title,showDaily){
 }
 
 async function refreshUsageView(){
-  const body=document.getElementById('usage-body');
-  if(!body||body.style.display==='none')return;
   const sel=document.getElementById('usage-month-sel');
   const month=sel?.value;
   const content=document.getElementById('usage-content');
-  content.textContent='Loading…';
+  if(content&&(!content.innerHTML||content.innerHTML.includes('Loading')))
+    content.innerHTML='<div style="color:var(--text3);padding:8px 0;font-size:12px">⏳ Loading usage data…</div>';
   const[monthly,rolling]=await Promise.all([fetchMonthlySummary(month),fetchRolling30()]);
   if(!monthly&&!rolling){
     content.innerHTML='<div style="color:var(--warn)">⚠ Usage API not reachable — make sure the container is running.</div>';
@@ -1473,7 +1573,10 @@ async function checkApiStatus(){
       const d=await r.json();
       setApiStatus(true, d.version||'');
       const el=document.getElementById('about-version');
-      if(el&&d.version)el.textContent=d.version;
+      if(el){
+        const build=d.build?` (build ${d.build})`:'';
+        el.textContent=`${d.version||''}${build}`;
+      }
     }else{
       setApiStatus(false);
     }
