@@ -454,6 +454,7 @@ async def _check_max_temp(device: dict):
 async def _check_schedules():
     now = datetime.datetime.now()
     hhmm = now.strftime("%H:%M")
+    today = now.strftime("%Y-%m-%d")
     js_day = now.isoweekday() % 7  # Sun=0, Mon=1 ... Sat=6
 
     for sch in _state["schedules"]:
@@ -463,9 +464,9 @@ async def _check_schedules():
             continue
         if js_day not in sch.get("days", []):
             continue
-        # prevent double-fire
+        # prevent double-fire within the same day
         last_run = sch.get("last_run", "")
-        if last_run and last_run.startswith(hhmm[:5]):
+        if last_run and last_run.startswith(today):
             continue
 
         host = sch.get("device_host", "")
@@ -495,7 +496,8 @@ async def _check_schedules():
                 await _send_cmd(host, {"target_temperature": temp})
                 _add_log(f"{name}: scheduled temp → {temp}°C", "ok")
 
-        sch["last_run"] = _ts()
+        # store date+time so the same schedule can fire again tomorrow
+        sch["last_run"] = f"{today} {_ts()}"
 
 # ── Main background worker ────────────────────────────────
 
