@@ -902,7 +902,15 @@ function removeDevice(i){
 }
 
 function renderIPList(){
-  document.getElementById('ip-list').innerHTML=devices.map((d,i)=>`
+  const header=`<div style="display:flex;gap:8px;align-items:center;padding:0 0 6px 0;border-bottom:1px solid var(--border);margin-bottom:4px;font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;font-weight:500;letter-spacing:.03em">
+    <div style="width:88px">Name</div>
+    <div style="width:200px">Host / IP</div>
+    <div style="width:68px">BTU</div>
+    <div style="width:68px">SEER</div>
+    <div style="width:68px">Max°C</div>
+    <div style="width:52px">Alert</div>
+  </div>`;
+  document.getElementById('ip-list').innerHTML=header+devices.map((d,i)=>`
     <div class="irow" data-orig-host="${d.host}">
       <input class="inp" value="${d.name}" placeholder="Name"
         oninput="devices[${i}].name=this.value;setDeviceDirty(${i})"
