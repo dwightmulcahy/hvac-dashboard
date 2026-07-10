@@ -936,7 +936,7 @@ function renderIPList(){
       <button class="btn bico" id="save-btn-${i}" onclick="saveDeviceRow(${i})" title="Save changes"
         style="color:var(--text3);cursor:not-allowed" disabled>✓</button>
       <button class="btn bico" onclick="copyHost(${i})" title="Copy hostname to clipboard">⎘</button>
-      <button class="btn bico" onclick="testBeep(${i})" title="Test — send a beep to verify device is responding">🔔</button>
+      <button class="btn bico" onclick="testDevice(${i})" title="Test connection — checks device is reachable">⚡</button>
       ${d.loading?'<span class="spinner"></span>':`<button class="btn bico" onclick="pollDevice(${i}).then(updateSummary)" title="Poll">↺</button>`}
       <button class="btn bico" onclick="removeDevice(${i})" style="color:#ef4444" title="Remove">✕</button>
     </div>
@@ -1174,19 +1174,23 @@ function copyHost(i){
   });
 }
 
-async function testBeep(i){
+async function testDevice(i){
   const d=devices[i];
-  addLog(`${d.name}: sending test beep…`,'info');
+  addLog(`${d.name}: testing connection…`,'info');
+  const start=Date.now();
   try{
-    const r=await fetch(`${API}/devices/${encodeURIComponent(d.host)}/beeper/test`,{method:'POST'});
-    const data=r.ok?await r.json():{ok:false};
-    if(data.ok){
-      addLog(`${d.name}: ✓ beep sent — device is responding`,'ok');
+    const r=await fetch(`http://${d.host}/climate/air_conditioner`,{
+      signal:AbortSignal.timeout(4000)
+    });
+    const ms=Date.now()-start;
+    if(r.ok){
+      addLog(`${d.name}: ✓ reachable — ${ms}ms response time`,'ok');
     }else{
-      addLog(`${d.name}: ✗ beep failed — device unreachable`,'err');
+      addLog(`${d.name}: ✗ HTTP ${r.status} (${ms}ms)`,'err');
     }
   }catch(e){
-    addLog(`${d.name}: ✗ beep failed — ${e.message}`,'err');
+    const ms=Date.now()-start;
+    addLog(`${d.name}: ✗ unreachable — ${e.message} (${ms}ms)`,'err');
   }
 }
 
