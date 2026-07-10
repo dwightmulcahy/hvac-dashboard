@@ -917,6 +917,7 @@ function removeDevice(i){
 
 function renderIPList(){
   const header=`<div style="display:flex;gap:8px;align-items:center;padding:0 0 6px 0;border-bottom:1px solid var(--border);margin-bottom:4px;font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;font-weight:500;letter-spacing:.03em">
+    <div style="width:18px"></div>
     <div style="width:88px">Name</div>
     <div style="width:200px">Host / IP</div>
     <div style="width:68px">BTU</div>
@@ -925,11 +926,14 @@ function renderIPList(){
     <div style="width:68px">Alert</div>
   </div>`;
   document.getElementById('ip-list').innerHTML=header+devices.map((d,i)=>`
-    <div class="irow" data-orig-host="${d.host}">
-      <input class="inp" value="${d.name}" placeholder="Name"
+    <div class="irow" data-orig-host="${d.host}" data-idx="${i}" draggable="true"
+      ondragstart="dragStart(event,${i})" ondragover="dragOver(event)" ondrop="dragDrop(event,${i})" ondragend="dragEnd(event)"
+      style="cursor:default">
+      <span title="Drag to reorder" style="cursor:grab;color:var(--text3);font-size:14px;padding:0 2px;user-select:none">⠿</span>
+      <input class="inp" value="${d.name==='New unit'?'':d.name}" placeholder="Name"
         oninput="devices[${i}].name=this.value;setDeviceDirty(${i})"
         style="width:88px">
-      <input class="inp" value="${d.host}" placeholder="hostname or IP"
+      <input class="inp" value="${d.host==='esphome-device.lan'?'':d.host}" placeholder="hostname or IP"
         oninput="devices[${i}].host=this.value;setDeviceDirty(${i})"
         style="width:200px">
       <select class="inp" onchange="devices[${i}].btu=+this.value;saveDeviceToAPI(devices[${i}])" style="width:68px">
@@ -942,18 +946,49 @@ function renderIPList(){
         title="If room exceeds this temp while AC is off, auto-turn on until cooled"
         onchange="devices[${i}].maxTemp=this.value?+this.value:null;saveDeviceToAPI(devices[${i}])"
         style="width:68px">
-      <input type="number" class="inp" value="${d.watchdog_minutes||5}" min="1" max="60"
+      <input type="number" class="inp" value="${d.watchdog_minutes||''}" placeholder="5" min="1" max="60"
         title="Alert if no response for this many minutes (watchdog timeout)"
         onchange="devices[${i}].watchdog_minutes=+this.value;saveDeviceToAPI(devices[${i}])"
         style="width:68px">
       <button class="btn bico" id="save-btn-${i}" onclick="saveDeviceRow(${i})" title="Save changes"
         style="color:var(--text3);cursor:not-allowed" disabled>✓</button>
-      <button class="btn bico" onclick="copyHost(${i})" title="Copy hostname to clipboard">⎘</button>
       <button class="btn bico" onclick="testDevice(${i})" title="Test connection — checks device is reachable">⚡</button>
       ${d.loading?'<span class="spinner"></span>':`<button class="btn bico" onclick="pollDevice(${i}).then(updateSummary)" title="Poll">↺</button>`}
       <button class="btn bico" onclick="removeDevice(${i})" style="color:#ef4444" title="Remove">✕</button>
     </div>
   `).join('');
+}
+
+// ── Drag reorder ──────────────────────────────────────────
+let _dragIdx=null;
+
+function dragStart(e,i){
+  _dragIdx=i;
+  e.dataTransfer.effectAllowed='move';
+  e.currentTarget.style.opacity='0.4';
+}
+
+function dragOver(e){
+  e.preventDefault();
+  e.dataTransfer.dropEffect='move';
+}
+
+function dragDrop(e,targetIdx){
+  e.preventDefault();
+  if(_dragIdx===null||_dragIdx===targetIdx)return;
+  const moved=devices.splice(_dragIdx,1)[0];
+  devices.splice(targetIdx,0,moved);
+  _dragIdx=null;
+  // persist new order to API by saving all devices
+  devices.forEach(d=>saveDeviceToAPI(d));
+  renderIPList();
+  renderUnits();
+  addLog('Device order updated','info');
+}
+
+function dragEnd(e){
+  e.currentTarget.style.opacity='1';
+  _dragIdx=null;
 }
 
 function setDeviceDirty(i){
