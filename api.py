@@ -628,6 +628,20 @@ async def set_lock_temp(host: str, data: dict):
     _add_log(f"{device['name']}: temp {status} at {device.get('locked_target_temp')}°C", "info")
     return {"ok": True, "lock_temp": device["lock_temp"], "locked_target_temp": device.get("locked_target_temp")}
 
+@app.post("/devices/{host:path}/beeper/test")
+async def test_beeper(host: str):
+    """Send a quick beep without changing the saved beeper state."""
+    ok_on = await _send_switch(host, "switch/air_conditioner_beeper/turn_on")
+    await asyncio.sleep(0.5)
+    ok_off = await _send_switch(host, "switch/air_conditioner_beeper/turn_off")
+    # restore to saved state
+    device = next((d for d in _state["devices"] if d["host"] == host), None)
+    if device:
+        saved = device.get("beeper", "OFF")
+        endpoint = "turn_on" if saved == "ON" else "turn_off"
+        await _send_switch(host, f"switch/air_conditioner_beeper/{endpoint}")
+    return {"ok": ok_on and ok_off}
+
 @app.post("/devices/{host:path}/beeper/{state}")
 async def set_beeper(host: str, state: str):
     val = "ON" if state == "on" else "OFF"

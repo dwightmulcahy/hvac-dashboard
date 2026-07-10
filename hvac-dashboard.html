@@ -1178,12 +1178,13 @@ async function testBeep(i){
   const d=devices[i];
   addLog(`${d.name}: sending test beep…`,'info');
   try{
-    // beep on then off after 500ms
-    await fetch(`${API}/devices/${encodeURIComponent(d.host)}/beeper/on`,{method:'POST'});
-    setTimeout(async()=>{
-      await fetch(`${API}/devices/${encodeURIComponent(d.host)}/beeper/off`,{method:'POST'});
-    },500);
-    addLog(`${d.name}: ✓ beep sent — device is responding`,'ok');
+    const r=await fetch(`${API}/devices/${encodeURIComponent(d.host)}/beeper/test`,{method:'POST'});
+    const data=r.ok?await r.json():{ok:false};
+    if(data.ok){
+      addLog(`${d.name}: ✓ beep sent — device is responding`,'ok');
+    }else{
+      addLog(`${d.name}: ✗ beep failed — device unreachable`,'err');
+    }
   }catch(e){
     addLog(`${d.name}: ✗ beep failed — ${e.message}`,'err');
   }
