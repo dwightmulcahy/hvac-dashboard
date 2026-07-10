@@ -5,7 +5,14 @@ on:
     branches:
       - release
     tags:
-      - 'v*.*.*'
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-and-push:
@@ -16,30 +23,38 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Extract metadata (tags and labels)
+      - name: Extract Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/hvac-dashboard
           tags: |
+            # Exact version (e.g. 1.4.2)
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/release' || startsWith(github.ref, 'refs/tags/') }}
+
+            # Always point to the current release branch
             type=raw,value=release,enable=${{ github.ref == 'refs/heads/release' }}
+
+            # Latest stable release and latest release-branch build
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/release' || startsWith(github.ref, 'refs/tags/v') }}
+
+            # Traceability
             type=sha,prefix=sha-
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
