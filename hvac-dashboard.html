@@ -272,6 +272,20 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
   <div class="log" id="log-box"></div>
 </div>
 
+<!-- Connection test modal -->
+<div id="test-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;align-items:center;justify-content:center">
+  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl);padding:20px;width:300px;max-width:95vw">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <span style="font-size:13px;font-weight:500">Connection Test</span>
+      <button class="btn bico" onclick="document.getElementById('test-modal').style.display='none'" style="font-size:16px;color:var(--text3)">✕</button>
+    </div>
+    <div id="test-modal-body" style="font-size:12px;font-family:'DM Mono',monospace;line-height:1.8"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:14px">
+      <button class="btn" onclick="document.getElementById('test-modal').style.display='none'">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Rate settings modal -->
 <div id="rate-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;align-items:center;justify-content:center">
   <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl);padding:20px;width:340px;max-width:95vw">
@@ -908,7 +922,7 @@ function renderIPList(){
     <div style="width:68px">BTU</div>
     <div style="width:68px">SEER</div>
     <div style="width:68px">Max°C</div>
-    <div style="width:52px">Alert</div>
+    <div style="width:68px">Alert</div>
   </div>`;
   document.getElementById('ip-list').innerHTML=header+devices.map((d,i)=>`
     <div class="irow" data-orig-host="${d.host}">
@@ -929,10 +943,9 @@ function renderIPList(){
         onchange="devices[${i}].maxTemp=this.value?+this.value:null;saveDeviceToAPI(devices[${i}])"
         style="width:68px">
       <input type="number" class="inp" value="${d.watchdog_minutes||5}" min="1" max="60"
-        title="Alert if no response for this many minutes"
+        title="Alert if no response for this many minutes (watchdog timeout)"
         onchange="devices[${i}].watchdog_minutes=+this.value;saveDeviceToAPI(devices[${i}])"
-        style="width:52px">
-      <span style="font-size:10px;color:var(--text3)">m⌚</span>
+        style="width:68px">
       <button class="btn bico" id="save-btn-${i}" onclick="saveDeviceRow(${i})" title="Save changes"
         style="color:var(--text3);cursor:not-allowed" disabled>✓</button>
       <button class="btn bico" onclick="copyHost(${i})" title="Copy hostname to clipboard">⎘</button>
@@ -1176,7 +1189,10 @@ function copyHost(i){
 
 async function testDevice(i){
   const d=devices[i];
-  addLog(`${d.name}: testing connection…`,'info');
+  const modal=document.getElementById('test-modal');
+  const body=document.getElementById('test-modal-body');
+  body.innerHTML=`<div style="color:var(--text3)">Testing ${d.host}…</div>`;
+  modal.style.display='flex';
   const start=Date.now();
   try{
     const r=await fetch(`http://${d.host}/climate/air_conditioner`,{
@@ -1184,12 +1200,28 @@ async function testDevice(i){
     });
     const ms=Date.now()-start;
     if(r.ok){
-      addLog(`${d.name}: ✓ reachable — ${ms}ms response time`,'ok');
+      body.innerHTML=`
+        <div style="color:var(--ok);font-size:14px;margin-bottom:8px">✓ Reachable</div>
+        <div><span style="color:var(--text3)">Device </span>${d.name}</div>
+        <div><span style="color:var(--text3)">Host   </span>${d.host}</div>
+        <div><span style="color:var(--text3)">Time   </span>${ms}ms</div>`;
+      addLog(`${d.name}: ✓ reachable — ${ms}ms`,'ok');
     }else{
+      body.innerHTML=`
+        <div style="color:var(--err);font-size:14px;margin-bottom:8px">✗ HTTP ${r.status}</div>
+        <div><span style="color:var(--text3)">Device </span>${d.name}</div>
+        <div><span style="color:var(--text3)">Host   </span>${d.host}</div>
+        <div><span style="color:var(--text3)">Time   </span>${ms}ms</div>`;
       addLog(`${d.name}: ✗ HTTP ${r.status} (${ms}ms)`,'err');
     }
   }catch(e){
     const ms=Date.now()-start;
+    body.innerHTML=`
+      <div style="color:var(--err);font-size:14px;margin-bottom:8px">✗ Unreachable</div>
+      <div><span style="color:var(--text3)">Device </span>${d.name}</div>
+      <div><span style="color:var(--text3)">Host   </span>${d.host}</div>
+      <div><span style="color:var(--text3)">Error  </span>${e.message}</div>
+      <div><span style="color:var(--text3)">Time   </span>${ms}ms</div>`;
     addLog(`${d.name}: ✗ unreachable — ${e.message} (${ms}ms)`,'err');
   }
 }
