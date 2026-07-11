@@ -436,7 +436,7 @@ async function loadDevicesFromAPI(){
       const existing=devices.find(x=>x.host===d.host);
       return {
         ...d,
-        state:d.state&&!d.state.error?d.state:(existing?.state||null),
+        state:d.state&&!d.state.error?d.state:null,
         extras:{
           outdoor_temp:d.state?.outdoor_temp!=null?{value:d.state.outdoor_temp}:existing?.extras?.outdoor_temp,
           uptime:{value:d.state?.uptime_days},
@@ -763,8 +763,8 @@ async function pollAll(){
   addLog('Refreshing from API…','info');
   document.getElementById('s-time').textContent='…';
   await loadDevicesFromAPI();
-  // also refresh server logs
   await fetchServerLogs();
+  renderAll();
   updateSummary();
   document.getElementById('s-time').textContent=ts();
   runMaxTempMonitor();
@@ -1147,6 +1147,9 @@ function updateSummary(){
   const projLbl=document.getElementById('s-proj-label');
   if(projLbl){
     if(dayTotal>0){
+      const now=new Date();
+      const dom=now.getDate();
+      const dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
       const proj=dayTotal*dim;
       projLbl.textContent=`proj. $${proj.toFixed(2)} · $${dayTotal.toFixed(2)}/day`;
     }else{projLbl.textContent='—';}
