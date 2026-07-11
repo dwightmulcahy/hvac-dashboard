@@ -1,60 +1,67 @@
 # HVAC Dashboard
 
-A self-hosted web dashboard for controlling and monitoring **Innovair mini-split AC units** via [SMLIGHT SLWF-01pro](https://smartlight.me) ESPHome dongles running the Midea protocol.
-
-Built for a 6-unit installation in Playa del Coco, Guanacaste, Costa Rica — running 24/7 on a QNAP NAS via Docker.
+Self-hosted dashboard for controlling and monitoring **Innovair mini-split AC units** via [SMLIGHT SLWF-01pro](https://smartlight.me) ESPHome dongles using the Midea serial protocol. Runs 24/7 in Docker on a QNAP NAS. All automation (scheduling, temperature guards, watchdog) executes server-side regardless of whether a browser is open.
 
 ---
 
 ## Features
 
-### Control
-- **Live control** — mode (cool/heat/auto/fan/dry), temperature (+/−), power per unit
-- **Segmented mode selector** — compact mode bar on each tile
-- **Debounced temp control** — rapid +/− clicks batch into one command, confirmed against device after send
-- **Override protection** — 🔒 lock the setpoint; if someone uses the physical remote to change it, the next poll auto-reverts
+### Unit Control
+- Mode selector (cool / heat / auto / fan / dry) as a compact segmented bar
+- Temperature +/− with debounce — rapid clicks batch into one command, confirmed against device after send
+- Power toggle per unit
+- Beeper toggle (persisted server-side, synced on every poll)
+- 🔒 Temp lock — override protection: if someone changes the setpoint on the physical remote, the next poll auto-reverts to the locked value
 
-### Monitoring
-- **Real-time stats** — indoor/outdoor temp (°C + °F), estimated watts, on-time, dongle uptime, WiFi signal strength
-- **Stale/watchdog indicator** — amber border + ⚠ stale badge if device hasn't responded within configurable threshold
-- **Retry queue** — failed commands are queued and retried when device recovers (↺N badge on tile)
-- **Reboot detection** — logs when dongle uptime resets unexpectedly
-- **Last polled indicator** — 📡 Xm ago in tile footer
-- **API status badge** — ⬤ API v1.1.0 in header, checked every 30s, turns red if unreachable
+### Tile Info
+- Indoor / outdoor temp (°C + °F)
+- Estimated watts (~W)
+- On-time accumulator with reset button
+- WiFi signal strength (▂▄▆█ bars with dBm tooltip)
+- 48-hour indoor/outdoor temperature sparkline
+- ⚠ Stale badge + amber border when device hasn't responded within watchdog threshold
+- ↺N retry queue badge when commands are queued for failed devices
+- 📡 overdue indicator (only shown when outside watchdog window)
 
 ### Automation (server-side, 24/7)
-- **Scheduling** — time + day-of-week schedules per device, runs in Docker regardless of browser state
-- **Max temp guard** — auto-turns on AC if room exceeds a configurable threshold, off when cooled
-- **Vacation mode** — 🌴 turns off all units, sets high max-temp guard, pauses schedules
-- **Beeper sync** — persists beeper state server-side, synced to device on every poll
+- **Schedules** — time + day-of-week per device, evaluated every minute server-side
+- **Max temp guard** — auto-turns on AC when room exceeds configurable threshold, off when cooled
+- **Vacation mode** — turns off all units, sets high temp guard (configurable), pauses all schedules
+- **Beeper sync** — saved beeper state pushed to device on every poll
+- **Reboot detection** — logs when dongle uptime resets
+- **Retry queue** — failed commands queued and retried on recovery
+- **Watchdog** — per-device configurable alert timeout; logs online/offline transitions
+
+### Monitoring
+- API status badge in header (⬤ green/red, checked every 30s)
+- Per-device last_seen, queue depth, stale status via `GET /api/health`
+- Uptime Kuma push endpoint: `GET /api/health/push` — returns 200/503
+- Server-side automation log — filterable by level, searchable
+- Notification badge on Log section when new warnings/errors arrive
 
 ### Usage & Costs
-- **Per-device cost breakdown** — collapsible table with $/day, $/mo, share % bar per unit
-- **Month projection** — projected month-end spend based on current daily average
-- **Monthly usage summary** — runtime hours, kWh, peak watts, days active per device
-- **Rolling 30-day chart** — daily kWh bars per device
-- **CSV export** — ⬇ CSV button downloads monthly usage data
-- **Tiered electricity rates** — Coopeguanacaste block rates, configurable exchange rate with live ↻ fetch
+- Hourly temperature history per device (48h rolling)
+- Daily runtime hours and estimated kWh per device
+- Monthly usage summary with per-device breakdown
+- Rolling 30-day chart (daily kWh bars)
+- Per-device cost table with $/day, $/mo, share % bar
+- Projected month-end spend shown in Est cost card
+- CSV export: `GET /api/usage/export-csv?month=YYYY-MM`
+- Tiered Coopeguanacaste rates, exchange rate auto-updated daily from `frankfurter.app`
 
 ### UI
-- **Dark/light mode** — ☀️ toggle, preference saved
-- **Notification badge** — red/amber badge on Log section when new warnings/errors arrive (collapsed)
-- **Collapsible sections** — Cost breakdown, Usage, Schedules, Log
-- **About modal** — version, build date, GitHub + Docker Hub links, developer credit
+- Dark / light mode (☀️ / 🌙 toggle in ··· menu)
+- Collapsible sections: Cost breakdown, Usage, Schedules, Log
+- Drag-to-reorder devices in Settings → Devices
+- Custom drum-roll time picker in schedule modal
+- Connection test per device (⚡) — shows latency in a modal
+- Refresh on browser focus / tab visibility change (debounced 30s)
+- About modal with live version from API
 
-### Device Management
-- **Devices panel** — ⚙ button in header, hidden by default
-- **Per-device settings** — BTU, SEER, Max°C threshold, watchdog minutes
-- **Explicit save** — ✓ button per row, grayed until modified
-- **Copy hostname** — ⎘ copies hostname to clipboard
-- **Test beep** — 🔔 sends a beep to verify device is responding
-- **Reset on-time** — ↺ resets the on-time accumulator per device
-
-### Infrastructure
-- **Auto-poll** — every 60 seconds server-side, browser is a thin display
-- **Server-side persistence** — FastAPI + JSON on a Docker volume, survives restarts
-- **Health endpoint** — `/api/health` with per-device status, last_seen, queue depth
-- **Backup/Restore** — `GET /api/backup` exports config JSON, `POST /api/restore` reimports
+### Settings (··· menu → Settings)
+- **General** — poll interval, default SEER, default watchdog, vacation max temp
+- **Devices** — add/edit/reorder/delete, BTU, SEER, Max°C guard, alert timeout, save/test/poll per row
+- **Rates** — provider, exchange rate (↻ Live fetch), monthly kWh, runtime hrs, tiered or flat rate
 
 ---
 
@@ -66,9 +73,7 @@ cd hvac-dashboard
 docker-compose up -d
 ```
 
-Open `http://your-host:8080`
-
-Then add your devices via the API:
+Open `http://your-host:8080`, then add your devices:
 
 ```bash
 curl -X POST http://your-host:8080/api/devices \
@@ -80,13 +85,9 @@ curl -X POST http://your-host:8080/api/devices \
 
 ## Docker Hub
 
-```
-docker pull dwightmulcahy/hvac-dashboard:latest
-```
-
-Run directly:
-
 ```bash
+docker pull dwightmulcahy/hvac-dashboard:latest
+
 docker run -d \
   --name hvac-dashboard \
   --restart always \
@@ -123,81 +124,60 @@ services:
 
 ---
 
-## Configuration
-
-Devices are managed via the **⚙ Devices** panel in the UI and stored server-side — no localStorage dependency.
-
-### Rate settings
-
-Click **⚡ Rates** to configure:
-- Provider name
-- Exchange rate (₡/USD) — with **↻ Live** button to fetch current rate from ECB
-- Estimated monthly kWh (determines which tier applies)
-- Tiered or flat rate
-- AC daily runtime hours (for cost estimation)
-
-Default tiers (Coopeguanacaste 2026, after 9.34% ARESEP reduction):
-
-| Block | Rate |
-|---|---|
-| 0–200 kWh | ₡56/kWh (~$0.123) |
-| 201–500 kWh | ₡74/kWh (~$0.163) |
-| 500+ kWh | ₡127/kWh (~$0.279) |
-
----
-
-## API
-
-All endpoints are proxied by nginx at `/api/`:
+## API Reference
 
 ### Devices
-| Endpoint | Method | Description |
+| Method | Endpoint | Description |
 |---|---|---|
-| `/api/devices` | GET | List all devices with current state |
-| `/api/devices` | POST | Add a device |
-| `/api/devices/{host}` | PUT | Update device config |
-| `/api/devices/{host}` | DELETE | Remove device |
-| `/api/devices/{host}/cmd` | POST | Send command (queued on failure) |
-| `/api/devices/{host}/beeper/{on\|off}` | POST | Set beeper state |
-| `/api/devices/{host}/lock` | POST | Lock/unlock temp override protection |
+| GET | `/api/devices` | List all devices with current state |
+| POST | `/api/devices` | Add device |
+| PUT | `/api/devices/{host}` | Update device config |
+| DELETE | `/api/devices/{host}` | Remove device |
+| POST | `/api/devices/{host}/cmd` | Send command (queued on failure) |
+| POST | `/api/devices/{host}/beeper/{on\|off}` | Set beeper |
+| POST | `/api/devices/{host}/beeper/test` | Test connection |
+| POST | `/api/devices/{host}/lock` | Lock/unlock temp override |
+| GET | `/api/devices/{host}/temp-history` | 48h hourly temp readings |
 
 ### Schedules
-| Endpoint | Method | Description |
+| Method | Endpoint | Description |
 |---|---|---|
-| `/api/schedules` | GET/POST | List or create schedules |
-| `/api/schedules/{id}` | PUT/DELETE | Update or delete schedule |
-| `/api/schedules/{id}/toggle` | POST | Enable/disable schedule |
+| GET/POST | `/api/schedules` | List or create |
+| PUT/DELETE | `/api/schedules/{id}` | Update or delete |
+| POST | `/api/schedules/{id}/toggle` | Enable/disable |
 
 ### Usage
-| Endpoint | Method | Description |
+| Method | Endpoint | Description |
 |---|---|---|
-| `/api/usage/summary` | GET | Monthly summary (`?month=2026-07`) |
-| `/api/usage/rolling30` | GET | Rolling 30-day totals + daily series |
-| `/api/usage/export-csv` | GET | Download monthly CSV (`?month=2026-07`) |
+| GET | `/api/usage/summary?month=YYYY-MM` | Monthly summary |
+| GET | `/api/usage/rolling30` | Rolling 30-day + daily series |
+| GET | `/api/usage/export-csv?month=YYYY-MM` | Download CSV |
 
 ### System
-| Endpoint | Method | Description |
+| Method | Endpoint | Description |
 |---|---|---|
-| `/api/` | GET | Status + version |
-| `/api/health` | GET | Per-device watchdog status |
-| `/api/settings` | GET/PUT | Rate and poll settings |
-| `/api/logs` | GET | Automation log (`?level=warn+&limit=100`) |
-| `/api/backup` | GET | Export config as JSON |
-| `/api/restore` | POST | Restore from backup JSON |
-| `/api/reset` | DELETE | Clear all usage data |
+| GET | `/api/` | Status, version, build date |
+| GET | `/api/health` | Per-device watchdog status |
+| GET | `/api/health/push` | Uptime Kuma endpoint (200/503) |
+| GET/PUT | `/api/settings` | Rate and poll settings |
+| GET | `/api/exchange-rate` | Current USD/CRC rate (cached daily) |
+| GET | `/api/logs?level=warn+&limit=100` | Automation log |
+| GET | `/api/backup` | Export config JSON |
+| POST | `/api/restore` | Restore from backup |
+| DELETE | `/api/reset` | Clear usage data |
 
 ---
 
 ## Firmware
 
-The `firmware/` directory contains fixed ESPHome YAML configs for the SMLIGHT SLWF-01pro:
+`firmware/` contains fixed ESPHome YAML for the SMLIGHT SLWF-01pro:
 
-- `slwf01pro24-fixed.yaml` — v2.4 firmware (recommended)
-- `slwf-01pro-v21-fixed.yaml` — v2.1 firmware
+- `slwf01pro24-fixed.yaml` — v2.4 (recommended)
+- `slwf-01pro-v21-fixed.yaml` — v2.1
 
-Both include:
-- `api: reboot_timeout: 0s` — prevents random 15-min reboots when no Home Assistant is connected
-- `web_server: cors_allowed_origins: ["*"]` — allows dashboard to send commands
+Both fixes applied:
+- `api: reboot_timeout: 0s` — prevents 15-min reboot when no Home Assistant connected
+- `web_server: cors_allowed_origins: ["*"]` — allows dashboard commands
 
 Flash via OTA:
 ```bash
@@ -205,7 +185,7 @@ pip install esphome
 esphome run firmware/slwf01pro24-fixed.yaml
 ```
 
-A `secrets.yaml` is required alongside the YAML:
+`secrets.yaml` required alongside:
 ```yaml
 wifi_ssid: "YourWiFi"
 wifi_password: "YourPassword"
@@ -214,70 +194,49 @@ air_conditioner_ota_password: "your-ota-password"
 
 ---
 
-## Deployment (QNAP Container Station)
+## Uptime Kuma
 
-1. Pull the image from Docker Hub
-2. Create container with port `8080:80`
-3. Mount a volume at `/data` for persistence
-4. Set `TZ=America/Costa_Rica` and `DATA_FILE=/data/hvac_state.json`
-5. Set restart policy to **Always**
-
-Add devices after first run:
-```bash
-curl -X POST http://your-qnap:8080/api/devices \
-  -H "Content-Type: application/json" \
-  -d '{"host":"air-conditioner-c44741.lan","name":"Master BR","btu":24000,"seer":20}'
+Add an **HTTP(s)** monitor pointing to:
 ```
+http://your-qnap:8080/api/health/push
+```
+Returns `200` when all devices healthy, `503` when any are stale.
 
 ---
 
-## Branch Strategy
-
-| Branch | Purpose |
-|---|---|
-| `main` | Stable development |
-| `release` | Triggers Docker Hub build + push |
-
-### Releasing
+## Release Process
 
 ```bash
 git checkout release
 git merge main
-git tag v1.1.0
+git tag v1.2.0
 git push origin release --tags
 ```
 
-Builds multi-arch images (`linux/amd64` + `linux/arm64`) and pushes to Docker Hub with tags `latest`, `1.1.0`, `1.1`, `1`.
+GitHub Actions builds multi-arch (`amd64` + `arm64`) images and pushes to Docker Hub with tags `latest`, `1.2.0`, `1.2`, `1`. Version is injected from the git tag via `APP_VERSION` build arg.
 
----
-
-## GitHub Secrets Required
-
+### Required Secrets
 | Secret | Description |
 |---|---|
-| `DOCKERHUB_USERNAME` | Your Docker Hub username |
-| `DOCKERHUB_TOKEN` | Docker Hub access token (Settings → Security → New Access Token) |
-
-Set at: `GitHub repo → Settings → Secrets and variables → Actions`
+| `DOCKERHUB_USERNAME` | Docker Hub username |
+| `DOCKERHUB_TOKEN` | Docker Hub access token |
 
 ---
 
 ## Hardware
 
-- **AC units**: Innovair Bio-Inverter 12K/18K/24K BTU, 20 SEER, R32
-- **Dongles**: SMLIGHT SLWF-01pro (ESP8266, Midea serial protocol)
-- **Server**: QNAP NAS running Container Station
-- **Network**: Amplifi router, all units on `192.168.133.x`
-- **Location**: Playa del Coco, Guanacaste, Costa Rica
-- **Electricity**: Coopeguanacaste (ARESEP flat tiered rates, no time-of-use)
+- **AC units** — Innovair Bio-Inverter 12K/18K/24K BTU, 20 SEER, R32
+- **Dongles** — SMLIGHT SLWF-01pro (ESP8266, Midea serial)
+- **Server** — QNAP NAS, Container Station
+- **Network** — Amplifi router, `192.168.133.x`
+- **Location** — Playa del Coco, Guanacaste, Costa Rica
+- **Electricity** — Coopeguanacaste, ARESEP tiered rates, no time-of-use
 
 ---
 
 ## Developer
 
 Dwight Mulcahy
-
----
 
 ## License
 
