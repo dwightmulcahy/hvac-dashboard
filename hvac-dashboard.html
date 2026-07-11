@@ -200,13 +200,10 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
   <div class="card"><div class="clabel">Est load</div><div class="cval" id="s-estload">—</div></div>
   <div class="card" id="cost-card">
     <div class="clabel" id="cost-rate-label">Est cost</div>
-    <div class="cval" style="font-size:14px;display:flex;gap:8px;align-items:baseline;margin-top:2px">
-      <span id="s-costday">—</span>
-      <span style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace">day</span>
+    <div class="cval" style="font-size:18px;margin-top:2px">
       <span id="s-costmo">—</span>
-      <span style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace">mo</span>
     </div>
-    <div style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:3px" id="s-proj-label">—</div>
+    <div style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:2px" id="s-proj-label">—</div>
   </div>
   <div class="card" id="peak-card" style="display:none">
     <div class="clabel">⚡ Peak rate</div>
@@ -1097,7 +1094,7 @@ function renderUnits(){
           return`<span>·</span><span title="Last successful poll — overdue" style="color:var(--warn)">📡 ${fmtAgo(d.last_seen)}</span>`;
         })()}
       </div>
-      <div id="sparkline-${i}" style="margin-top:6px;height:28px;opacity:0.7"></div>
+      <div id="sparkline-${i}" style="margin-top:4px;opacity:0.7"></div>
     </div>`;
   }).join('');
   // fetch and render sparklines async
@@ -1150,9 +1147,8 @@ function updateSummary(){
   document.getElementById('s-estload').innerHTML=totalEst>0?totalEst+'<span> W</span>':'<span>—</span>';
   const dayTotal=live.reduce((sum,d)=>{const w=estWatts(d.state,d.extras,d.btu,d.seer);return sum+estCostDay(w);},0);
   const moTotal=live.reduce((sum,d)=>{const w=estWatts(d.state,d.extras,d.btu,d.seer);return sum+estCostMonth(w);},0);
-  document.getElementById('s-costday').textContent=dayTotal>0?'$'+dayTotal.toFixed(2):'—';
   document.getElementById('s-costmo').textContent=moTotal>0?'$'+moTotal.toFixed(2):'—';
-  // cost projection
+  // cost projection subtitle
   const now=new Date();
   const dom=now.getDate();
   const dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
@@ -1160,7 +1156,7 @@ function updateSummary(){
   if(projLbl){
     if(dayTotal>0){
       const proj=dayTotal*dim;
-      projLbl.textContent=`proj. $${proj.toFixed(2)} · $${dayTotal.toFixed(2)}/day · ${dim-dom}d left`;
+      projLbl.textContent=`proj. $${proj.toFixed(2)} · $${dayTotal.toFixed(2)}/day`;
     }else{projLbl.textContent='';}
   }
   renderCostBreakdown(live);
