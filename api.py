@@ -55,6 +55,7 @@ DEFAULT_STATE = {
     "usage": {
         "daily": {},        # {"2026-07-01": {"host": {runtime_min, est_kwh, ...}}}
         "devices": {},      # {"host": {name, first_seen}}
+        "temp_history": {}, # {"host": [{"t": iso_hour, "in": float, "out": float}, ...]}
     },
     "device_state": {},     # {"host": {last polled climate state + extras}}
     "logs": [],             # recent automation log entries
@@ -333,6 +334,9 @@ async def _poll_device(device: dict):
 
     _add_log(f"{name}: {state.get('current_temperature')}°C in, {ds.get('outdoor_temp')}°C out, mode={cur_mode}", "ok")
 
+    # ── temperature history (hourly) ──────────────────────
+    _record_temp_history(host, ds)
+
     # ── override protection ───────────────────────────────
     if device.get("lock_temp") and device.get("locked_target_temp") is not None:
         if cur_mode not in ("OFF", "FAN_ONLY"):
@@ -355,6 +359,44 @@ async def _poll_device(device: dict):
         device["_retry_queue"] = queue
         _add_log(f"{name}: retrying queued command {retry}", "info")
         await _send_cmd(host, retry)
+
+# ── Temperature history ───────────────────────────────────
+
+def _record_temp_history(host: str, ds: dict):
+    """Store one reading per hour per device, keep 48 hours."""
+    indoor = ds.get("current_temperature")
+    outdoor = ds.get("outdoor_temp")
+    if indoor is None:
+        return
+    try:
+        indoor = round(float(indoor), 1)
+        outdoor = round(float(outdoor), 1) if outdoor is not None else None
+    except Exception:
+        return
+
+    hour_key = datetime.datetime.now().strftime("%Y-%m-%dT%H:00")
+    if "temp_history" not in _state["usage"]:
+        _state["usage"]["temp_history"] = {}
+
+    history = _state["usage"]["temp_history"].setdefault(host, [])
+    # update existing entry for this hour or append
+    for entry in history:
+        if entry["t"] == hour_key:
+            entry["in"] = indoor
+            if outdoor is not None:
+                entry["out"] = outdoor
+            return
+    history.append({"t": hour_key, "in": indoor, "out": outdoor})
+    # keep only last 48 hours
+    if len(history) > 48:
+        _state["usage"]["temp_history"][host] = history[-48:]
+
+
+@app.get("/devices/{host:path}/temp-history")
+async def get_temp_history(host: str):
+    history = _state["usage"].get("temp_history", {}).get(host, [])
+    return {"host": host, "history": history}
+
 
 # ── Usage recording ───────────────────────────────────────
 

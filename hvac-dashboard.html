@@ -1101,8 +1101,42 @@ function renderUnits(){
           return`<span>·</span><span title="Last successful poll — overdue" style="color:var(--warn)">📡 ${fmtAgo(d.last_seen)}</span>`;
         })()}
       </div>
+      <div id="sparkline-${i}" style="margin-top:6px;height:28px;opacity:0.7"></div>
     </div>`;
   }).join('');
+  // fetch and render sparklines async
+  devices.forEach((_,i)=>renderSparkline(i));
+}
+
+async function renderSparkline(i){
+  const d=devices[i];
+  if(!d||!d.host)return;
+  const el=document.getElementById(`sparkline-${i}`);
+  if(!el)return;
+  try{
+    const r=await fetch(`${API}/devices/${encodeURIComponent(d.host)}/temp-history`);
+    if(!r.ok)return;
+    const data=await r.json();
+    const hist=data.history||[];
+    if(hist.length<2){el.innerHTML='';return;}
+    // build SVG sparkline for indoor temp
+    const vals=hist.map(h=>h.in).filter(v=>v!=null);
+    const min=Math.min(...vals)-1;
+    const max=Math.max(...vals)+1;
+    const w=el.offsetWidth||200;
+    const h=28;
+    const xStep=w/(hist.length-1);
+    const yScale=v=>h-((v-min)/(max-min||1))*h;
+    const pts=hist.map((h,i)=>`${(i*xStep).toFixed(1)},${yScale(h.in).toFixed(1)}`).join(' ');
+    // outdoor line if available
+    const hasOut=hist.some(h=>h.out!=null);
+    const outPts=hasOut?hist.map((h,i)=>`${(i*xStep).toFixed(1)},${yScale(h.out||h.in).toFixed(1)}`).join(' '):'';
+    el.innerHTML=`<svg width="100%" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="display:block">
+      ${hasOut?`<polyline points="${outPts}" fill="none" stroke="var(--heat)" stroke-width="1" opacity="0.5"/>`:''}
+      <polyline points="${pts}" fill="none" stroke="var(--cool)" stroke-width="1.5"/>
+      <text x="2" y="10" font-size="8" fill="var(--text3)" font-family="monospace">${vals[vals.length-1]}°C</text>
+    </svg>`;
+  }catch(_){}
 }
 
 function updateSummary(){
