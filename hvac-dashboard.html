@@ -130,9 +130,7 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
       <div class="menu-item" id="vacation-menu-item" onclick="toggleVacationMode();closeMenu()">🌴 Vacation mode</div>
       <div class="menu-item" onclick="toggleTheme();closeMenu()" id="theme-menu-item">☀️ Light mode</div>
       <div class="menu-divider"></div>
-      <div class="menu-item" onclick="openSettings('rates');closeMenu()">⚡ Rates</div>
-      <div class="menu-item" onclick="openSettings('devices');closeMenu()">⚙ Devices</div>
-      <div class="menu-item" onclick="openSettings('general');closeMenu()">🔧 General</div>
+      <div class="menu-item" onclick="openSettings('general');closeMenu()">⚙ Settings</div>
       <div class="menu-divider"></div>
       <div class="menu-item" onclick="document.getElementById('about-modal').style.display='flex';closeMenu()">ℹ About</div>
     </div>
@@ -299,9 +297,9 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
     <!-- header -->
     <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 18px 0">
       <div style="display:flex;gap:2px">
-        <button class="stab active" id="stab-rates" onclick="switchTab('rates')">⚡ Rates</button>
-        <button class="stab" id="stab-devices" onclick="switchTab('devices')">⚙ Devices</button>
-        <button class="stab" id="stab-general" onclick="switchTab('general')">🔧 General</button>
+        <button class="stab active" id="stab-general" onclick="switchTab('general')">⚙ General</button>
+        <button class="stab" id="stab-devices" onclick="switchTab('devices')">📱 Devices</button>
+        <button class="stab" id="stab-rates" onclick="switchTab('rates')">⚡ Rates</button>
       </div>
       <button class="btn bico" onclick="closeSettings()" style="font-size:16px;color:var(--text3)">✕</button>
     </div>
@@ -1323,7 +1321,7 @@ function closeMenuOutside(e){if(!document.getElementById('menu-btn').contains(e.
 let _activeTab='rates';
 
 function openSettings(tab){
-  _activeTab=tab||'rates';
+  _activeTab=tab||'general';
   const modal=document.getElementById('settings-modal');
   modal.style.display='flex';
   switchTab(_activeTab);
@@ -1337,7 +1335,7 @@ function openSettings(tab){
 function closeSettings(){document.getElementById('settings-modal').style.display='none';}
 
 function switchTab(tab){
-  ['rates','devices','general'].forEach(t=>{
+  ['general','devices','rates'].forEach(t=>{
     document.getElementById('stab-'+t).classList.toggle('active',t===tab);
     document.getElementById('stab-content-'+t).style.display=t===tab?'block':'none';
   });
