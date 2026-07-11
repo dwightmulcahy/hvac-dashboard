@@ -48,8 +48,7 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
 .btn{background:transparent;border:1px solid var(--border2);border-radius:var(--r);padding:5px 12px;font-size:12px;cursor:pointer;color:var(--text);font-family:'DM Sans',sans-serif;transition:background .15s}
 .btn:hover{background:var(--bg3)}.btn:active{transform:scale(.97)}
 .bico{width:28px;height:28px;display:flex;align-items:center;justify-content:center;padding:0;border-radius:8px}
-.irow{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);flex-wrap:wrap}
-.irow:last-child{border-bottom:none}
+.irow{padding:6px 0;border-bottom:1px solid var(--border)}
 .inp{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:5px 9px;font-size:12px;color:var(--text);font-family:'DM Mono',monospace;outline:none}
 .inp:focus{border-color:var(--border2)}
 .ucard{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rl);padding:0 16px;margin-bottom:20px}
@@ -293,7 +292,7 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
 
 <!-- Settings modal -->
 <div id="settings-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:150;align-items:center;justify-content:center">
-  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl);width:480px;max-width:96vw;max-height:90vh;display:flex;flex-direction:column">
+  <div id="settings-modal-inner" style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl);width:720px;max-width:96vw;max-height:90vh;display:flex;flex-direction:column">
     <!-- header -->
     <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 18px 0">
       <div style="display:flex;gap:2px">
@@ -933,45 +932,48 @@ function removeDevice(i){
 }
 
 function renderIPList(){
-  const header=`<div style="display:flex;gap:8px;align-items:center;padding:0 0 6px 0;border-bottom:1px solid var(--border);margin-bottom:4px;font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;font-weight:500;letter-spacing:.03em">
-    <div style="width:18px"></div>
-    <div style="width:88px">Name</div>
-    <div style="width:200px">Host / IP</div>
-    <div style="width:68px">BTU</div>
-    <div style="width:68px">SEER</div>
-    <div style="width:68px">Max°C</div>
-    <div style="width:68px">Alert</div>
+  const header=`<div style="display:grid;grid-template-columns:20px 100px 1fr 62px 72px 70px 62px auto;gap:6px;align-items:center;padding:0 0 6px 0;border-bottom:1px solid var(--border);margin-bottom:2px;font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;font-weight:500;letter-spacing:.04em">
+    <div></div>
+    <div>Name</div>
+    <div>Host / IP</div>
+    <div>BTU</div>
+    <div>SEER</div>
+    <div>Max°C</div>
+    <div>Alert</div>
+    <div></div>
   </div>`;
   document.getElementById('ip-list').innerHTML=header+devices.map((d,i)=>`
     <div class="irow" data-orig-host="${d.host}" data-idx="${i}" draggable="true"
       ondragstart="dragStart(event,${i})" ondragover="dragOver(event)" ondrop="dragDrop(event,${i})" ondragend="dragEnd(event)"
-      style="cursor:default">
-      <span title="Drag to reorder" style="cursor:grab;color:var(--text3);font-size:14px;padding:0 2px;user-select:none">⠿</span>
+      style="display:grid;grid-template-columns:20px 100px 1fr 62px 72px 70px 62px auto;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+      <span title="Drag to reorder" style="cursor:grab;color:var(--text3);font-size:14px;user-select:none;text-align:center">⠿</span>
       <input class="inp" value="${d.name==='New unit'?'':d.name}" placeholder="Name"
         oninput="devices[${i}].name=this.value;setDeviceDirty(${i})"
-        style="width:88px">
+        style="width:100%;font-size:12px">
       <input class="inp" value="${d.host==='esphome-device.lan'?'':d.host}" placeholder="hostname or IP"
         oninput="devices[${i}].host=this.value;setDeviceDirty(${i})"
-        style="width:200px">
-      <select class="inp" onchange="devices[${i}].btu=+this.value;saveDeviceToAPI(devices[${i}])" style="width:68px">
+        style="width:100%;font-size:12px">
+      <select class="inp" onchange="devices[${i}].btu=+this.value;saveDeviceToAPI(devices[${i}])" style="width:100%;font-size:12px">
         ${BTU_OPTIONS.map(b=>`<option value="${b}" ${d.btu===b?'selected':''}>${b/1000}K</option>`).join('')}
       </select>
-      <select class="inp" onchange="devices[${i}].seer=+this.value;saveDeviceToAPI(devices[${i}])" style="width:68px" title="SEER rating">
-        ${SEER_OPTIONS.map(s=>`<option value="${s}" ${(d.seer||20)===s?'selected':''}>${s} SEER</option>`).join('')}
+      <select class="inp" onchange="devices[${i}].seer=+this.value;saveDeviceToAPI(devices[${i}])" style="width:100%;font-size:12px">
+        ${SEER_OPTIONS.map(s=>`<option value="${s}" ${(d.seer||20)===s?'selected':''}>${s}</option>`).join('')}
       </select>
-      <input type="number" class="inp" value="${d.maxTemp||''}" placeholder="Max°C" min="17" max="35"
-        title="If room exceeds this temp while AC is off, auto-turn on until cooled"
+      <input type="number" class="inp" value="${d.maxTemp||''}" placeholder="—" min="17" max="35"
+        title="Auto-on if room exceeds this °C while off"
         onchange="devices[${i}].maxTemp=this.value?+this.value:null;saveDeviceToAPI(devices[${i}])"
-        style="width:68px">
+        style="width:100%;font-size:12px">
       <input type="number" class="inp" value="${d.watchdog_minutes||''}" placeholder="5" min="1" max="60"
-        title="Alert if no response for this many minutes (watchdog timeout)"
+        title="Alert if no response for this many minutes"
         onchange="devices[${i}].watchdog_minutes=+this.value;saveDeviceToAPI(devices[${i}])"
-        style="width:68px">
-      <button class="btn bico" id="save-btn-${i}" onclick="saveDeviceRow(${i})" title="Save changes"
-        style="color:var(--text3);cursor:not-allowed" disabled>✓</button>
-      <button class="btn bico" onclick="testDevice(${i})" title="Test connection — checks device is reachable">⚡</button>
-      ${d.loading?'<span class="spinner"></span>':`<button class="btn bico" onclick="pollDevice(${i}).then(updateSummary)" title="Poll">↺</button>`}
-      <button class="btn bico" onclick="removeDevice(${i})" style="color:#ef4444" title="Remove">✕</button>
+        style="width:100%;font-size:12px">
+      <div style="display:flex;gap:3px;flex-shrink:0">
+        <button class="btn bico" id="save-btn-${i}" onclick="saveDeviceRow(${i})" title="Save"
+          style="color:var(--text3);cursor:not-allowed" disabled>✓</button>
+        <button class="btn bico" onclick="testDevice(${i})" title="Test connection">⚡</button>
+        ${d.loading?'<span class="spinner"></span>':`<button class="btn bico" onclick="pollDevice(${i}).then(updateSummary)" title="Poll">↺</button>`}
+        <button class="btn bico" onclick="removeDevice(${i})" style="color:#ef4444" title="Remove">✕</button>
+      </div>
     </div>
   `).join('');
 }

@@ -985,7 +985,9 @@ async def restore(data: dict):
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "service": "HVAC Automation API", "version": "v1.1.0", "build": "7/6/2026",
+    return {"status": "ok", "service": "HVAC Automation API",
+            "version": os.environ.get("APP_VERSION", "dev"),
+            "build": os.environ.get("BUILD_DATE", ""),
             "devices": len(_state["devices"]), "schedules": len(_state["schedules"])}
 
 @app.delete("/reset")

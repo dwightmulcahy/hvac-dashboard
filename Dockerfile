@@ -1,5 +1,9 @@
 FROM python:3.12-slim
 
+# Build args — injected by GitHub Actions from git tag
+ARG APP_VERSION=dev
+ARG BUILD_DATE=unknown
+
 # Install nginx, supervisor, curl
 RUN apt-get update && apt-get install -y nginx supervisor curl && \
     rm -rf /var/lib/apt/lists/*
@@ -24,6 +28,10 @@ COPY api.py /app/api.py
 
 # Fix permissions
 RUN chown -R www-data:www-data /var/www/html && chmod -R 755 /var/www/html
+
+# Expose version at runtime
+ENV APP_VERSION=${APP_VERSION}
+ENV BUILD_DATE=${BUILD_DATE}
 
 EXPOSE 80
 
