@@ -97,6 +97,12 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
 .sch-meta{font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:2px}
 .sch-acts{font-size:11px;color:var(--text2);margin-top:2px}
 .sch-last{font-size:10px;color:var(--text3);margin-top:2px}
+.stab{background:transparent;border:none;border-bottom:2px solid transparent;padding:6px 12px;font-size:12px;cursor:pointer;color:var(--text3);border-radius:var(--r) var(--r) 0 0;transition:all .15s}
+.stab:hover{color:var(--text);background:var(--bg3)}
+.stab.active{color:var(--text);border-bottom-color:var(--cool)}
+.menu-item{padding:9px 14px;font-size:12px;cursor:pointer;color:var(--text);transition:background .1s;white-space:nowrap}
+.menu-item:hover{background:var(--bg3)}
+.menu-divider{height:1px;background:var(--border);margin:3px 0}
 .tog{position:relative;width:34px;height:18px;flex-shrink:0}
 .tog input{opacity:0;width:0;height:0}
 .tog-sl{position:absolute;inset:0;background:var(--bg3);border-radius:18px;cursor:pointer;border:1px solid var(--border2);transition:.2s}
@@ -107,20 +113,29 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
 </head>
 <body>
 
-<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-  <div>
-    <h1>HVAC Dashboard</h1>
-    <p class="sub">ESPHome · SLWF-01pro · Midea</p>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:8px">
+  <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
+    <div>
+      <h1>HVAC Dashboard</h1>
+      <p class="sub">ESPHome · SLWF-01pro · Midea</p>
+    </div>
+    <span id="api-status" style="font-size:11px;font-family:'DM Mono',monospace;padding:3px 8px;border-radius:6px;background:var(--bg3);color:var(--text3);white-space:nowrap">⬤ API</span>
   </div>
-  <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-    <span id="api-status" style="font-size:11px;font-family:'DM Mono',monospace;padding:3px 8px;border-radius:6px;background:var(--bg3);color:var(--text3)">⬤ API</span>
-    <button class="btn" onclick="pollAll()" style="font-size:12px">↺ Poll</button>
-    <button class="btn" onclick="openScheduleModal()" style="font-size:12px">+ Schedule</button>
-    <button class="btn" onclick="openRateSettings()" style="font-size:12px" id="rate-btn">⚡ Rates</button>
-    <button class="btn" id="vacation-btn" onclick="toggleVacationMode()" style="font-size:12px" title="Sets all units to high max-temp guard and pauses schedules">🌴 Vacation</button>
-    <button class="btn" onclick="toggleDevicePanel()" style="font-size:12px" id="devices-btn">⚙ Devices</button>
-    <button class="btn" onclick="toggleTheme()" style="font-size:12px" id="theme-btn" title="Toggle dark/light mode">☀️</button>
-    <button class="btn" onclick="document.getElementById('about-modal').style.display='flex'" style="font-size:12px">ℹ About</button>
+  <div style="position:relative;flex-shrink:0">
+    <button class="btn" onclick="toggleMenu()" id="menu-btn" style="font-size:15px;padding:4px 10px;letter-spacing:1px">···</button>
+    <div id="dropdown-menu" style="display:none;position:absolute;right:0;top:calc(100% + 6px);background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl);min-width:180px;z-index:150;box-shadow:0 8px 24px rgba(0,0,0,.4);overflow:hidden">
+      <div class="menu-item" onclick="pollAll();closeMenu()">↺ Poll</div>
+      <div class="menu-item" onclick="openScheduleModal();closeMenu()">+ Schedule</div>
+      <div class="menu-divider"></div>
+      <div class="menu-item" id="vacation-menu-item" onclick="toggleVacationMode();closeMenu()">🌴 Vacation mode</div>
+      <div class="menu-item" onclick="toggleTheme();closeMenu()" id="theme-menu-item">☀️ Light mode</div>
+      <div class="menu-divider"></div>
+      <div class="menu-item" onclick="openSettings('rates');closeMenu()">⚡ Rates</div>
+      <div class="menu-item" onclick="openSettings('devices');closeMenu()">⚙ Devices</div>
+      <div class="menu-item" onclick="openSettings('general');closeMenu()">🔧 General</div>
+      <div class="menu-divider"></div>
+      <div class="menu-item" onclick="document.getElementById('about-modal').style.display='flex';closeMenu()">ℹ About</div>
+    </div>
   </div>
 </div>
 
@@ -176,14 +191,6 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
 </div>
 
 <!-- Devices panel — hidden by default, slides in as overlay -->
-<div id="device-panel" style="display:none;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl);padding:14px 16px;margin-bottom:16px">
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-    <span style="font-size:13px;font-weight:500">Devices</span>
-    <button class="btn bico" onclick="addDevice()" title="Add device" style="font-size:14px">+</button>
-  </div>
-  <div id="ip-list"></div>
-</div>
-
 <!-- Unit tiles -->
 <div id="unit-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;margin-bottom:16px"></div>
 
@@ -286,55 +293,56 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
   </div>
 </div>
 
-<!-- Rate settings modal -->
-<div id="rate-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;align-items:center;justify-content:center">
-  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl);padding:20px;width:340px;max-width:95vw">
-    <div style="font-size:14px;font-weight:500;margin-bottom:16px">⚡ Electricity Rate Settings</div>
-
-    <div class="clabel" style="margin-bottom:4px">PROVIDER</div>
-    <input type="text" id="rs-provider" class="inp" style="width:100%;margin-bottom:12px" placeholder="e.g. Coopeguanacaste">
-
-    <div style="display:flex;gap:10px;margin-bottom:12px">
-      <div style="flex:1">
-        <div class="clabel" style="margin-bottom:4px">EXCHANGE RATE (₡/USD)</div>
-        <div style="display:flex;gap:6px;align-items:center">
-          <input type="number" id="rs-xr" class="inp" style="flex:1" min="1" oninput="updateRatePreview()">
-          <button class="btn" onclick="fetchLiveExchangeRate()" style="font-size:11px;padding:2px 8px;white-space:nowrap" id="rs-xr-fetch">↻ Live</button>
+<!-- Settings modal -->
+<div id="settings-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:150;align-items:center;justify-content:center">
+  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl);width:480px;max-width:96vw;max-height:90vh;display:flex;flex-direction:column">
+    <!-- header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 18px 0">
+      <div style="display:flex;gap:2px">
+        <button class="stab active" id="stab-rates" onclick="switchTab('rates')">⚡ Rates</button>
+        <button class="stab" id="stab-devices" onclick="switchTab('devices')">⚙ Devices</button>
+        <button class="stab" id="stab-general" onclick="switchTab('general')">🔧 General</button>
+      </div>
+      <button class="btn bico" onclick="closeSettings()" style="font-size:16px;color:var(--text3)">✕</button>
+    </div>
+    <!-- body -->
+    <div style="overflow-y:auto;padding:16px 18px 18px;flex:1">
+      <!-- Rates tab -->
+      <div id="stab-content-rates">
+        <div id="settings-rates-body"></div>
+      </div>
+      <!-- Devices tab -->
+      <div id="stab-content-devices" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <span style="font-size:12px;color:var(--text2)">Drag ⠿ to reorder</span>
+          <button class="btn bico" onclick="addDevice()" title="Add device" style="font-size:14px">+</button>
         </div>
-        <div id="rs-xr-status" style="font-size:10px;color:var(--text3);margin-top:3px;font-family:'DM Mono',monospace"></div>
+        <div id="ip-list"></div>
       </div>
-      <div style="flex:1">
-        <div class="clabel" style="margin-bottom:4px">EST. MONTHLY kWh</div>
-        <input type="number" id="rs-kwh" class="inp" style="width:100%" min="1" placeholder="400" oninput="updateRatePreview()">
+      <!-- General tab -->
+      <div id="stab-content-general" style="display:none">
+        <div style="font-size:12px;color:var(--text2);line-height:2">
+          <div style="margin-bottom:12px">
+            <div class="clabel" style="margin-bottom:4px">POLL INTERVAL (seconds)</div>
+            <input type="number" id="gen-poll" class="inp" style="width:100px" min="10" max="300" value="60">
+          </div>
+          <div style="margin-bottom:12px">
+            <div class="clabel" style="margin-bottom:4px">DEFAULT SEER (new devices)</div>
+            <select id="gen-seer" class="inp" style="width:100px">
+              ${[14,16,18,20,22,24].map(s=>`<option value="${s}" ${s===20?'selected':''}>${s}</option>`).join('')}
+            </select>
+          </div>
+          <div style="margin-bottom:12px">
+            <div class="clabel" style="margin-bottom:4px">DEFAULT WATCHDOG (minutes)</div>
+            <input type="number" id="gen-watchdog" class="inp" style="width:100px" min="1" max="60" value="5">
+          </div>
+          <div style="margin-bottom:12px">
+            <div class="clabel" style="margin-bottom:4px">VACATION MAX TEMP (°C)</div>
+            <input type="number" id="gen-vacation-temp" class="inp" style="width:100px" min="25" max="40" value="32">
+          </div>
+        </div>
+        <button class="btn" onclick="saveGeneralSettings()" style="border-color:var(--ok);color:var(--ok);margin-top:4px">Save</button>
       </div>
-    </div>
-
-    <div style="margin-bottom:12px">
-      <div class="clabel" style="margin-bottom:4px">AC DAILY RUNTIME (hrs)</div>
-      <input type="number" id="rs-hrs" class="inp" style="width:100px" min="1" max="24" step="0.5">
-    </div>
-
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-      <input type="checkbox" id="rs-tiered" onchange="toggleTieredUI()">
-      <label for="rs-tiered" style="font-size:13px">Tiered / block rates</label>
-    </div>
-
-    <div id="rs-tiers-section">
-      <div class="clabel" style="margin-bottom:6px">TIERS (₡/kWh)</div>
-      <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Each tier applies to kWh up to that threshold</div>
-      <div id="rs-tiers"></div>
-    </div>
-
-    <div id="rs-flat-section" style="display:none">
-      <div class="clabel" style="margin-bottom:4px">FLAT RATE (USD/kWh)</div>
-      <input type="number" id="rs-flat" class="inp" style="width:100px" min="0" step="0.001">
-    </div>
-
-    <div style="background:var(--bg3);border-radius:8px;padding:8px 10px;font-size:11px;margin-top:12px;font-family:'DM Mono',monospace" id="rs-preview"></div>
-
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
-      <button class="btn" onclick="closeRateSettings()">Cancel</button>
-      <button class="btn" onclick="saveRateSettingsUI()" style="border-color:var(--ok);color:var(--ok)">Save</button>
     </div>
   </div>
 </div>
@@ -347,8 +355,27 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
     <div class="clabel" style="margin-bottom:4px">DEVICE</div>
     <select id="sch-device" class="inp" style="width:100%;margin-bottom:12px"></select>
 
-    <div class="clabel" style="margin-bottom:4px">TIME</div>
-    <input type="time" id="sch-time" class="inp" style="width:100%;margin-bottom:12px">
+    <div class="clabel" style="margin-bottom:8px">TIME</div>
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px;justify-content:center">
+      <div style="text-align:center">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:4px;font-family:'DM Mono',monospace">HOUR</div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:0">
+          <button onclick="adjustTimePicker('h',1)" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px;padding:2px 12px;border-radius:6px" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='none'">▲</button>
+          <div id="tp-hour" style="font-size:28px;font-weight:500;font-family:'DM Mono',monospace;padding:8px 16px;background:var(--bg3);border-radius:10px;min-width:60px;text-align:center;cursor:pointer" onclick="this.contentEditable=true;this.focus()" onblur="this.contentEditable=false;snapTimePicker()">07</div>
+          <button onclick="adjustTimePicker('h',-1)" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px;padding:2px 12px;border-radius:6px" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='none'">▼</button>
+        </div>
+      </div>
+      <div style="font-size:28px;font-weight:300;color:var(--text3);margin-top:10px">:</div>
+      <div style="text-align:center">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:4px;font-family:'DM Mono',monospace">MIN</div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:0">
+          <button onclick="adjustTimePicker('m',5)" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px;padding:2px 12px;border-radius:6px" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='none'">▲</button>
+          <div id="tp-min" style="font-size:28px;font-weight:500;font-family:'DM Mono',monospace;padding:8px 16px;background:var(--bg3);border-radius:10px;min-width:60px;text-align:center;cursor:pointer" onclick="this.contentEditable=true;this.focus()" onblur="this.contentEditable=false;snapTimePicker()">00</div>
+          <button onclick="adjustTimePicker('m',-5)" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px;padding:2px 12px;border-radius:6px" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='none'">▼</button>
+        </div>
+      </div>
+    </div>
+    <input type="hidden" id="sch-time" value="07:00">
 
     <div class="clabel" style="margin-bottom:6px">DAYS</div>
     <div style="display:flex;gap:5px;margin-bottom:6px">
@@ -466,8 +493,8 @@ let _theme=localStorage.getItem('hvac_theme')||'dark';
 function applyTheme(t){
   _theme=t;
   document.documentElement.classList.toggle('light',t==='light');
-  const btn=document.getElementById('theme-btn');
-  if(btn)btn.textContent=t==='light'?'🌙':'☀️';
+  const mi=document.getElementById('theme-menu-item');
+  if(mi)mi.textContent=t==='light'?'🌙 Dark mode':'☀️ Light mode';
   localStorage.setItem('hvac_theme',t);
 }
 function toggleTheme(){applyTheme(_theme==='dark'?'light':'dark');}
@@ -479,18 +506,16 @@ const VACATION_MAX_TEMP=32;
 async function applyVacationMode(enabled){
   vacationMode=enabled;
   localStorage.setItem('hvac_vacation',enabled);
-  const btn=document.getElementById('vacation-btn');
-  if(btn){
-    btn.style.borderColor=enabled?'var(--warn)':'var(--border2)';
-    btn.style.color=enabled?'var(--warn)':'var(--text)';
-    btn.textContent=enabled?'🌴 Vacation ●':'🌴 Vacation';
-  }
+  const mi=document.getElementById('vacation-menu-item');
+  if(mi)mi.textContent=enabled?'🌴 Vacation mode ●':'🌴 Vacation mode';
+  if(mi)mi.style.color=enabled?'var(--warn)':'';
+  const vacTemp=VACATION_MAX_TEMP_SETTING||32;
   if(enabled){
     // turn off all devices and set high max-temp guard
     for(const d of devices){
       d._vacationOrigMaxTemp=d.maxTemp;
       d._vacationOrigMode=d.state?.mode;
-      d.maxTemp=VACATION_MAX_TEMP;
+      d.maxTemp=vacTemp;
       saveDeviceToAPI(d);
       // turn off if currently on
       if(d.state&&d.state.mode!=='OFF'){
@@ -504,7 +529,7 @@ async function applyVacationMode(enabled){
         fetch(`${API}/schedules/${s.id}/toggle`,{method:'POST'}).catch(_=>{});
       }
     });
-    addLog(`🌴 Vacation mode ON — all units off, max temp ${VACATION_MAX_TEMP}°C, schedules paused`,'warn');
+    addLog(`🌴 Vacation mode ON — all units off, max temp ${vacTemp}°C, schedules paused`,'warn');
   }else{
     // restore original max-temp per device
     for(const d of devices){
@@ -889,22 +914,16 @@ async function toggleBeeper(i){
 }
 
 async function addDevice(){
-  const el=document.getElementById('device-panel');
-  const btn=document.getElementById('devices-btn');
-  if(el.style.display==='none'){
-    el.style.display='block';
-    btn.style.borderColor='var(--cool)';btn.style.color='var(--cool)';
-  }
   try{
+    const gen=JSON.parse(localStorage.getItem('hvac_general')||'{}');
     await fetch(`${API}/devices`,{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({host:'esphome-device.lan',name:'New unit',
-        btu:24000,seer:20,max_temp:null,beeper:'OFF',watchdog_minutes:5})
+        btu:24000,seer:gen.seer||20,max_temp:null,beeper:'OFF',watchdog_minutes:gen.watchdog||5})
     });
   }catch(_){}
-  // reload from API — device is now persisted server-side
   await loadDevicesFromAPI();
-  renderIPList();
+  openSettings('devices');
   addLog('Device added — edit hostname and name.','info');
 }
 
@@ -1170,15 +1189,6 @@ function exportCSV(){
   window.location.href=`${API}/usage/export-csv?month=${month}`;
 }
 
-function toggleDevicePanel(){
-  const el=document.getElementById('device-panel');
-  const btn=document.getElementById('devices-btn');
-  const open=el.style.display==='none';
-  el.style.display=open?'block':'none';
-  btn.style.borderColor=open?'var(--cool)':'var(--border2)';
-  btn.style.color=open?'var(--cool)':'var(--text)';
-}
-
 function toggleSection(bodyId,arrowId){
   const el=document.getElementById(bodyId);
   const arrow=document.getElementById(arrowId);
@@ -1299,7 +1309,108 @@ async function runMaxTempMonitor(){
   }
 }
 
-// ── Rate settings UI ─────────────────────────────────────
+// ── ··· Menu ─────────────────────────────────────────────
+function toggleMenu(){
+  const m=document.getElementById('dropdown-menu');
+  const open=m.style.display==='none';
+  m.style.display=open?'block':'none';
+  if(open)setTimeout(()=>document.addEventListener('click',closeMenuOutside,{once:true}),0);
+}
+function closeMenu(){document.getElementById('dropdown-menu').style.display='none';}
+function closeMenuOutside(e){if(!document.getElementById('menu-btn').contains(e.target))closeMenu();}
+
+// ── Settings modal ────────────────────────────────────────
+let _activeTab='rates';
+
+function openSettings(tab){
+  _activeTab=tab||'rates';
+  const modal=document.getElementById('settings-modal');
+  modal.style.display='flex';
+  switchTab(_activeTab);
+  // populate general tab values
+  document.getElementById('gen-poll').value=rateSettings.dailyHrs&&_state_settings?.poll_interval||60;
+  document.getElementById('gen-seer').value=20;
+  document.getElementById('gen-watchdog').value=5;
+  document.getElementById('gen-vacation-temp').value=VACATION_MAX_TEMP_SETTING||32;
+}
+
+function closeSettings(){document.getElementById('settings-modal').style.display='none';}
+
+function switchTab(tab){
+  ['rates','devices','general'].forEach(t=>{
+    document.getElementById('stab-'+t).classList.toggle('active',t===tab);
+    document.getElementById('stab-content-'+t).style.display=t===tab?'block':'none';
+  });
+  _activeTab=tab;
+  if(tab==='rates')populateRatesTab();
+  if(tab==='devices')renderIPList();
+}
+
+function populateRatesTab(){
+  // render the rates form content into the settings modal
+  const s=rateSettings;
+  document.getElementById('settings-rates-body').innerHTML=`
+    <div style="display:flex;gap:10px;margin-bottom:12px">
+      <div style="flex:1">
+        <div class="clabel" style="margin-bottom:4px">PROVIDER</div>
+        <input type="text" id="rs-provider" class="inp" style="width:100%" placeholder="e.g. Coopeguanacaste" value="${s.provider||'Coopeguanacaste'}">
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-bottom:12px">
+      <div style="flex:1">
+        <div class="clabel" style="margin-bottom:4px">EXCHANGE RATE (₡/USD)</div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="number" id="rs-xr" class="inp" style="flex:1" min="1" value="${s.exchangeRate||455}" oninput="updateRatePreview()">
+          <button class="btn" onclick="fetchLiveExchangeRate()" style="font-size:11px;padding:2px 8px;white-space:nowrap" id="rs-xr-fetch">↻ Live</button>
+        </div>
+        <div id="rs-xr-status" style="font-size:10px;color:var(--text3);margin-top:3px;font-family:'DM Mono',monospace"></div>
+      </div>
+      <div style="flex:1">
+        <div class="clabel" style="margin-bottom:4px">EST. MONTHLY kWh</div>
+        <input type="number" id="rs-kwh" class="inp" style="width:100%" min="1" placeholder="400" value="${s.monthlyKwh||400}" oninput="updateRatePreview()">
+      </div>
+    </div>
+    <div style="margin-bottom:12px">
+      <div class="clabel" style="margin-bottom:4px">AC DAILY RUNTIME (hrs)</div>
+      <input type="number" id="rs-hrs" class="inp" style="width:100px" min="1" max="24" step="0.5" value="${s.dailyHrs||8}">
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+      <input type="checkbox" id="rs-tiered" onchange="toggleTieredUI()" ${s.tiered!==false?'checked':''}>
+      <label for="rs-tiered" style="font-size:13px">Tiered / block rates</label>
+    </div>
+    <div id="rs-tiers-section" ${s.tiered===false?'style="display:none"':''}>
+      <div class="clabel" style="margin-bottom:6px">TIERS (₡/kWh)</div>
+      <div id="rs-tiers"></div>
+    </div>
+    <div id="rs-flat-section" ${s.tiered!==false?'style="display:none"':''}>
+      <div class="clabel" style="margin-bottom:4px">FLAT RATE (USD/kWh)</div>
+      <input type="number" id="rs-flat" class="inp" style="width:100px" min="0" step="0.001" value="${s.flatRate||0.14}">
+    </div>
+    <div style="background:var(--bg3);border-radius:8px;padding:8px 10px;font-size:11px;margin-top:12px;font-family:'DM Mono',monospace" id="rs-preview"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:14px">
+      <button class="btn" onclick="saveRateSettingsUI()" style="border-color:var(--ok);color:var(--ok)">Save</button>
+    </div>`;
+  renderTierInputs();
+  updateRatePreview();
+}
+
+function saveGeneralSettings(){
+  const poll=+document.getElementById('gen-poll').value||60;
+  const seer=+document.getElementById('gen-seer').value||20;
+  const watchdog=+document.getElementById('gen-watchdog').value||5;
+  const vacTemp=+document.getElementById('gen-vacation-temp').value||32;
+  VACATION_MAX_TEMP_SETTING=vacTemp;
+  localStorage.setItem('hvac_general',JSON.stringify({poll,seer,watchdog,vacTemp}));
+  fetch(`${API}/settings`,{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({poll_interval:poll})}).catch(_=>{});
+  addLog(`General settings saved`,'ok');
+  closeSettings();
+}
+
+// general settings storage
+let VACATION_MAX_TEMP_SETTING=(()=>{try{return JSON.parse(localStorage.getItem('hvac_general')||'{}').vacTemp||32;}catch(_){return 32;}})();
+
+
 async function fetchLiveExchangeRate(){
   const btn=document.getElementById('rs-xr-fetch');
   const status=document.getElementById('rs-xr-status');
@@ -1324,20 +1435,6 @@ async function fetchLiveExchangeRate(){
   }
 }
 
-function openRateSettings(){
-  const s=rateSettings;
-  document.getElementById('rs-provider').value=s.provider||'Coopeguanacaste';
-  document.getElementById('rs-xr').value=s.exchangeRate||530;
-  document.getElementById('rs-kwh').value=s.monthlyKwh||400;
-  document.getElementById('rs-hrs').value=s.dailyHrs||8;
-  document.getElementById('rs-tiered').checked=s.tiered!==false;
-  document.getElementById('rs-flat').value=s.flatRate||0.14;
-  renderTierInputs();
-  toggleTieredUI();
-  updateRatePreview();
-  document.getElementById('rate-modal').style.display='flex';
-}
-function closeRateSettings(){document.getElementById('rate-modal').style.display='none';}
 function renderTierInputs(){
   const tiers=rateSettings.tiers||RATE_DEFAULTS.tiers;
   document.getElementById('rs-tiers').innerHTML=tiers.map((t,i)=>`
@@ -1386,11 +1483,10 @@ function saveRateSettingsUI(){
     flatRate:+document.getElementById('rs-flat').value||0.14,
   };
   saveRateSettings(rateSettings);
-  // push to API
   fetch(`${API}/settings`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(rateSettings)}).catch(_=>{});
   updatePeakCard();updateSummary();
   addLog(`Rates saved: $${effectiveRateUsd().toFixed(3)}/kWh · ${rateSettings.provider} · ${rateSettings.monthlyKwh} kWh/mo`,'ok');
-  closeRateSettings();
+  closeSettings();
 }
 
 const DAY_NAMES=['Su','Mo','Tu','We','Th','Fr','Sa'];
@@ -1407,18 +1503,44 @@ async function loadSchedulesFromAPI(){
 function loadSchedules(){loadSchedulesFromAPI();}
 function saveSchedules(){} // no-op, API handles persistence
 
+// ── Time picker ───────────────────────────────────────────
+function setTimePicker(hhmm){
+  const [h,m]=(hhmm||'07:00').split(':');
+  document.getElementById('tp-hour').textContent=h.padStart(2,'0');
+  document.getElementById('tp-min').textContent=m.padStart(2,'0');
+  document.getElementById('sch-time').value=`${h.padStart(2,'0')}:${m.padStart(2,'0')}`;
+}
+function adjustTimePicker(part,delta){
+  const hEl=document.getElementById('tp-hour');
+  const mEl=document.getElementById('tp-min');
+  let h=parseInt(hEl.textContent)||0;
+  let m=parseInt(mEl.textContent)||0;
+  if(part==='h'){h=(h+delta+24)%24;}
+  else{m=(m+delta+60)%60;}
+  hEl.textContent=String(h).padStart(2,'0');
+  mEl.textContent=String(m).padStart(2,'0');
+  document.getElementById('sch-time').value=`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+}
+function snapTimePicker(){
+  const hEl=document.getElementById('tp-hour');
+  const mEl=document.getElementById('tp-min');
+  let h=Math.min(23,Math.max(0,parseInt(hEl.textContent)||0));
+  let m=Math.min(59,Math.max(0,parseInt(mEl.textContent)||0));
+  hEl.textContent=String(h).padStart(2,'0');
+  mEl.textContent=String(m).padStart(2,'0');
+  document.getElementById('sch-time').value=`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+}
+
 function openScheduleModal(idx=null){
   editSchIdx=idx;
   document.getElementById('sch-modal-title').textContent=idx!==null?'Edit schedule':'Add schedule';
-  // populate device list
   const sel=document.getElementById('sch-device');
   sel.innerHTML=devices.map((d,i)=>`<option value="${i}">${d.name}</option>`).join('');
-  // reset day buttons
   document.querySelectorAll('.dbtn').forEach(b=>b.classList.remove('on'));
   if(idx!==null){
     const s=schedules[idx];
     sel.value=devices.findIndex(d=>d.host===(s.device_host||s.host));
-    document.getElementById('sch-time').value=s.time;
+    setTimePicker(s.time);
     s.days.forEach(d=>document.querySelector(`.dbtn[data-d="${d}"]`)?.classList.add('on'));
     document.getElementById('sch-power-en').checked=s.power!==null;
     document.getElementById('sch-power').value=s.power||'on';
@@ -1427,13 +1549,12 @@ function openScheduleModal(idx=null){
     document.getElementById('sch-temp-en').checked=s.temp!==null;
     document.getElementById('sch-temp').value=s.temp||24;
   }else{
-    document.getElementById('sch-time').value='07:00';
+    setTimePicker('07:00');
     document.getElementById('sch-power-en').checked=false;
     document.getElementById('sch-mode-en').checked=false;
     document.getElementById('sch-temp-en').checked=false;
   }
-  const m=document.getElementById('sch-modal');
-  m.style.display='flex';
+  document.getElementById('sch-modal').style.display='flex';
 }
 
 function selectDays(preset){
@@ -1548,7 +1669,7 @@ function renderSchedules(){
         <div class="sch-name">${s.device_name||s.deviceName} <span style="font-family:'DM Mono',monospace;color:var(--text2);font-weight:400">${s.time}</span>${s.enabled?`<span style="font-size:10px;color:var(--text3);margin-left:6px">${fmtNext(s)}</span>`:''}</div>
         <div class="sch-meta">${fmtDays(s.days)}</div>
         <div class="sch-acts">${fmtActions(s)}</div>
-        ${s.lastRun?`<div class="sch-last">last ran ${s.lastRun}</div>`:''}
+        ${(s.last_run||s.lastRun)?`<div class="sch-last">last ran ${(s.last_run||s.lastRun).split(' ').pop()}</div>`:''}
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
         <label class="tog">
@@ -1584,6 +1705,8 @@ async function runSchedule(s){
     }
   }
   s.lastRun=ts();saveSchedules();renderSchedules();
+  // refresh tiles to show updated state after schedule command
+  setTimeout(()=>pollAll(),3000);
 }
 
 function checkSchedules(){
@@ -1788,6 +1911,12 @@ setInterval(checkApiStatus, 30000);
 setInterval(pollAll,60000);
 setInterval(()=>{updatePeakCard();runMaxTempMonitor();fetchServerLogs();},30000);
 updatePeakCard();
+
+// ── Refresh on browser focus / tab visible ────────────────
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible')pollAll();
+});
+window.addEventListener('focus',()=>pollAll());
 </script>
 </body>
 </html>
