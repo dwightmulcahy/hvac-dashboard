@@ -236,7 +236,7 @@ GitHub Actions builds multi-arch (`amd64` + `arm64`) images and pushes to Docker
 
 ## Developer
 
-Dwight Mulcahy
+dWiGhT Mulcahy
 
 ## License
 

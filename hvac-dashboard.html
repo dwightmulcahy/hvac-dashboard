@@ -199,11 +199,8 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
   <div class="card"><div class="clabel">Avg set pt</div><div class="cval" id="s-set">—</div></div>
   <div class="card"><div class="clabel">Est load</div><div class="cval" id="s-estload">—</div></div>
   <div class="card" id="cost-card">
-    <div class="clabel" id="cost-rate-label">Est cost</div>
-    <div class="cval" style="font-size:18px;margin-top:2px">
-      <span id="s-costmo">—</span>
-    </div>
-    <div style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:2px" id="s-proj-label">—</div>
+    <div class="clabel">Est cost</div>
+    <div class="cval" style="font-size:15px;margin-top:2px" id="s-proj-label">—</div>
   </div>
   <div class="card" id="peak-card" style="display:none">
     <div class="clabel">⚡ Peak rate</div>
@@ -708,7 +705,7 @@ function fmtCost(usd){
 
 function updatePeakCard(){
   const rate=effectiveRateUsd();
-  document.getElementById('cost-rate-label').textContent=`Est cost · $${rate.toFixed(3)}/kWh`;
+  
 
   // hide peak card — not applicable
   document.getElementById('peak-card').style.display='none';
@@ -1147,17 +1144,12 @@ function updateSummary(){
   document.getElementById('s-estload').innerHTML=totalEst>0?totalEst+'<span> W</span>':'<span>—</span>';
   const dayTotal=live.reduce((sum,d)=>{const w=estWatts(d.state,d.extras,d.btu,d.seer);return sum+estCostDay(w);},0);
   const moTotal=live.reduce((sum,d)=>{const w=estWatts(d.state,d.extras,d.btu,d.seer);return sum+estCostMonth(w);},0);
-  document.getElementById('s-costmo').textContent=moTotal>0?'$'+moTotal.toFixed(2):'—';
-  // cost projection subtitle
-  const now=new Date();
-  const dom=now.getDate();
-  const dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
   const projLbl=document.getElementById('s-proj-label');
   if(projLbl){
     if(dayTotal>0){
       const proj=dayTotal*dim;
       projLbl.textContent=`proj. $${proj.toFixed(2)} · $${dayTotal.toFixed(2)}/day`;
-    }else{projLbl.textContent='';}
+    }else{projLbl.textContent='—';}
   }
   renderCostBreakdown(live);
   updatePeakCard();
