@@ -988,8 +988,11 @@ function dragDrop(e,targetIdx){
   const moved=devices.splice(_dragIdx,1)[0];
   devices.splice(targetIdx,0,moved);
   _dragIdx=null;
-  // persist new order to API by saving all devices
-  devices.forEach(d=>saveDeviceToAPI(d));
+  // persist new order to API
+  fetch(`${API}/devices/reorder`,{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({hosts:devices.map(d=>d.host)})
+  }).catch(_=>{});
   renderIPList();
   renderUnits();
   addLog('Device order updated','info');

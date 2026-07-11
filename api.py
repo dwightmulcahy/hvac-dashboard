@@ -599,6 +599,22 @@ class DeviceConfig(BaseModel):
     lock_temp: bool = False
     locked_target_temp: Optional[float] = None
 
+@app.post("/devices/reorder")
+async def reorder_devices(data: dict):
+    """Reorder devices. body: {hosts: ["host1", "host2", ...]}"""
+    hosts = data.get("hosts", [])
+    lookup = {d["host"]: d for d in _state["devices"]}
+    reordered = [lookup[h] for h in hosts if h in lookup]
+    # append any not in the list (shouldn't happen, but be safe)
+    seen = set(hosts)
+    for d in _state["devices"]:
+        if d["host"] not in seen:
+            reordered.append(d)
+    _state["devices"] = reordered
+    async with _lock:
+        _save_raw(_state)
+    return {"ok": True}
+
 @app.get("/devices")
 async def get_devices():
     devices = []
