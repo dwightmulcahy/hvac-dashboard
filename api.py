@@ -504,6 +504,7 @@ async def _check_schedules():
 async def _background_worker():
     _add_log("Background worker started", "info")
     last_schedule_check = ""
+    last_rate_update = ""
 
     while True:
         try:
@@ -521,6 +522,12 @@ async def _background_worker():
             if hhmm != last_schedule_check:
                 last_schedule_check = hhmm
                 await _check_schedules()
+
+            # Auto-update exchange rate daily at 06:00
+            today = datetime.date.today().isoformat()
+            if hhmm == "06:00" and today != last_rate_update:
+                last_rate_update = today
+                await _fetch_exchange_rate()
 
             # Save state after each cycle
             async with _lock:
@@ -834,6 +841,81 @@ async def export_csv(month: Optional[str] = None):
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+
+async def _fetch_exchange_rate() -> Optional[dict]:
+    """Fetch live USD/CRC rate from frankfurter.app (ECB data, free, no key)."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get("https://api.frankfurter.app/latest?from=USD&to=CRC")
+            if r.status_code == 200:
+                data = r.json()
+                rate = round(data["rates"]["CRC"])
+                date = data.get("date", datetime.date.today().isoformat())
+                _state["settings"]["exchangeRate"] = rate
+                _state["settings"]["_rate_date"] = date
+                async with _lock:
+                    _save_raw(_state)
+                _add_log(f"Exchange rate updated: ₡{rate}/USD as of {date}", "info")
+                return {"rate": rate, "date": date}
+    except Exception as e:
+        _add_log(f"Exchange rate fetch failed: {e}", "warn")
+    return None
+
+
+@app.get("/exchange-rate")
+async def get_exchange_rate():
+    """Return current exchange rate, fetching live if not cached today."""
+    cached_date = _state["settings"].get("_rate_date", "")
+    today = datetime.date.today().isoformat()
+    if cached_date != today:
+        result = await _fetch_exchange_rate()
+        if result:
+            return result
+    rate = _state["settings"].get("exchangeRate", 455)
+    return {"rate": rate, "date": cached_date or today}
+
+
+@app.get("/health/push")
+async def health_push():
+    """
+    Uptime Kuma push-compatible endpoint.
+    Returns 200 with status=ok when all devices are healthy,
+    503 when any device is stale.
+    Add to Uptime Kuma as HTTP(s) monitor pointing to /api/health/push
+    """
+    from fastapi.responses import JSONResponse
+    now = datetime.datetime.utcnow()
+    device_health = []
+    any_stale = False
+    for d in _state["devices"]:
+        last_seen = d.get("_last_seen")
+        elapsed = None
+        if last_seen:
+            try:
+                elapsed = round((now - datetime.datetime.fromisoformat(last_seen)).total_seconds() / 60, 1)
+            except Exception:
+                pass
+        stale = d.get("_stale", False)
+        if stale:
+            any_stale = True
+        device_health.append({
+            "name": d["name"],
+            "stale": stale,
+            "minutes_since_seen": elapsed,
+        })
+
+    status_code = 503 if any_stale else 200
+    stale_names = [d["name"] for d in device_health if d["stale"]]
+    msg = f"OK — {len(_state['devices'])} devices online" if not any_stale \
+          else f"DEGRADED — stale: {', '.join(stale_names)}"
+
+    return JSONResponse(status_code=status_code, content={
+        "status": "ok" if not any_stale else "degraded",
+        "msg": msg,
+        "devices": device_health,
+        "timestamp": now.isoformat(),
+    })
+
 
 @app.get("/health")
 async def health():

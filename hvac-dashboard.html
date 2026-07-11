@@ -1417,16 +1417,14 @@ async function fetchLiveExchangeRate(){
   if(btn)btn.textContent='⌛';
   if(status)status.textContent='Fetching…';
   try{
-    // Use frankfurter.app — free, no key required, ECB data
-    const r=await fetch('https://api.frankfurter.app/latest?from=USD&to=CRC',
-      {signal:AbortSignal.timeout(5000)});
+    // route through API to avoid CORS issues
+    const r=await fetch(`${API}/exchange-rate`,{signal:AbortSignal.timeout(8000)});
     if(!r.ok)throw new Error(`HTTP ${r.status}`);
     const data=await r.json();
-    const rate=Math.round(data.rates?.CRC);
-    if(!rate)throw new Error('No CRC rate');
+    const rate=Math.round(data.rate);
+    if(!rate)throw new Error('No rate returned');
     document.getElementById('rs-xr').value=rate;
-    const date=data.date||'today';
-    if(status)status.textContent=`₡${rate}/USD as of ${date}`;
+    if(status)status.textContent=`₡${rate}/USD as of ${data.date||'today'}`;
     updateRatePreview();
   }catch(e){
     if(status)status.textContent=`Failed: ${e.message}`;
@@ -1913,10 +1911,13 @@ setInterval(()=>{updatePeakCard();runMaxTempMonitor();fetchServerLogs();},30000)
 updatePeakCard();
 
 // ── Refresh on browser focus / tab visible ────────────────
-document.addEventListener('visibilitychange',()=>{
-  if(document.visibilityState==='visible')pollAll();
-});
-window.addEventListener('focus',()=>pollAll());
+let _lastFocusPoll=0;
+function focusPoll(){
+  const now=Date.now();
+  if(now-_lastFocusPoll>30000){_lastFocusPoll=now;pollAll();}
+}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')focusPoll();});
+window.addEventListener('focus',focusPoll);
 </script>
 </body>
 </html>
