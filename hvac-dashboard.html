@@ -116,7 +116,6 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
   <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
     <div>
       <h1>HVAC Dashboard</h1>
-      <p class="sub">ESPHome · SLWF-01pro · Midea</p>
     </div>
     <span id="api-status" style="font-size:11px;font-family:'DM Mono',monospace;padding:3px 8px;border-radius:6px;background:var(--bg3);color:var(--text3);white-space:nowrap">⬤ API</span>
   </div>
@@ -126,6 +125,11 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
       <button class="btn" onclick="toggleMenu()" id="menu-btn" style="font-size:15px;padding:4px 10px;letter-spacing:1px">···</button>
       <div id="dropdown-menu" style="display:none;position:absolute;right:0;top:calc(100% + 6px);background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl);min-width:180px;z-index:150;box-shadow:0 8px 24px rgba(0,0,0,.4);overflow:hidden">
         <div class="menu-item" onclick="openScheduleModal();closeMenu()">+ Schedule</div>
+        <div class="menu-divider"></div>
+        <div class="menu-item" onclick="toggleSection('cost-body','cost-arrow');closeMenu()">💰 Cost breakdown</div>
+        <div class="menu-item" onclick="toggleSection('usage-body','usage-arrow');refreshUsageView();closeMenu()">📊 Usage</div>
+        <div class="menu-item" onclick="toggleSection('sched-body','sched-arrow');closeMenu()">🗓 Schedules</div>
+        <div class="menu-item" onclick="toggleSection('log-body','log-arrow');closeMenu()">📋 Log</div>
         <div class="menu-divider"></div>
         <div class="menu-item" id="vacation-menu-item" onclick="toggleVacationMode();closeMenu()">🌴 Vacation mode</div>
         <div class="menu-divider"></div>
