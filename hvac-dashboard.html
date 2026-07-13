@@ -126,10 +126,10 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
       <div id="dropdown-menu" style="display:none;position:absolute;right:0;top:calc(100% + 6px);background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl);min-width:180px;z-index:150;box-shadow:0 8px 24px rgba(0,0,0,.4);overflow:hidden">
         <div class="menu-item" onclick="openScheduleModal();closeMenu()">+ Schedule</div>
         <div class="menu-divider"></div>
-        <div class="menu-item" onclick="toggleSection('cost-body','cost-arrow');closeMenu()">💰 Cost breakdown</div>
-        <div class="menu-item" onclick="toggleSection('usage-body','usage-arrow');refreshUsageView();closeMenu()">📊 Usage</div>
-        <div class="menu-item" onclick="toggleSection('sched-body','sched-arrow');closeMenu()">🗓 Schedules</div>
-        <div class="menu-item" onclick="toggleSection('log-body','log-arrow');closeMenu()">📋 Log</div>
+        <div class="menu-item" onclick="openSection('cost');closeMenu()">💰 Cost breakdown</div>
+        <div class="menu-item" onclick="openSection('usage');closeMenu()">📊 Usage</div>
+        <div class="menu-item" onclick="openSection('schedules');closeMenu()">🗓 Schedules</div>
+        <div class="menu-item" id="log-menu-item" onclick="openSection('log');closeMenu()">📋 Log <span id="log-badge" style="display:none;background:var(--err);color:#fff;font-size:9px;font-weight:600;padding:1px 5px;border-radius:9px;font-family:'DM Mono',monospace;margin-left:4px"></span></div>
         <div class="menu-divider"></div>
         <div class="menu-item" id="vacation-menu-item" onclick="toggleVacationMode();closeMenu()">🌴 Vacation mode</div>
         <div class="menu-divider"></div>
@@ -159,9 +159,9 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
       </div>
       <div style="margin-bottom:12px">
         <span style="color:var(--text3)">Hardware</span><br>
-        <a href="https://innovairus.com" target="_blank" style="color:var(--cool);text-decoration:none">Innovair Bio-Inverter</a>
-        · <a href="https://smartlight.me/smart-home-devices/wi-fi-adaptors/smlight-slwf-01pro" target="_blank" style="color:var(--cool);text-decoration:none">SMLIGHT SLWF-01pro</a>
-        · <a href="https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/smartlight-slwf-01pro.md" target="_blank" style="color:var(--cool);text-decoration:none">Midea protocol</a>
+        <a href="https://int.innovair.com/" target="_blank" style="color:var(--cool);text-decoration:none">Innovair Bio-Inverter</a>
+        · <a href="https://cloudfree.shop/product/ductless-hvac-wi-fi-module/" target="_blank" style="color:var(--cool);text-decoration:none">SMLIGHT SLWF-01pro</a>
+        · <a href="https://smartlight.me/#tab-download" target="_blank" style="color:var(--cool);text-decoration:none">Midea protocol</a>
       </div>
       <div style="margin-bottom:12px">
         <span style="color:var(--text3)">Stack</span><br>
@@ -217,61 +217,24 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
   <div class="card"><div class="clabel">Last poll</div><div style="font-size:13px;font-weight:500;font-family:'DM Mono',monospace;margin-top:2px" id="s-time">—</div></div>
 </div>
 
-<!-- Per-device cost breakdown — collapsible -->
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer" onclick="toggleSection('cost-body','cost-arrow')">
-  <span class="sec" style="margin:0;flex:1">Cost breakdown</span>
-  <span id="cost-arrow" style="font-size:11px;color:var(--text3)">▶</span>
-</div>
-<div id="cost-body" style="display:none;margin-bottom:16px">
-  <div class="ucard"><div id="cost-breakdown-content"><div class="empty">No data yet.</div></div></div>
-</div>
-
-<!-- Usage tracking — collapsible -->
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer" onclick="toggleSection('usage-body','usage-arrow')">
-  <span class="sec" style="margin:0;flex:1">Usage</span>
-  <div style="display:flex;gap:6px;align-items:center" onclick="event.stopPropagation()">
-    <select id="usage-month-sel" class="inp" style="font-size:11px;padding:2px 6px" onchange="refreshUsageView()"></select>
-    <button class="btn" style="font-size:11px;padding:2px 8px" onclick="event.stopPropagation();toggleSection('usage-body','usage-arrow');refreshUsageView()">30 day</button>
-    <button class="btn" style="font-size:11px;padding:2px 8px" onclick="event.stopPropagation();exportCSV()" title="Download CSV">⬇ CSV</button>
+<!-- Section modals (Cost, Usage, Schedules, Log) -->
+<div id="section-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:150;align-items:flex-end;justify-content:center">
+  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl) var(--rl) 0 0;width:100%;max-width:960px;max-height:75vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px 10px;border-bottom:1px solid var(--border)">
+      <span id="section-modal-title" style="font-size:13px;font-weight:500;font-family:'DM Mono',monospace;letter-spacing:.05em;text-transform:uppercase;color:var(--text3)"></span>
+      <div style="display:flex;gap:6px;align-items:center" id="section-modal-toolbar"></div>
+      <button class="btn bico" onclick="closeSection()" style="font-size:16px;color:var(--text3)">✕</button>
+    </div>
+    <div id="section-modal-body" style="overflow-y:auto;padding:16px 18px;flex:1"></div>
   </div>
-  <span id="usage-arrow" style="font-size:11px;color:var(--text3)">▶</span>
-</div>
-<div id="usage-body" style="display:none;margin-bottom:16px">
-  <div id="usage-content" style="font-size:12px;color:var(--text2);padding:8px 0">Loading…</div>
 </div>
 
-<!-- Schedules — collapsible -->
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer" onclick="toggleSection('sched-body','sched-arrow')">
-  <span class="sec" style="margin:0;flex:1">Schedules</span>
-  <span id="sched-arrow" style="font-size:11px;color:var(--text3)">▶</span>
-</div>
-<div id="sched-body" style="display:none;margin-bottom:16px">
-  <div class="ucard"><div id="schedule-list"><div class="empty">No schedules yet.</div></div></div>
-</div>
-
-<!-- Log — collapsible with filters -->
-<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">
-  <div style="display:flex;align-items:center;gap:6px;cursor:pointer;flex:1" onclick="toggleSection('log-body','log-arrow')">
-    <span class="sec" style="margin:0">Log</span>
-    <span id="log-badge" style="display:none;background:var(--err);color:#fff;font-size:9px;font-weight:600;padding:1px 5px;border-radius:9px;font-family:'DM Mono',monospace"></span>
-    <span id="log-arrow" style="font-size:11px;color:var(--text3)">▼</span>
-  </div>
-  <select id="log-filter" class="inp" style="font-size:11px;padding:2px 6px" onchange="renderLog()">
-    <option value="all">All levels</option>
-    <option value="err+">✗ Errors only</option>
-    <option value="warn+">⚠ Warn &amp; above</option>
-    <option value="ok+">✓ OK &amp; above</option>
-    <option value="err">✗ Errors</option>
-    <option value="warn">⚠ Warnings</option>
-    <option value="ok">✓ OK</option>
-    <option value="info">ℹ Info</option>
-  </select>
-  <input type="text" id="log-search" class="inp" placeholder="search…" style="font-size:11px;padding:2px 6px;width:100px" oninput="renderLog()">
-  <button class="btn" onclick="clearLog()" style="font-size:11px;padding:2px 8px">Clear</button>
-</div>
-<div id="log-body">
-  <div class="log" id="log-box"></div>
-</div>
+<!-- Hidden containers for section content (populated by JS) -->
+<div id="cost-breakdown-content" style="display:none"><div class="empty">No data yet.</div></div>
+<div id="usage-content" style="display:none">Loading…</div>
+<div id="schedule-list" style="display:none"><div class="empty">No schedules yet.</div></div>
+<div id="log-box-container" style="display:none"><div class="log" id="log-box"></div></div>
+<select id="usage-month-sel" style="display:none" onchange="refreshUsageView()"></select>
 
 <!-- Connection test modal -->
 <div id="test-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;align-items:center;justify-content:center">
@@ -565,9 +528,8 @@ const logEntries=[];
 function addLog(msg,type='info'){
   logEntries.unshift({msg,type,time:ts()});
   if(logEntries.length>200)logEntries.pop();
-  const logBody=document.getElementById('log-body');
-  const isCollapsed=logBody&&logBody.style.display==='none';
-  if(isCollapsed&&(type==='warn'||type==='err')){
+  // badge: count new warns/errors when log modal is not open
+  if(_activeSection!=='log'&&(type==='warn'||type==='err')){
     _unreadWarns++;
     updateLogBadge();
   }
@@ -1230,7 +1192,6 @@ function toggleSection(bodyId,arrowId){
   const open=el.style.display==='none';
   el.style.display=open?'block':'none';
   if(arrow)arrow.textContent=open?'▼':'▶';
-  if(bodyId==='log-body'&&open){_unreadWarns=0;updateLogBadge();}
   if(bodyId==='usage-body'&&open){
     // show spinner immediately, fetch in background
     const content=document.getElementById('usage-content');
@@ -1344,7 +1305,70 @@ async function runMaxTempMonitor(){
   }
 }
 
-// ── ··· Menu ─────────────────────────────────────────────
+// ── Section modals ────────────────────────────────────────
+let _activeSection=null;
+
+function openSection(name){
+  _activeSection=name;
+  const modal=document.getElementById('section-modal');
+  const title=document.getElementById('section-modal-title');
+  const body=document.getElementById('section-modal-body');
+  const toolbar=document.getElementById('section-modal-toolbar');
+  toolbar.innerHTML='';
+  modal.style.display='flex';
+
+  if(name==='cost'){
+    title.textContent='Cost breakdown';
+    body.innerHTML='';
+    const content=document.getElementById('cost-breakdown-content');
+    body.appendChild(content);
+    content.style.display='block';
+    renderCostBreakdown(devices.filter(d=>d.state&&!d.state.error));
+  }else if(name==='usage'){
+    title.textContent='Usage';
+    toolbar.innerHTML=`
+      <select id="usage-month-sel" class="inp" style="font-size:11px;padding:2px 6px" onchange="refreshUsageView()"></select>
+      <button class="btn" style="font-size:11px;padding:2px 8px" onclick="refreshUsageView()">30 day</button>
+      <button class="btn" style="font-size:11px;padding:2px 8px" onclick="exportCSV()" title="Download CSV">⬇ CSV</button>`;
+    body.innerHTML='<div id="usage-content" style="font-size:12px;color:var(--text2)">⏳ Loading…</div>';
+    initMonthSelector();
+    refreshUsageView();
+  }else if(name==='schedules'){
+    title.textContent='Schedules';
+    toolbar.innerHTML=`<button class="btn" style="font-size:11px;padding:2px 8px" onclick="openScheduleModal()">+ Schedule</button>`;
+    body.innerHTML='<div id="schedule-list"><div class="empty">No schedules yet.</div></div>';
+    renderSchedules();
+  }else if(name==='log'){
+    title.textContent='Log';
+    toolbar.innerHTML=`
+      <select id="log-filter" class="inp" style="font-size:11px;padding:2px 6px" onchange="renderLog()">
+        <option value="all">All levels</option>
+        <option value="err+">✗ Errors only</option>
+        <option value="warn+">⚠ Warn &amp; above</option>
+        <option value="ok+">✓ OK &amp; above</option>
+        <option value="err">✗ Errors</option>
+        <option value="warn">⚠ Warnings</option>
+        <option value="ok">✓ OK</option>
+        <option value="info">ℹ Info</option>
+      </select>
+      <input type="text" id="log-search" class="inp" placeholder="search…" style="font-size:11px;padding:2px 6px;width:90px" oninput="renderLog()">
+      <button class="btn" onclick="clearLog()" style="font-size:11px;padding:2px 8px">Clear</button>`;
+    body.innerHTML='<div class="log" id="log-box"></div>';
+    _unreadWarns=0;
+    updateLogBadge();
+    renderLog();
+    fetchServerLogs();
+  }
+  // close on backdrop click
+  modal.onclick=e=>{if(e.target===modal)closeSection();};
+}
+
+function closeSection(){
+  document.getElementById('section-modal').style.display='none';
+  _activeSection=null;
+}
+
+
 function toggleMenu(){
   const m=document.getElementById('dropdown-menu');
   const open=m.style.display==='none';
