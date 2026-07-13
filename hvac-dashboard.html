@@ -120,18 +120,19 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
     </div>
     <span id="api-status" style="font-size:11px;font-family:'DM Mono',monospace;padding:3px 8px;border-radius:6px;background:var(--bg3);color:var(--text3);white-space:nowrap">⬤ API</span>
   </div>
-  <div style="position:relative;flex-shrink:0">
-    <button class="btn" onclick="toggleMenu()" id="menu-btn" style="font-size:15px;padding:4px 10px;letter-spacing:1px">···</button>
-    <div id="dropdown-menu" style="display:none;position:absolute;right:0;top:calc(100% + 6px);background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl);min-width:180px;z-index:150;box-shadow:0 8px 24px rgba(0,0,0,.4);overflow:hidden">
-      <div class="menu-item" onclick="pollAll();closeMenu()">↺ Poll</div>
-      <div class="menu-item" onclick="openScheduleModal();closeMenu()">+ Schedule</div>
-      <div class="menu-divider"></div>
-      <div class="menu-item" id="vacation-menu-item" onclick="toggleVacationMode();closeMenu()">🌴 Vacation mode</div>
-      <div class="menu-item" onclick="toggleTheme();closeMenu()" id="theme-menu-item">☀️ Light mode</div>
-      <div class="menu-divider"></div>
-      <div class="menu-item" onclick="openSettings('general');closeMenu()">⚙ Settings</div>
-      <div class="menu-divider"></div>
-      <div class="menu-item" onclick="document.getElementById('about-modal').style.display='flex';closeMenu()">ℹ About</div>
+  <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+    <button class="btn" onclick="pollAll()" style="font-size:12px">↺ Poll</button>
+    <div style="position:relative">
+      <button class="btn" onclick="toggleMenu()" id="menu-btn" style="font-size:15px;padding:4px 10px;letter-spacing:1px">···</button>
+      <div id="dropdown-menu" style="display:none;position:absolute;right:0;top:calc(100% + 6px);background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl);min-width:180px;z-index:150;box-shadow:0 8px 24px rgba(0,0,0,.4);overflow:hidden">
+        <div class="menu-item" onclick="openScheduleModal();closeMenu()">+ Schedule</div>
+        <div class="menu-divider"></div>
+        <div class="menu-item" id="vacation-menu-item" onclick="toggleVacationMode();closeMenu()">🌴 Vacation mode</div>
+        <div class="menu-divider"></div>
+        <div class="menu-item" onclick="openSettings('general');closeMenu()">⚙ Settings</div>
+        <div class="menu-divider"></div>
+        <div class="menu-item" onclick="document.getElementById('about-modal').style.display='flex';closeMenu()">ℹ About</div>
+      </div>
     </div>
   </div>
 </div>
@@ -154,7 +155,9 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
       </div>
       <div style="margin-bottom:12px">
         <span style="color:var(--text3)">Hardware</span><br>
-        Innovair Bio-Inverter · SMLIGHT SLWF-01pro · Midea protocol
+        <a href="https://innovairus.com" target="_blank" style="color:var(--cool);text-decoration:none">Innovair Bio-Inverter</a>
+        · <a href="https://smartlight.me/smart-home-devices/wi-fi-adaptors/smlight-slwf-01pro" target="_blank" style="color:var(--cool);text-decoration:none">SMLIGHT SLWF-01pro</a>
+        · <a href="https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/smartlight-slwf-01pro.md" target="_blank" style="color:var(--cool);text-decoration:none">Midea protocol</a>
       </div>
       <div style="margin-bottom:12px">
         <span style="color:var(--text3)">Stack</span><br>
@@ -310,17 +313,29 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
       <div id="stab-content-general" style="display:none">
         <div style="font-size:12px;color:var(--text2);line-height:2">
           <div style="margin-bottom:12px">
+            <div class="clabel" style="margin-bottom:4px">THEME</div>
+            <div style="display:flex;gap:8px">
+              <button class="btn" id="gen-theme-dark" onclick="applyTheme('dark');updateThemeBtns()" style="font-size:12px">🌙 Dark</button>
+              <button class="btn" id="gen-theme-light" onclick="applyTheme('light');updateThemeBtns()" style="font-size:12px">☀️ Light</button>
+            </div>
+          </div>
+          <div style="margin-bottom:12px">
             <div class="clabel" style="margin-bottom:4px">POLL INTERVAL (seconds)</div>
             <input type="number" id="gen-poll" class="inp" style="width:100px" min="10" max="300" value="60">
           </div>
           <div style="margin-bottom:12px">
             <div class="clabel" style="margin-bottom:4px">DEFAULT SEER (new devices)</div>
             <select id="gen-seer" class="inp" style="width:100px">
-              ${[14,16,18,20,22,24].map(s=>`<option value="${s}" ${s===20?'selected':''}>${s}</option>`).join('')}
+              <option value="14">14</option>
+              <option value="16">16</option>
+              <option value="18">18</option>
+              <option value="20" selected>20</option>
+              <option value="22">22</option>
+              <option value="24">24</option>
             </select>
           </div>
           <div style="margin-bottom:12px">
-            <div class="clabel" style="margin-bottom:4px">DEFAULT WATCHDOG (minutes)</div>
+            <div class="clabel" style="margin-bottom:4px">WATCHDOG TIMEOUT (minutes) — all devices</div>
             <input type="number" id="gen-watchdog" class="inp" style="width:100px" min="1" max="60" value="5">
           </div>
           <div style="margin-bottom:12px">
@@ -480,9 +495,8 @@ let _theme=localStorage.getItem('hvac_theme')||'dark';
 function applyTheme(t){
   _theme=t;
   document.documentElement.classList.toggle('light',t==='light');
-  const mi=document.getElementById('theme-menu-item');
-  if(mi)mi.textContent=t==='light'?'🌙 Dark mode':'☀️ Light mode';
   localStorage.setItem('hvac_theme',t);
+  updateThemeBtns();
 }
 function toggleTheme(){applyTheme(_theme==='dark'?'light':'dark');}
 
@@ -922,20 +936,19 @@ function removeDevice(i){
 }
 
 function renderIPList(){
-  const header=`<div style="display:grid;grid-template-columns:20px 95px minmax(160px,1fr) 58px 58px 62px 55px auto;gap:6px;align-items:center;padding:0 0 6px 0;border-bottom:1px solid var(--border);margin-bottom:2px;font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;font-weight:500;letter-spacing:.04em">
+  const header=`<div style="display:grid;grid-template-columns:20px 95px minmax(160px,1fr) 58px 58px 70px auto;gap:6px;align-items:center;padding:0 0 6px 0;border-bottom:1px solid var(--border);margin-bottom:2px;font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;font-weight:500;letter-spacing:.04em">
     <div></div>
     <div>Name</div>
     <div>Host / IP</div>
     <div>BTU</div>
     <div>SEER</div>
     <div>Max°C</div>
-    <div>Alert</div>
     <div></div>
   </div>`;
   document.getElementById('ip-list').innerHTML=header+devices.map((d,i)=>`
     <div class="irow" data-orig-host="${d.host}" data-idx="${i}" draggable="true"
       ondragstart="dragStart(event,${i})" ondragover="dragOver(event)" ondrop="dragDrop(event,${i})" ondragend="dragEnd(event)"
-      style="display:grid;grid-template-columns:20px 95px minmax(160px,1fr) 58px 58px 62px 55px auto;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+      style="display:grid;grid-template-columns:20px 95px minmax(160px,1fr) 58px 58px 70px auto;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
       <span title="Drag to reorder" style="cursor:grab;color:var(--text3);font-size:14px;user-select:none;text-align:center">⠿</span>
       <input class="inp" value="${d.name==='New unit'?'':d.name}" placeholder="Name"
         oninput="devices[${i}].name=this.value;setDeviceDirty(${i})"
@@ -952,10 +965,6 @@ function renderIPList(){
       <input type="number" class="inp" value="${d.maxTemp||''}" placeholder="—" min="17" max="35"
         title="Auto-on if room exceeds this °C while off"
         onchange="devices[${i}].maxTemp=this.value?+this.value:null;saveDeviceToAPI(devices[${i}])"
-        style="width:100%;font-size:12px">
-      <input type="number" class="inp" value="${d.watchdog_minutes||''}" placeholder="5" min="1" max="60"
-        title="Alert if no response for this many minutes"
-        onchange="devices[${i}].watchdog_minutes=+this.value;saveDeviceToAPI(devices[${i}])"
         style="width:100%;font-size:12px">
       <div style="display:flex;gap:3px;flex-shrink:0">
         <button class="btn bico" id="save-btn-${i}" onclick="saveDeviceRow(${i})" title="Save"
@@ -1349,11 +1358,17 @@ function openSettings(tab){
   const modal=document.getElementById('settings-modal');
   modal.style.display='flex';
   switchTab(_activeTab);
-  // populate general tab values
-  document.getElementById('gen-poll').value=rateSettings.dailyHrs&&_state_settings?.poll_interval||60;
-  document.getElementById('gen-seer').value=20;
-  document.getElementById('gen-watchdog').value=5;
-  document.getElementById('gen-vacation-temp').value=VACATION_MAX_TEMP_SETTING||32;
+  // populate general tab values from saved settings
+  const gen=JSON.parse(localStorage.getItem('hvac_general')||'{}');
+  const pollEl=document.getElementById('gen-poll');
+  if(pollEl)pollEl.value=gen.poll||60;
+  const seerEl=document.getElementById('gen-seer');
+  if(seerEl)seerEl.value=gen.seer||20;
+  const watchdogEl=document.getElementById('gen-watchdog');
+  if(watchdogEl)watchdogEl.value=gen.watchdog||5;
+  const vacEl=document.getElementById('gen-vacation-temp');
+  if(vacEl)vacEl.value=gen.vacTemp||32;
+  updateThemeBtns();
 }
 
 function closeSettings(){document.getElementById('settings-modal').style.display='none';}
@@ -1423,10 +1438,19 @@ function saveGeneralSettings(){
   const vacTemp=+document.getElementById('gen-vacation-temp').value||32;
   VACATION_MAX_TEMP_SETTING=vacTemp;
   localStorage.setItem('hvac_general',JSON.stringify({poll,seer,watchdog,vacTemp}));
+  // apply watchdog to all devices
+  devices.forEach(d=>{d.watchdog_minutes=watchdog;saveDeviceToAPI(d);});
   fetch(`${API}/settings`,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({poll_interval:poll})}).catch(_=>{});
-  addLog(`General settings saved`,'ok');
+  addLog(`General settings saved — watchdog ${watchdog}m applied to all devices`,'ok');
   closeSettings();
+}
+
+function updateThemeBtns(){
+  const dark=document.getElementById('gen-theme-dark');
+  const light=document.getElementById('gen-theme-light');
+  if(dark)dark.style.borderColor=_theme==='dark'?'var(--cool)':'var(--border2)';
+  if(light)light.style.borderColor=_theme==='light'?'var(--cool)':'var(--border2)';
 }
 
 // general settings storage
