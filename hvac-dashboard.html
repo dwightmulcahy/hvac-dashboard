@@ -902,14 +902,13 @@ function removeDevice(i){
 }
 
 function renderIPList(){
-  const header=`<div style="display:grid;grid-template-columns:20px 95px minmax(160px,1fr) 58px 58px 70px auto;gap:6px;align-items:center;padding:0 0 6px 0;border-bottom:1px solid var(--border);margin-bottom:2px;font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;font-weight:500;letter-spacing:.04em">
+  const header=`<div style="display:grid;grid-template-columns:20px 95px minmax(160px,1fr) 58px 58px 70px;gap:6px;align-items:center;padding:0 0 6px 0;border-bottom:1px solid var(--border);margin-bottom:2px;font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;font-weight:500;letter-spacing:.04em">
     <div></div>
     <div>Name</div>
     <div>Host / IP</div>
     <div>BTU</div>
     <div>SEER</div>
     <div>Max°C</div>
-    <div></div>
   </div>`;
   document.getElementById('ip-list').innerHTML=header+devices.map((d,i)=>`
     <div class="irow" data-orig-host="${d.host}" data-idx="${i}" draggable="true"
