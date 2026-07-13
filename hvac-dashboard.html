@@ -766,9 +766,11 @@ const pendingTemps={};
 async function adjustTemp(i,delta){
   const d=devices[i];
   if(!d.state)return;
-  // compute next from pending or current
-  const base=pendingTemps[i]!=null?pendingTemps[i]:Math.round(safeFloat(d.state.target_temperature)||22);
-  const next=Math.min(30,Math.max(17,base+delta));
+  const step=safeFloat(d.state.step)||0.5;
+  const base=pendingTemps[i]!=null?pendingTemps[i]:safeFloat(d.state.target_temperature)||22;
+  const minT=safeFloat(d.state.min_temp)||17;
+  const maxT=safeFloat(d.state.max_temp)||30;
+  const next=Math.round((Math.min(maxT,Math.max(minT,base+delta*step)))/step)*step;
   pendingTemps[i]=next;
   // optimistic display immediately
   d.state.target_temperature=String(next);
@@ -1036,7 +1038,7 @@ function renderUnits(){
         </div>
         <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
           <button class="btn bico" onclick="adjustTemp(${i},-1)" ${dis} style="width:24px;height:24px">−</button>
-          <div class="tdisp" style="line-height:1.2;text-align:center">${on&&s.target_temperature!=null?`${safeFloat(s.target_temperature)}°C<br><span style="font-size:10px;color:var(--text3);font-weight:400">${toF(s.target_temperature)}°F</span>`:'<span style="color:var(--text3);font-size:11px">off</span>'}</div>
+          <div class="tdisp" style="line-height:1.2;text-align:center">${on&&s.target_temperature!=null?`${parseFloat(safeFloat(s.target_temperature).toFixed(1))}°C<br><span style="font-size:10px;color:var(--text3);font-weight:400">${toF(s.target_temperature)}°F</span>`:'<span style="color:var(--text3);font-size:11px">off</span>'}</div>
           <button class="btn bico" onclick="adjustTemp(${i},1)" ${dis} style="width:24px;height:24px">+</button>
           ${x.beeper!==undefined?`<button class="beeper ${x.beeper?.value==='ON'?'on':''}" onclick="toggleBeeper(${i})" ${busy?'disabled':''} style="font-size:11px;padding:0 7px;height:24px;border-radius:7px">🔔</button>`:''}
           <button onclick="toggleLockTemp(${i})" title="${d.lock_temp?'Locked at '+d.locked_target_temp+'°C — click to unlock':'Click to lock temp at current setpoint'}"
