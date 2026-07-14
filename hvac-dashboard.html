@@ -1238,7 +1238,7 @@ function updateNextSchedule(){
       break;
     }
   });
-  if(!nearest){el.textContent='—';sub.textContent='No schedules';return;}
+  if(!nearest){el.textContent='—';sub.textContent='';return;}
   const {s,candidate}=nearest;
   const dev=devices.find(d=>d.host===s.device_host);
   const mins=Math.round(nearestMs/60000);
