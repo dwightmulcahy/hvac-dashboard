@@ -37,6 +37,7 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:20px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px;margin-bottom:16px}
 .card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:8px 10px}
+.card[onclick]:hover{background:var(--bg3);border-color:var(--border2)}
 .clabel{font-size:9px;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:.8px;font-family:'DM Mono',monospace}
 .cval{font-size:18px;font-weight:500;letter-spacing:-0.5px}
 .cval span{font-size:11px;color:var(--text2);font-weight:400}
@@ -198,12 +199,16 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
 
 <!-- Summary stats -->
 <div class="grid" style="margin-bottom:14px">
-  <div class="card"><div class="clabel">Online</div><div class="cval" id="s-online">—</div></div>
-  <div class="card"><div class="clabel">Avg indoor</div><div class="cval" id="s-temp">—</div></div>
-  <div class="card"><div class="clabel">Avg outdoor</div><div class="cval" id="s-out">—</div></div>
-  <div class="card"><div class="clabel">Avg set pt</div><div class="cval" id="s-set">—</div></div>
+  <div class="card" style="cursor:default">
+    <div class="clabel">Temps · <span id="s-online-inline" style="color:var(--ok)">—</span> online</div>
+    <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap">
+      <div><div style="font-size:9px;color:var(--text3);font-family:'DM Mono',monospace;letter-spacing:.05em;text-transform:uppercase">In</div><div class="cval" style="font-size:15px" id="s-temp">—</div></div>
+      <div><div style="font-size:9px;color:var(--text3);font-family:'DM Mono',monospace;letter-spacing:.05em;text-transform:uppercase">Out</div><div class="cval" style="font-size:15px" id="s-out">—</div></div>
+      <div><div style="font-size:9px;color:var(--text3);font-family:'DM Mono',monospace;letter-spacing:.05em;text-transform:uppercase">Set</div><div class="cval" style="font-size:15px" id="s-set">—</div></div>
+    </div>
+  </div>
   <div class="card"><div class="clabel">Est load</div><div class="cval" id="s-estload">—</div></div>
-  <div class="card" id="cost-card">
+  <div class="card" id="cost-card" onclick="openSection('usage')" style="cursor:pointer" title="Open usage">
     <div class="clabel">Est cost</div>
     <div class="cval" style="font-size:15px;margin-top:2px" id="s-proj-label">—</div>
   </div>
@@ -212,7 +217,16 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
     <div style="font-size:12px;font-weight:500;color:var(--warn);margin-top:2px;line-height:1.3" id="peak-label">—</div>
     <div style="font-size:10px;color:var(--text3);margin-top:1px" id="peak-ends">—</div>
   </div>
-  <div class="card"><div class="clabel">Last poll</div><div style="font-size:13px;font-weight:500;font-family:'DM Mono',monospace;margin-top:2px" id="s-time">—</div></div>
+  <div class="card" onclick="openSection('schedules')" style="cursor:pointer" title="Open schedules">
+    <div class="clabel">Next schedule</div>
+    <div style="font-size:13px;font-weight:500;margin-top:2px" id="s-next-sch">—</div>
+    <div style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:2px" id="s-next-sch-sub">—</div>
+  </div>
+  <div class="card" onclick="openSection('log')" style="cursor:pointer" title="Open log">
+    <div class="clabel">Last poll</div>
+    <div style="font-size:13px;font-weight:500;font-family:'DM Mono',monospace;margin-top:2px" id="s-time">—</div>
+    <div style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:2px" id="s-log-hint">tap to view log</div>
+  </div>
 </div>
 
 <!-- Section modals (Cost, Usage, Schedules, Log) -->
@@ -1156,14 +1170,15 @@ async function renderSparkline(i){
 function updateSummary(){
   const live=devices.filter(d=>d.state&&!d.state.error);
   const on=live.filter(d=>d.state.mode!=='OFF');
-  document.getElementById('s-online').innerHTML=`${live.length}<span> / ${devices.length}</span>`;
+  const onlineEl=document.getElementById('s-online-inline');
+  if(onlineEl)onlineEl.textContent=`${live.length}/${devices.length}`;
   const avg=arr=>arr.length?(arr.reduce((a,b)=>a+b)/arr.length):null;
   const temps=on.filter(d=>d.state.current_temperature!=null).map(d=>parseFloat(d.state.current_temperature));
-  const t=avg(temps);document.getElementById('s-temp').innerHTML=t!=null?`${t.toFixed(1)}<span>°C</span> <span style="font-size:11px;color:#4f5769">${Math.round(t*9/5+32)}°F</span>`:'—';
+  const t=avg(temps);document.getElementById('s-temp').innerHTML=t!=null?`${t.toFixed(1)}<span style="font-size:11px">°C</span>`:'—';
   const outs=live.filter(d=>d.extras?.outdoor_temp?.value!=null).map(d=>parseFloat(d.extras.outdoor_temp.value));
-  const o=avg(outs);document.getElementById('s-out').innerHTML=o!=null?`${o.toFixed(1)}<span>°C</span> <span style="font-size:11px;color:#4f5769">${Math.round(o*9/5+32)}°F</span>`:'—';
+  const o=avg(outs);document.getElementById('s-out').innerHTML=o!=null?`${o.toFixed(1)}<span style="font-size:11px">°C</span>`:'—';
   const sets=on.filter(d=>d.state.target_temperature!=null).map(d=>parseFloat(d.state.target_temperature));
-  const sp=avg(sets);document.getElementById('s-set').innerHTML=sp!=null?`${sp.toFixed(1)}<span>°C</span> <span style="font-size:11px;color:#4f5769">${Math.round(sp*9/5+32)}°F</span>`:'—';
+  const sp=avg(sets);document.getElementById('s-set').innerHTML=sp!=null?`${sp.toFixed(1)}<span style="font-size:11px">°C</span>`:'—';
   const totalEst=live.reduce((sum,d)=>{const w=estWatts(d.state,d.extras,d.btu,d.seer);return w!=null?sum+w:sum;},0);
   document.getElementById('s-estload').innerHTML=totalEst>0?totalEst+'<span> W</span>':'<span>—</span>';
   const dayTotal=live.reduce((sum,d)=>{const w=estWatts(d.state,d.extras,d.btu,d.seer);return sum+estCostDay(w);},0);
@@ -1180,6 +1195,41 @@ function updateSummary(){
   }
   renderCostBreakdown(live);
   updatePeakCard();
+  updateNextSchedule();
+}
+
+function updateNextSchedule(){
+  const el=document.getElementById('s-next-sch');
+  const sub=document.getElementById('s-next-sch-sub');
+  if(!el||!sub)return;
+  const now=new Date();
+  let nearest=null;
+  let nearestMs=Infinity;
+  schedules.filter(s=>s.enabled).forEach(s=>{
+    const [hh,mm]=(s.time||'00:00').split(':').map(Number);
+    const days=s.days||[0,1,2,3,4,5,6];
+    // find next occurrence
+    for(let d=0;d<8;d++){
+      const candidate=new Date(now);
+      candidate.setDate(now.getDate()+d);
+      candidate.setHours(hh,mm,0,0);
+      const jsDay=candidate.getDay();
+      if(!days.includes(jsDay))continue;
+      if(candidate<=now)continue;
+      const ms=candidate-now;
+      if(ms<nearestMs){nearestMs=ms;nearest={s,candidate};}
+      break;
+    }
+  });
+  if(!nearest){el.textContent='None';sub.textContent='No active schedules';return;}
+  const {s,candidate}=nearest;
+  const dev=devices.find(d=>d.host===s.device_host);
+  const mins=Math.round(nearestMs/60000);
+  const hrs=Math.floor(mins/60);
+  const rem=mins%60;
+  const timeStr=hrs>0?`in ${hrs}h ${rem}m`:`in ${mins}m`;
+  el.textContent=`${dev?.name||s.device_name} @ ${s.time}`;
+  sub.textContent=timeStr;
 }
 
 function renderCostBreakdown(live){
