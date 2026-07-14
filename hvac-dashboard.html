@@ -321,6 +321,13 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
             <div class="clabel" style="margin-bottom:4px">VACATION MAX TEMP (°C)</div>
             <input type="number" id="gen-vacation-temp" class="inp" style="width:100px" min="25" max="40" value="32">
           </div>
+          <div style="margin-bottom:12px">
+            <div class="clabel" style="margin-bottom:4px">DEVICE VOLTAGE</div>
+            <div style="display:flex;gap:8px">
+              <button class="btn" id="gen-v120" onclick="selectVoltage(120)" style="font-size:12px">120V</button>
+              <button class="btn" id="gen-v240" onclick="selectVoltage(240)" style="font-size:12px">240V</button>
+            </div>
+          </div>
         </div>
         <button class="btn" onclick="saveGeneralSettings()" style="border-color:var(--ok);color:var(--ok);margin-top:4px">Save</button>
       </div>
@@ -1185,7 +1192,7 @@ function updateSummary(){
   const subEl=document.getElementById('s-estload-sub');
   if(subEl){
     if(totalEst>0){
-      const amps=(totalEst/120).toFixed(1);
+      const amps=(totalEst/_voltage).toFixed(1);
       subEl.textContent=`${amps}A · ${activeUnits} unit${activeUnits!==1?'s':''} on`;
     }else{subEl.textContent=`${activeUnits} units on`;}
   }
@@ -1500,6 +1507,7 @@ function openSettings(tab){
   if(watchdogEl)watchdogEl.value=gen.watchdog||5;
   const vacEl=document.getElementById('gen-vacation-temp');
   if(vacEl)vacEl.value=gen.vacTemp||32;
+  selectVoltage(_voltage);
   updateThemeBtns();
 }
 
@@ -1569,14 +1577,21 @@ function saveGeneralSettings(){
   const watchdog=+document.getElementById('gen-watchdog').value||5;
   const vacTemp=+document.getElementById('gen-vacation-temp').value||32;
   VACATION_MAX_TEMP_SETTING=vacTemp;
-  localStorage.setItem('hvac_general',JSON.stringify({poll,seer,watchdog,vacTemp}));
-  // apply watchdog to all devices
+  localStorage.setItem('hvac_general',JSON.stringify({poll,seer,watchdog,vacTemp,voltage:_voltage}));
   devices.forEach(d=>{d.watchdog_minutes=watchdog;saveDeviceToAPI(d);});
   fetch(`${API}/settings`,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({poll_interval:poll})}).catch(_=>{});
-  addLog(`General settings saved — watchdog ${watchdog}m applied to all devices`,'ok');
+  addLog(`General settings saved — watchdog ${watchdog}m, ${_voltage}V applied to all devices`,'ok');
   closeSettings();
 }
+
+function selectVoltage(v){
+  _voltage=v;
+  document.getElementById('gen-v120').style.borderColor=v===120?'var(--cool)':'var(--border2)';
+  document.getElementById('gen-v240').style.borderColor=v===240?'var(--cool)':'var(--border2)';
+}
+
+let _voltage=(()=>{try{return JSON.parse(localStorage.getItem('hvac_general')||'{}').voltage||120;}catch(_){return 120;}})();
 
 function updateThemeBtns(){
   const dark=document.getElementById('gen-theme-dark');
