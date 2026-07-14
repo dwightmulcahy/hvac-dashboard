@@ -1014,18 +1014,68 @@ async function saveDeviceRow(i){
 
 function renderUnits(){
   const el=document.getElementById('unit-list');
-  if(!devices.some(d=>d.state)){el.innerHTML='<div class="empty" style="padding:8px 0">Polling devices…</div>';return;}
-  el.innerHTML=devices.map((d,i)=>{
+  if(!devices.some(d=>d.state)){
+    el.innerHTML='<div class="empty" style="padding:8px 0">Polling devices…</div>';
+    return;
+  }
+  // remove stale "polling" placeholder
+  const placeholder=el.querySelector('.empty');
+  if(placeholder)placeholder.remove();
+
+  devices.forEach((d,i)=>{
+    const tileId=`tile-${i}`;
+    const stateKey=`${d.state?.mode}|${d.state?.target_temperature}|${d.state?.current_temperature}|${d.extras?.outdoor_temp?.value}|${d.busy}|${d.stale}|${d.lock_temp}|${d.retry_queue_depth}`;
+    let tile=document.getElementById(tileId);
+
+    if(!tile){
+      // create new tile
+      const wrapper=document.createElement('div');
+      wrapper.innerHTML=buildTileHTML(d,i);
+      tile=wrapper.firstElementChild;
+      // insert at correct position
+      const tiles=el.querySelectorAll('[id^="tile-"]');
+      const after=[...tiles].find(t=>parseInt(t.id.split('-')[1])>i);
+      if(after)el.insertBefore(tile,after);
+      else el.appendChild(tile);
+      renderSparkline(i);
+    }else if(tile.dataset.stateKey!==stateKey){
+      // state changed — update in place without full replacement
+      tile.dataset.stateKey=stateKey;
+      const wrapper=document.createElement('div');
+      wrapper.innerHTML=buildTileHTML(d,i);
+      const fresh=wrapper.firstElementChild;
+      // swap content only, keep the element itself to avoid reflow
+      tile.className=fresh.className;
+      tile.style.cssText=fresh.style.cssText;
+      // preserve sparkline, update rest
+      const sparkline=tile.querySelector(`#sparkline-${i}`);
+      tile.innerHTML=fresh.innerHTML;
+      if(sparkline&&tile.querySelector(`#sparkline-${i}`)){
+        tile.querySelector(`#sparkline-${i}`).innerHTML=sparkline.innerHTML;
+      }else{
+        renderSparkline(i);
+      }
+    }
+  });
+
+  // remove tiles for deleted devices
+  el.querySelectorAll('[id^="tile-"]').forEach(t=>{
+    if(parseInt(t.id.split('-')[1])>=devices.length)t.remove();
+  });
+}
+
+function buildTileHTML(d,i){
     const s=d.state;
-    if(!s)return`<div class="tile"><div class="uname"><span class="dot d-off"></span>${d.name}</div><div class="uhost">${d.host}</div><div style="font-size:11px;color:var(--text3);margin-top:6px">⏳ waiting for first poll…</div></div>`;
-    if(s.error)return`<div class="tile"><div class="uname"><span class="dot d-err"></span>${d.name}</div><div class="uhost" style="color:var(--err)">${s.error}</div></div>`;
-    if(s.current_temperature==null&&s.mode==='OFF'&&!d.pollTime)return`<div class="tile"><div class="uname"><span class="dot d-off"></span>${d.name}</div><div class="uhost">${d.host}</div><div style="font-size:11px;color:var(--text3);margin-top:6px">⏳ waiting for first poll…</div></div>`;
+    const stateKey=`${s?.mode}|${s?.target_temperature}|${s?.current_temperature}|${d.busy}|${d.stale}|${d.lock_temp}`;
+    if(!s)return`<div id="tile-${i}" data-state-key="${stateKey}" class="tile"><div class="uname"><span class="dot d-off"></span>${d.name}</div><div class="uhost">${d.host}</div><div style="font-size:11px;color:var(--text3);margin-top:6px">⏳ waiting for first poll…</div></div>`;
+    if(s.error)return`<div id="tile-${i}" data-state-key="${stateKey}" class="tile"><div class="uname"><span class="dot d-err"></span>${d.name}</div><div class="uhost" style="color:var(--err)">${s.error}</div></div>`;
+    if(s.current_temperature==null&&s.mode==='OFF'&&!d.pollTime)return`<div id="tile-${i}" data-state-key="${stateKey}" class="tile"><div class="uname"><span class="dot d-off"></span>${d.name}</div><div class="uhost">${d.host}</div><div style="font-size:11px;color:var(--text3);margin-top:6px">⏳ waiting for first poll…</div></div>`;
     const on=s.mode!=='OFF';
     const busy=d.busy;
     const dis=!on||busy?'disabled':'';
     const x=d.extras||{};
     const fv=v=>{const n=safeFloat(v);return n!=null?n.toFixed(1):'—';};
-    return`<div class="tile ${on?'tile-on':''}" style="${d.stale?'border-color:var(--warn)':''}">
+    return`<div id="tile-${i}" data-state-key="${stateKey}" class="tile ${on?'tile-on':''}" style="${d.stale?'border-color:var(--warn)':''}">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:8px">
         <div style="display:flex;align-items:center;gap:6px;min-width:0;flex:1">
           <span class="dot ${on?'d-on':'d-off'}" style="flex-shrink:0"></span>
@@ -1070,9 +1120,6 @@ function renderUnits(){
       </div>
       <div id="sparkline-${i}" style="margin-top:4px;opacity:0.7"></div>
     </div>`;
-  }).join('');
-  // fetch and render sparklines async
-  devices.forEach((_,i)=>renderSparkline(i));
 }
 
 async function renderSparkline(i){
