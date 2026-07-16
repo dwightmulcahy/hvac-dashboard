@@ -480,13 +480,15 @@ async def _check_max_temp(device: dict):
 
     if indoor >= max_temp and not is_cooling and not active:
         device["_max_temp_active"] = True
+        # save current state so we can restore it after cooling
+        device["_pre_autocool_mode"] = cur_mode
+        device["_pre_autocool_temp"] = ds.get("target_temperature")
         # target temp: 2°C below max, clamped to device min
         try:
             target = max(float(ds.get("min_temp", 17)), max_temp - 2)
         except:
             target = max_temp - 2
-        _add_log(f"{name}: 🌡 {indoor}°C ≥ max {max_temp}°C — auto cool to {target}°C", "warn")
-        # send mode first, then target temp
+        _add_log(f"{name}: 🌡 {indoor}°C ≥ max {max_temp}°C — auto cool to {target}°C (was {cur_mode})", "warn")
         ok1 = await _send_cmd(host, {"mode": "COOL"})
         ok2 = await _send_cmd(host, {"target_temperature": target})
         if ok1:
@@ -496,10 +498,25 @@ async def _check_max_temp(device: dict):
             device["_max_temp_active"] = False
     elif indoor < max_temp and active:
         device["_max_temp_active"] = False
-        _add_log(f"{name}: 🌡 {indoor}°C < max {max_temp}°C — auto off", "ok")
-        ok = await _send_cmd(host, {"mode": "OFF"})
-        if ok:
-            ds["mode"] = "OFF"
+        prev_mode = device.pop("_pre_autocool_mode", "OFF")
+        prev_temp = device.pop("_pre_autocool_temp", None)
+        if prev_mode in ("OFF", "FAN_ONLY", None):
+            # was off or fan — just turn off
+            _add_log(f"{name}: 🌡 {indoor}°C < max {max_temp}°C — auto off (restoring OFF)", "ok")
+            ok = await _send_cmd(host, {"mode": "OFF"})
+            if ok:
+                ds["mode"] = "OFF"
+        else:
+            # restore previous mode and temp
+            _add_log(f"{name}: 🌡 {indoor}°C < max {max_temp}°C — restoring {prev_mode}" +
+                     (f" @ {prev_temp}°C" if prev_temp else ""), "ok")
+            ok1 = await _send_cmd(host, {"mode": prev_mode})
+            if ok1:
+                ds["mode"] = prev_mode
+            if prev_temp:
+                ok2 = await _send_cmd(host, {"target_temperature": float(prev_temp)})
+                if ok2:
+                    ds["target_temperature"] = str(prev_temp)
 
 # ── Scheduler ─────────────────────────────────────────────
 
