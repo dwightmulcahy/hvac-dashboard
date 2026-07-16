@@ -473,16 +473,26 @@ async def _check_max_temp(device: dict):
         indoor = float(ds.get("current_temperature", 0))
     except:
         return
-    is_on = ds.get("mode", "OFF") != "OFF"
+    cur_mode = ds.get("mode", "OFF")
+    # consider unit "cooling" only if it's in COOL or AUTO mode
+    is_cooling = cur_mode in ("COOL", "AUTO", "HEAT_COOL")
     active = device.get("_max_temp_active", False)
 
-    if indoor >= max_temp and not is_on and not active:
+    if indoor >= max_temp and not is_cooling and not active:
         device["_max_temp_active"] = True
-        _add_log(f"{name}: 🌡 {indoor}°C ≥ max {max_temp}°C — auto on", "warn")
-        ok = await _send_cmd(host, {"mode": "COOL"})
-        if ok:
+        # target temp: 2°C below max, clamped to device min
+        try:
+            target = max(float(ds.get("min_temp", 17)), max_temp - 2)
+        except:
+            target = max_temp - 2
+        _add_log(f"{name}: 🌡 {indoor}°C ≥ max {max_temp}°C — auto cool to {target}°C", "warn")
+        # send mode first, then target temp
+        ok1 = await _send_cmd(host, {"mode": "COOL"})
+        ok2 = await _send_cmd(host, {"target_temperature": target})
+        if ok1:
             ds["mode"] = "COOL"
-        else:
+            ds["target_temperature"] = str(target)
+        if not ok1 and not ok2:
             device["_max_temp_active"] = False
     elif indoor < max_temp and active:
         device["_max_temp_active"] = False
