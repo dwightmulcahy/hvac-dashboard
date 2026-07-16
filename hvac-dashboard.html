@@ -320,7 +320,13 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
             <input type="number" id="gen-watchdog" class="inp" style="width:100px" min="1" max="60" value="5">
           </div>
           <div style="margin-bottom:12px">
-            <div class="clabel" style="margin-bottom:4px">VACATION MAX TEMP (°C)</div>
+            <div class="clabel" style="margin-bottom:4px">MAX TEMP GUARD HOURS</div>
+            <div style="display:flex;align-items:center;gap:8px;font-size:12px">
+              <input type="number" id="gen-guard-start" class="inp" style="width:65px" min="0" max="23" value="8"> <span style="color:var(--text3)">to</span>
+              <input type="number" id="gen-guard-end" class="inp" style="width:65px" min="0" max="23" value="22">
+              <span style="color:var(--text3);font-size:11px;font-family:'DM Mono',monospace">(24h)</span>
+            </div>
+          </div>
             <input type="number" id="gen-vacation-temp" class="inp" style="width:100px" min="25" max="40" value="32">
           </div>
           <div style="margin-bottom:12px">
@@ -366,6 +372,16 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
       </div>
     </div>
     <input type="hidden" id="sch-time" value="07:00">
+    <div style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <input type="checkbox" id="sch-end-en" onchange="document.getElementById('sch-end-row').style.display=this.checked?'flex':'none'">
+        <label for="sch-end-en" style="font-size:12px;color:var(--text2)">Auto-off at end time</label>
+      </div>
+      <div id="sch-end-row" style="display:none;align-items:center;gap:8px">
+        <span style="font-size:11px;color:var(--text3);font-family:'DM Mono',monospace">OFF at</span>
+        <input type="time" id="sch-end-time" class="inp" style="width:110px" value="08:00">
+      </div>
+    </div>
 
     <div class="clabel" style="margin-bottom:6px">DAYS</div>
     <div style="display:flex;gap:5px;margin-bottom:6px">
@@ -958,6 +974,7 @@ function renderIPList(){
         <button class="btn bico" id="save-btn-${i}" onclick="saveDeviceRow(${i})" title="Save"
           style="color:var(--text3);cursor:not-allowed" disabled>✓</button>
         <button class="btn bico" onclick="testDevice(${i})" title="Test connection">⚡</button>
+        <button class="btn bico" onclick="otaDevice(${i})" title="Flash firmware via OTA">⬆</button>
         ${d.loading?'<span class="spinner"></span>':`<button class="btn bico" onclick="pollDevice(${i}).then(updateSummary)" title="Poll">↺</button>`}
         <button class="btn bico" onclick="removeDevice(${i})" style="color:#ef4444" title="Remove">✕</button>
       </div>
@@ -1341,6 +1358,41 @@ function copyHost(i){
   });
 }
 
+async function otaDevice(i){
+  const d=devices[i];
+  const input=document.createElement('input');
+  input.type='file';input.accept='.bin';
+  input.onchange=async()=>{
+    const file=input.files[0];
+    if(!file)return;
+    const modal=document.getElementById('test-modal');
+    const body=document.getElementById('test-modal-body');
+    body.innerHTML=`<div style="color:var(--text3)">⬆ Flashing ${file.name} to ${d.name}…<br><small>This takes ~30s, device will reboot.</small></div>`;
+    modal.style.display='flex';
+    try{
+      const fd=new FormData();
+      fd.append('firmware',file);
+      const r=await fetch(`${API}/devices/${encodeURIComponent(d.host)}/ota-upload`,{
+        method:'POST',body:fd,signal:AbortSignal.timeout(120000)
+      });
+      const data=await r.json();
+      if(data.ok){
+        body.innerHTML=`<div style="color:var(--ok);font-size:14px;margin-bottom:8px">✓ OTA Complete</div><div style="font-size:12px;font-family:'DM Mono',monospace"><div>${d.name}</div><div style="color:var(--text3)">${file.name} · ${(file.size/1024).toFixed(0)}KB</div><div style="color:var(--text3);margin-top:4px">Device is rebooting…</div></div>`;
+        addLog(`${d.name}: ✓ OTA complete — rebooting`,'ok');
+      }else{
+        body.innerHTML=`<div style="color:var(--err);font-size:14px;margin-bottom:8px">✗ OTA Failed</div><div style="font-size:12px;font-family:'DM Mono',monospace;color:var(--text3)">${data.error||'Unknown error'}</div>`;
+        addLog(`${d.name}: OTA failed — ${data.error}`,'err');
+      }
+    }catch(e){
+      body.innerHTML=`<div style="color:var(--err);font-size:14px;margin-bottom:8px">✗ OTA Error</div><div style="font-size:12px;font-family:'DM Mono',monospace;color:var(--text3)">${e.message}</div>`;
+      addLog(`${d.name}: OTA error — ${e.message}`,'err');
+    }
+    // show close button
+    body.innerHTML+=`<div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn" onclick="document.getElementById('test-modal').style.display='none'">Close</button></div>`;
+  };
+  input.click();
+}
+
 async function testDevice(i){
   const d=devices[i];
   const modal=document.getElementById('test-modal');
@@ -1509,6 +1561,10 @@ function openSettings(tab){
   if(watchdogEl)watchdogEl.value=gen.watchdog||5;
   const vacEl=document.getElementById('gen-vacation-temp');
   if(vacEl)vacEl.value=gen.vacTemp||32;
+  const gsEl=document.getElementById('gen-guard-start');
+  if(gsEl)gsEl.value=gen.guardStart||8;
+  const geEl=document.getElementById('gen-guard-end');
+  if(geEl)geEl.value=gen.guardEnd||22;
   selectVoltage(_voltage);
   updateThemeBtns();
 }
@@ -1578,12 +1634,14 @@ function saveGeneralSettings(){
   const seer=+document.getElementById('gen-seer').value||20;
   const watchdog=+document.getElementById('gen-watchdog').value||5;
   const vacTemp=+document.getElementById('gen-vacation-temp').value||32;
+  const guardStart=+document.getElementById('gen-guard-start').value||8;
+  const guardEnd=+document.getElementById('gen-guard-end').value||22;
   VACATION_MAX_TEMP_SETTING=vacTemp;
-  localStorage.setItem('hvac_general',JSON.stringify({poll,seer,watchdog,vacTemp,voltage:_voltage}));
+  localStorage.setItem('hvac_general',JSON.stringify({poll,seer,watchdog,vacTemp,voltage:_voltage,guardStart,guardEnd}));
   devices.forEach(d=>{d.watchdog_minutes=watchdog;saveDeviceToAPI(d);});
   fetch(`${API}/settings`,{method:'PUT',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({poll_interval:poll})}).catch(_=>{});
-  addLog(`General settings saved — watchdog ${watchdog}m, ${_voltage}V applied to all devices`,'ok');
+    body:JSON.stringify({poll_interval:poll,max_temp_guard_start:guardStart,max_temp_guard_end:guardEnd})}).catch(_=>{});
+  addLog(`General settings saved — watchdog ${watchdog}m, guard ${guardStart}:00–${guardEnd}:00, ${_voltage}V`,'ok');
   closeSettings();
 }
 
@@ -1740,6 +1798,10 @@ function openScheduleModal(idx=null){
     document.getElementById('sch-mode-en').checked=s.mode!==null;
     document.getElementById('sch-mode').value=s.mode||'COOL';
     document.getElementById('sch-temp-en').checked=s.temp!==null;
+    const hasEnd=!!s.end_time;
+    document.getElementById('sch-end-en').checked=hasEnd;
+    document.getElementById('sch-end-row').style.display=hasEnd?'flex':'none';
+    if(hasEnd)document.getElementById('sch-end-time').value=s.end_time;
     document.getElementById('sch-temp').value=s.temp||24;
   }else{
     setTimePicker('07:00');
@@ -1770,11 +1832,14 @@ function saveSchedule(){
   if(!time){alert('Set a time.');return;}
   if(!days.length){alert('Select at least one day.');return;}
   if(!powerEn&&!modeEn&&!tempEn){alert('Enable at least one action.');return;}
+  const endEn=document.getElementById('sch-end-en')?.checked;
+  const endTime=endEn?document.getElementById('sch-end-time')?.value:null;
   const sch={
     id:editSchIdx!==null?schedules[editSchIdx].id:null,
     device_host:devices[deviceIdx].host,
     device_name:devices[deviceIdx].name,
     time,days,
+    end_time:endTime||null,
     power:powerEn?document.getElementById('sch-power').value:null,
     mode:modeEn?document.getElementById('sch-mode').value:null,
     temp:tempEn?+document.getElementById('sch-temp').value:null,
@@ -1859,7 +1924,7 @@ function renderSchedules(){
   el.innerHTML=sorted.map(({s,i})=>`
     <div class="sch-row">
       <div>
-        <div class="sch-name">${s.device_name||s.deviceName} <span style="font-family:'DM Mono',monospace;color:var(--text2);font-weight:400">${s.time}</span>${s.enabled?`<span style="font-size:10px;color:var(--text3);margin-left:6px">${fmtNext(s)}</span>`:''}</div>
+        <div class="sch-name">${s.device_name||s.deviceName} <span style="font-family:'DM Mono',monospace;color:var(--text2);font-weight:400">${s.time}${s.end_time?`–${s.end_time}`:''}</span>${s.enabled?`<span style="font-size:10px;color:var(--text3);margin-left:6px">${fmtNext(s)}</span>`:''}</div>
         <div class="sch-meta">${fmtDays(s.days)}</div>
         <div class="sch-acts">${fmtActions(s)}</div>
         ${(s.last_run||s.lastRun)?`<div class="sch-last">last ran ${(s.last_run||s.lastRun).split(' ').pop()}</div>`:''}

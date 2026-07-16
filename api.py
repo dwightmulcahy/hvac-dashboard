@@ -12,7 +12,7 @@ import os
 from typing import Optional, List
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -51,6 +51,8 @@ DEFAULT_STATE = {
             {"up_to": 999999, "colones_per_kwh": 140},
         ],
         "flat_rate": 0.14,
+        "max_temp_guard_start": 8,
+        "max_temp_guard_end": 22,
     },
     "usage": {
         "daily": {},        # {"2026-07-01": {"host": {runtime_min, est_kwh, ...}}}
@@ -86,6 +88,7 @@ SCHEDULE_DEFAULTS = {
     "device_host": "",
     "device_name": "",
     "time": "07:00",
+    "end_time": None,
     "days": [0,1,2,3,4,5,6],
     "power": None,
     "mode": None,
@@ -464,6 +467,12 @@ async def _check_max_temp(device: dict):
     max_temp = device.get("max_temp")
     if max_temp is None:
         return
+    # check guard hours
+    now_hour = datetime.datetime.now().hour
+    guard_start = _state["settings"].get("max_temp_guard_start", 8)
+    guard_end = _state["settings"].get("max_temp_guard_end", 22)
+    if not (guard_start <= now_hour < guard_end):
+        return
     host = device["host"]
     name = device["name"]
     ds = _state["device_state"].get(host, {})
@@ -568,12 +577,50 @@ async def _check_schedules():
         # store date+time so the same schedule can fire again tomorrow
         sch["last_run"] = f"{today} {_ts()}"
 
+    # ── Check schedule end times ──────────────────────────────
+    for sch in _state["schedules"]:
+        end_time = sch.get("end_time")
+        if not end_time or not sch.get("enabled", True):
+            continue
+        if end_time != hhmm:
+            continue
+        if js_day not in sch.get("days", []):
+            continue
+        last_end_run = sch.get("_last_end_run", "")
+        if last_end_run and last_end_run.startswith(today):
+            continue
+        host = sch.get("device_host", "")
+        device = next((d for d in _state["devices"] if d["host"] == host), None)
+        if not device:
+            continue
+        name = device["name"]
+        _add_log(f"Schedule end: {name} @ {hhmm} — auto off", "info")
+        await _send_cmd(host, {"mode": "OFF"})
+        sch["_last_end_run"] = f"{today} {_ts()}"
+
 # ── Main background worker ────────────────────────────────
 
 async def _background_worker():
     _add_log("Background worker started", "info")
     last_schedule_check = ""
     last_rate_update = ""
+
+    # ── Startup retry with exponential backoff ────────────────
+    # Wait for network before first real poll
+    for attempt in range(8):
+        if not _state["devices"]:
+            break
+        try:
+            first = _state["devices"][0]
+            async with httpx.AsyncClient(timeout=4) as client:
+                r = await client.get(f"http://{first['host']}/climate/air_conditioner")
+                if r.status_code < 500:
+                    _add_log("Network ready", "ok")
+                    break
+        except Exception:
+            delay = min(2 ** attempt, 60)
+            _add_log(f"Network not ready — retrying in {delay}s (attempt {attempt+1})", "warn")
+            await asyncio.sleep(delay)
 
     while True:
         try:
@@ -583,7 +630,6 @@ async def _background_worker():
             for device in _state["devices"]:
                 await _poll_device(device)
                 await _check_max_temp(device)
-                # watchdog — check if device has gone stale
                 _check_watchdog(device)
 
             # Check schedules (once per minute)
@@ -753,6 +799,7 @@ class ScheduleConfig(BaseModel):
     device_host: str
     device_name: str
     time: str
+    end_time: Optional[str] = None
     days: List[int]
     power: Optional[str] = None
     mode: Optional[str] = None
@@ -1001,6 +1048,32 @@ async def health_push():
         "timestamp": now.isoformat(),
     })
 
+
+@app.post("/devices/{host:path}/ota-upload")
+async def ota_upload(host: str, firmware: UploadFile):
+    """Flash .bin firmware to device via ESPHome HTTP OTA."""
+    from fastapi.responses import JSONResponse
+    device = next((d for d in _state["devices"] if d["host"] == host), None)
+    name = device["name"] if device else host
+    try:
+        data = await firmware.read()
+        _add_log(f"{name}: OTA upload started ({len(data)//1024}KB)", "info")
+        async with httpx.AsyncClient(timeout=120) as client:
+            r = await client.post(
+                f"http://{host}/update",
+                content=data,
+                headers={"Content-Type": "application/octet-stream"},
+            )
+            if r.status_code < 300:
+                _add_log(f"{name}: ✓ OTA complete — device rebooting", "ok")
+                return {"ok": True, "message": "Firmware uploaded, device rebooting"}
+            else:
+                _add_log(f"{name}: OTA failed — HTTP {r.status_code}", "err")
+                return JSONResponse(status_code=500,
+                    content={"ok": False, "error": f"Device returned HTTP {r.status_code}"})
+    except Exception as e:
+        _add_log(f"{name}: OTA error — {e}", "err")
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
 
 @app.get("/health")
 async def health():
