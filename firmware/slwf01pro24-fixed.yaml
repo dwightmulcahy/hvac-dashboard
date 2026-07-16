@@ -190,6 +190,11 @@ sensor:
     unit_of_measurement: "${uptime_days_unit_of_measurement}"
     update_interval: 60s
 
+text_sensor:
+  - platform: version
+    name: "ESPHome Version"
+    hide_timestamp: true
+
 script:
   - id: on_button_click
     then:

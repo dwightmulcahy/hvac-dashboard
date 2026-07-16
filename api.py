@@ -228,6 +228,16 @@ async def _fetch_sensors(host: str) -> dict:
                     break
             except:
                 pass
+        # try esphome version text sensor
+        for vp in ["text_sensor/air_conditioner_esphome_version",
+                   "text_sensor/esphome_version"]:
+            try:
+                r = await client.get(f"http://{host}/{vp}")
+                if r.status_code == 200:
+                    out["esphome_version"] = r.json()
+                    break
+            except:
+                pass
     return out
 
 async def _send_cmd(host: str, params: dict) -> bool:
@@ -299,6 +309,9 @@ async def _poll_device(device: dict):
             except Exception:
                 ds["wifi_signal"] = raw
         log.debug(f"{name}: wifi={ds.get('wifi_signal')}dBm")
+    if "esphome_version" in sensors:
+        ds["esphome_version"] = sensors["esphome_version"].get("state") or \
+                                sensors["esphome_version"].get("value")
 
     # beeper sync — push saved state if device disagrees
     saved_beeper = device.get("beeper", "OFF")
