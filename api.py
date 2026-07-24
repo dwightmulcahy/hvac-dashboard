@@ -1014,6 +1014,13 @@ async def usage_rolling30():
 
 # ── Logs ──────────────────────────────────────────────────
 
+@app.delete("/logs")
+async def clear_logs():
+    _state["logs"] = []
+    async with _lock:
+        _save_raw(_state)
+    return {"ok": True}
+
 @app.get("/logs")
 async def get_logs(level: Optional[str] = None, limit: int = 100):
     logs = _state["logs"]

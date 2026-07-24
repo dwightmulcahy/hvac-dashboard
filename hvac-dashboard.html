@@ -603,7 +603,11 @@ function renderLog(){
   ).join('');
 }
 
-function clearLog(){logEntries.length=0;renderLog();}
+function clearLog(){
+  logEntries.length=0;
+  fetch(`${API}/logs`,{method:'DELETE'}).catch(_=>{});
+  renderLog();
+}
 
 // ── AC commands — go through API ──────────────────────────
 async function sendCmd(host,payload){
