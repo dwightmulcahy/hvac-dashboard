@@ -258,7 +258,8 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
       <button class="btn bico" onclick="document.getElementById('test-modal').style.display='none'" style="font-size:16px;color:var(--text3)">✕</button>
     </div>
     <div id="test-modal-body" style="font-size:12px;font-family:'DM Mono',monospace;line-height:1.8"></div>
-    <div style="display:flex;justify-content:flex-end;margin-top:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px">
+      <button class="btn" id="test-modal-reboot-btn" onclick="rebootDongle()" style="font-size:11px;color:var(--warn);border-color:var(--warn);display:none">⟳ Reboot dongle</button>
       <button class="btn" onclick="document.getElementById('test-modal').style.display='none'">Close</button>
     </div>
   </div>
@@ -903,6 +904,16 @@ async function toggleLockTemp(i){
   }catch(e){addLog(`${d.name}: lock failed — ${e.message}`,'err');}
 }
 
+async function toggleDisplay(i){
+  const d=devices[i];
+  try{
+    const r=await fetch(`${API}/devices/${encodeURIComponent(d.host)}/display-toggle`,{method:'POST'});
+    const data=await r.json();
+    if(data.ok)addLog(`${d.name}: display toggled`,'info');
+    else addLog(`${d.name}: display toggle not supported`,'warn');
+  }catch(e){addLog(`${d.name}: display toggle failed — ${e.message}`,'err');}
+}
+
 async function toggleBeeper(i){
   await withBusy(i,async d=>{
     const on=d.extras?.beeper?.value==='ON';
@@ -1405,6 +1416,8 @@ async function testDevice(i){
   const d=devices[i];
   const modal=document.getElementById('test-modal');
   const body=document.getElementById('test-modal-body');
+  const rebootBtn=document.getElementById('test-modal-reboot-btn');
+  if(rebootBtn)rebootBtn.style.display='none';
   body.innerHTML=`<div style="color:var(--text3)">Testing ${d.host}…</div>`;
   modal.style.display='flex';
   const start=Date.now();
@@ -1420,6 +1433,12 @@ async function testDevice(i){
         <div><span style="color:var(--text3)">Host   </span>${d.host}</div>
         <div><span style="color:var(--text3)">Time   </span>${ms}ms</div>`;
       addLog(`${d.name}: ✓ reachable — ${ms}ms`,'ok');
+      // show reboot button
+      const rebootBtn=document.getElementById('test-modal-reboot-btn');
+      if(rebootBtn)rebootBtn.style.display='block';
+      // store host for rebootDongle
+      document.getElementById('test-modal').dataset.host=d.host;
+      document.getElementById('test-modal').dataset.name=d.name;
     }else{
       body.innerHTML=`
         <div style="color:var(--err);font-size:14px;margin-bottom:8px">✗ HTTP ${r.status}</div>
@@ -1438,6 +1457,34 @@ async function testDevice(i){
       <div><span style="color:var(--text3)">Time   </span>${ms}ms</div>`;
     addLog(`${d.name}: ✗ unreachable — ${e.message} (${ms}ms)`,'err');
   }
+}
+
+async function rebootDongle(){
+  const modal=document.getElementById('test-modal');
+  const body=document.getElementById('test-modal-body');
+  const host=modal.dataset.host;
+  const name=modal.dataset.name;
+  const rebootBtn=document.getElementById('test-modal-reboot-btn');
+  if(rebootBtn)rebootBtn.disabled=true;
+  body.innerHTML+=`<div style="color:var(--warn);margin-top:8px">⟳ Sending reboot command…</div>`;
+  const paths=[
+    `http://${host}/button/air_conditioner_restart/press`,
+    `http://${host}/button/Air%20Conditioner%20Restart/press`,
+  ];
+  let ok=false;
+  for(const path of paths){
+    try{
+      const r=await fetch(path,{method:'POST',signal:AbortSignal.timeout(5000)});
+      if(r.status<300){ok=true;break;}
+    }catch(_){}
+  }
+  if(ok){
+    body.innerHTML+=`<div style="color:var(--ok)">✓ Reboot command sent — dongle will reconnect in ~15s</div>`;
+    addLog(`${name}: dongle reboot requested`,'warn');
+  }else{
+    body.innerHTML+=`<div style="color:var(--err)">✗ Reboot failed — button endpoint not supported on this firmware</div>`;
+  }
+  if(rebootBtn)rebootBtn.disabled=false;
 }
 
 function fmtAgo(isoStr){
