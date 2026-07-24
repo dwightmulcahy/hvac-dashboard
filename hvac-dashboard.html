@@ -303,7 +303,15 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
           </div>
           <div style="margin-bottom:12px">
             <div class="clabel" style="margin-bottom:4px">POLL INTERVAL (seconds)</div>
-            <input type="number" id="gen-poll" class="inp" style="width:100px" min="10" max="300" value="60">
+            <input type="number" id="gen-poll" class="inp" style="width:100px" min="10" max="300" value="120">
+          </div>
+          <div style="margin-bottom:12px">
+            <div class="clabel" style="margin-bottom:4px">VERBOSE LOGGING</div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button class="btn" id="gen-verbose-off" onclick="selectVerbose(false)" style="font-size:12px;border-color:var(--cool)">Off</button>
+              <button class="btn" id="gen-verbose-on" onclick="selectVerbose(true)" style="font-size:12px">On</button>
+              <span style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace">logs all poll data when enabled</span>
+            </div>
           </div>
           <div style="margin-bottom:12px">
             <div class="clabel" style="margin-bottom:4px">DEFAULT SEER (new devices)</div>
@@ -516,45 +524,13 @@ async function applyVacationMode(enabled){
   const mi=document.getElementById('vacation-menu-item');
   if(mi)mi.textContent=enabled?'🌴 Vacation mode ●':'🌴 Vacation mode';
   if(mi)mi.style.color=enabled?'var(--warn)':'';
-  const vacTemp=VACATION_MAX_TEMP_SETTING||32;
-  if(enabled){
-    // turn off all devices and set high max-temp guard
-    for(const d of devices){
-      d._vacationOrigMaxTemp=d.maxTemp;
-      d._vacationOrigMode=d.state?.mode;
-      d.maxTemp=vacTemp;
-      saveDeviceToAPI(d);
-      // turn off if currently on
-      if(d.state&&d.state.mode!=='OFF'){
-        try{await sendCmd(d.host,{mode:'OFF'});d.state.mode='OFF';}catch(_){}
-      }
-    }
-    // pause all enabled schedules
-    schedules.forEach(s=>{
-      if(s.enabled){
-        s._vacationPaused=true;
-        fetch(`${API}/schedules/${s.id}/toggle`,{method:'POST'}).catch(_=>{});
-      }
-    });
-    addLog(`🌴 Vacation mode ON — all units off, max temp ${vacTemp}°C, schedules paused`,'warn');
-  }else{
-    // restore original max-temp per device
-    for(const d of devices){
-      d.maxTemp=d._vacationOrigMaxTemp??null;
-      delete d._vacationOrigMaxTemp;
-      delete d._vacationOrigMode;
-      saveDeviceToAPI(d);
-    }
-    // resume paused schedules
-    schedules.forEach(s=>{
-      if(s._vacationPaused){
-        delete s._vacationPaused;
-        fetch(`${API}/schedules/${s.id}/toggle`,{method:'POST'}).catch(_=>{});
-      }
-    });
-    addLog('🌴 Vacation mode OFF — settings restored','ok');
-  }
-  renderUnits();
+  try{
+    await fetch(`${API}/vacation/${enabled?'on':'off'}`,{method:'POST'});
+  }catch(e){addLog(`Vacation mode failed: ${e.message}`,'err');}
+  addLog(`🌴 Vacation mode ${enabled?'ON':'OFF'}`,'warn');
+  // refresh devices to show updated max_temp
+  await loadDevicesFromAPI();
+  renderAll();
 }
 function toggleVacationMode(){applyVacationMode(!vacationMode);}
 
@@ -1621,6 +1597,7 @@ function openSettings(tab){
   const geEl=document.getElementById('gen-guard-end');
   if(geEl)geEl.value=gen.guardEnd||22;
   selectVoltage(_voltage);
+  selectVerbose(gen.verbose||false);
   updateThemeBtns();
 }
 
@@ -1692,12 +1669,23 @@ function saveGeneralSettings(){
   const guardStart=+document.getElementById('gen-guard-start').value||8;
   const guardEnd=+document.getElementById('gen-guard-end').value||22;
   VACATION_MAX_TEMP_SETTING=vacTemp;
-  localStorage.setItem('hvac_general',JSON.stringify({poll,seer,watchdog,vacTemp,voltage:_voltage,guardStart,guardEnd}));
+  localStorage.setItem('hvac_general',JSON.stringify({poll,seer,watchdog,vacTemp,voltage:_voltage,guardStart,guardEnd,verbose:_verbose_logging}));
   devices.forEach(d=>{d.watchdog_minutes=watchdog;saveDeviceToAPI(d);});
   fetch(`${API}/settings`,{method:'PUT',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({poll_interval:poll,max_temp_guard_start:guardStart,max_temp_guard_end:guardEnd})}).catch(_=>{});
+    body:JSON.stringify({poll_interval:poll,max_temp_guard_start:guardStart,max_temp_guard_end:guardEnd,
+      vacation_max_temp:vacTemp,verbose_logging:_verbose_logging})}).catch(_=>{});
   addLog(`General settings saved — watchdog ${watchdog}m, guard ${guardStart}:00–${guardEnd}:00, ${_voltage}V`,'ok');
   closeSettings();
+}
+
+let _verbose_logging=false;
+
+function selectVerbose(on){
+  _verbose_logging=on;
+  const offBtn=document.getElementById('gen-verbose-off');
+  const onBtn=document.getElementById('gen-verbose-on');
+  if(offBtn)offBtn.style.borderColor=!on?'var(--cool)':'var(--border2)';
+  if(onBtn)onBtn.style.borderColor=on?'var(--cool)':'var(--border2)';
 }
 
 function selectVoltage(v){
@@ -1996,48 +1984,11 @@ function renderSchedules(){
   `).join('');
 }
 
-async function runSchedule(s){
-  const d=devices.find(dev=>dev.host===(s.device_host||s.host));
-  if(!d){addLog(`Schedule: ${s.host} not found`,'warn');return;}
-  addLog(`Schedule: ${d.name} @ ${s.time}`,'info');
-  if(s.power==='off'){
-    try{await sendCmd(d.host,{mode:'OFF'});addLog(`${d.name}: off`,'ok');}
-    catch(e){addLog(`${d.name}: off failed — ${e.message}`,'err');}
-  }else{
-    if(s.power==='on'){
-      const startMode=s.mode||d.state?._prev||'COOL';
-      try{await sendCmd(d.host,{mode:startMode});addLog(`${d.name}: on → ${startMode}`,'ok');}
-      catch(e){addLog(`${d.name}: on failed — ${e.message}`,'err');}
-    }else if(s.mode){
-      try{await sendCmd(d.host,{mode:s.mode});addLog(`${d.name}: mode → ${s.mode}`,'ok');}
-      catch(e){addLog(`${d.name}: mode failed — ${e.message}`,'err');}
-    }
-    if(s.temp){
-      try{await sendCmd(d.host,{target_temperature:s.temp});addLog(`${d.name}: temp → ${s.temp}°C`,'ok');}
-      catch(e){addLog(`${d.name}: temp failed — ${e.message}`,'err');}
-    }
-  }
-  s.lastRun=ts();saveSchedules();renderSchedules();
-  // refresh tiles to show updated state after schedule command
-  setTimeout(()=>pollAll(),3000);
-}
-
-function checkSchedules(){
-  const now=new Date();
-  const hhmm=now.toTimeString().slice(0,5);
-  const dow=now.getDay();
-  schedules.forEach(s=>{
-    if(!s.enabled||s.time!==hhmm||!s.days.includes(dow))return;
-    if(s.lastRun===ts())return; // already ran this minute
-    runSchedule(s);
-  });
-}
-
 // wire up day buttons
 document.querySelectorAll('.dbtn').forEach(b=>b.addEventListener('click',()=>b.classList.toggle('on')));
 
 loadSchedules();renderSchedules();
-setInterval(checkSchedules,15000);
+// schedules are now executed server-side — no client-side checker needed
 
 // ── Usage fetch ───────────────────────────────────────────
 let _lastPollEpoch=null;
@@ -2159,7 +2110,11 @@ async function refreshUsageView(){
 // ── Init ─────────────────────────────────────────────────
 async function init(){
   applyTheme(_theme);
-  applyVacationMode(vacationMode);
+  // sync vacation mode from API
+  try{
+    const r=await fetch(`${API}/vacation`);
+    if(r.ok){const d=await r.json();vacationMode=d.vacation_mode;applyVacationMode(vacationMode);}
+  }catch(_){applyVacationMode(vacationMode);}
   addLog('Connecting to API…','info');
   await checkApiStatus();
   await loadDevicesFromAPI();
@@ -2221,7 +2176,7 @@ async function checkApiStatus(){
 
 init();
 setInterval(checkApiStatus, 30000);
-setInterval(pollAll,60000);
+setInterval(pollAll,120000);
 setInterval(()=>{updatePeakCard();runMaxTempMonitor();fetchServerLogs();},30000);
 updatePeakCard();
 

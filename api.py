@@ -39,7 +39,7 @@ DEFAULT_STATE = {
     "devices": [],          # list of device configs
     "schedules": [],        # list of schedule configs
     "settings": {
-        "poll_interval": 60,
+        "poll_interval": 120,
         "provider": "Coopeguanacaste",
         "exchange_rate": 530,
         "monthly_kwh": 400,
@@ -53,6 +53,9 @@ DEFAULT_STATE = {
         "flat_rate": 0.14,
         "max_temp_guard_start": 8,
         "max_temp_guard_end": 22,
+        "vacation_mode": False,
+        "vacation_max_temp": 32,
+        "verbose_logging": False,
     },
     "usage": {
         "daily": {},        # {"2026-07-01": {"host": {runtime_min, est_kwh, ...}}}
@@ -177,49 +180,75 @@ def _add_log(msg: str, level: str = "info"):
     if len(_state["logs"]) > 200:
         _state["logs"] = _state["logs"][:200]
 
+def _verbose(msg: str, level: str = "info"):
+    """Only log if verbose_logging is enabled."""
+    if _state["settings"].get("verbose_logging", False):
+        _add_log(msg, level)
+
 # ── AC communication ──────────────────────────────────────
 
-ENTITY = "air_conditioner"
+# ESPHome entity paths — new firmware uses friendly name with spaces,
+# old firmware uses underscored slugs. Try both.
+CLIMATE_PATHS = [
+    "climate/Air%20Conditioner",
+    "climate/air_conditioner",
+]
 
 async def _fetch_state(host: str) -> Optional[dict]:
-    url = f"http://{host}/climate/{ENTITY}"
-    for attempt in range(3):
-        try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                r = await client.get(url)
-                if r.status_code == 200:
-                    return r.json()
-        except Exception as e:
-            if attempt == 2:
-                log.warning(f"{host} fetch failed: {e}")
-            await asyncio.sleep(0.8 * (attempt + 1))
+    for path in CLIMATE_PATHS:
+        url = f"http://{host}/{path}"
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=5) as client:
+                    r = await client.get(url)
+                    if r.status_code == 200:
+                        return r.json()
+                    elif r.status_code == 404:
+                        break  # try next path
+            except Exception as e:
+                if attempt == 2:
+                    log.warning(f"{host} fetch failed: {e}")
+                await asyncio.sleep(0.8 * (attempt + 1))
     return None
 
 async def _fetch_sensors(host: str) -> dict:
-    paths = {
-        "outdoor_temp": "sensor/air_conditioner_outdoor_temperature",
-        "uptime_days":  "sensor/air_conditioner_uptime_days",
-        "beeper":       "switch/air_conditioner_beeper",
+    # Try new firmware (space-encoded) and old firmware (underscored) paths
+    path_candidates = {
+        "outdoor_temp": [
+            "sensor/Air%20Conditioner%20Outdoor%20Temperature",
+            "sensor/air_conditioner_outdoor_temperature",
+        ],
+        "uptime_days": [
+            "sensor/Air%20Conditioner%20Uptime%20Days",
+            "sensor/air_conditioner_uptime_days",
+        ],
+        "beeper": [
+            "switch/Air%20Conditioner%20Beeper",
+            "switch/air_conditioner_beeper",
+        ],
     }
-    # wifi signal sensor name varies by firmware version — try both
     wifi_paths = [
+        "sensor/Air%20Conditioner%20Wi-Fi%20Signal",
         "sensor/air_conditioner_wi-fi_signal",
         "sensor/air_conditioner_wi_fi_signal",
-        "sensor/wi-fi_signal",
         "sensor/wifi_signal",
+    ]
+    esphome_version_paths = [
+        "text_sensor/Air%20Conditioner%20ESPHome%20Version",
+        "text_sensor/air_conditioner_esphome_version",
+        "text_sensor/esphome_version",
     ]
     out = {}
     async with httpx.AsyncClient(timeout=3) as client:
-        for key, path in paths.items():
-            for attempt in range(2):
+        for key, paths in path_candidates.items():
+            for path in paths:
                 try:
                     r = await client.get(f"http://{host}/{path}")
                     if r.status_code == 200:
                         out[key] = r.json()
-                    break
+                        break
                 except:
-                    await asyncio.sleep(0.5)
-        # try wifi paths until one works
+                    pass
         for wp in wifi_paths:
             try:
                 r = await client.get(f"http://{host}/{wp}")
@@ -228,9 +257,7 @@ async def _fetch_sensors(host: str) -> dict:
                     break
             except:
                 pass
-        # try esphome version text sensor
-        for vp in ["text_sensor/air_conditioner_esphome_version",
-                   "text_sensor/esphome_version"]:
+        for vp in esphome_version_paths:
             try:
                 r = await client.get(f"http://{host}/{vp}")
                 if r.status_code == 200:
@@ -242,16 +269,40 @@ async def _fetch_sensors(host: str) -> dict:
 
 async def _send_cmd(host: str, params: dict) -> bool:
     from urllib.parse import urlencode
-    url = f"http://{host}/climate/{ENTITY}/set?{urlencode(params)}"
-    try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            r = await client.post(url)
-            return r.status_code < 300
-    except Exception as e:
-        log.warning(f"{host} cmd failed: {e}")
-        return False
+    qs = urlencode(params)
+    for path in CLIMATE_PATHS:
+        url = f"http://{host}/{path}/set?{qs}"
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                r = await client.post(url)
+                if r.status_code < 300:
+                    return True
+                elif r.status_code == 404:
+                    continue
+        except Exception as e:
+            log.warning(f"{host} cmd failed: {e}")
+    return False
+
+BEEPER_PATHS = [
+    "switch/Air%20Conditioner%20Beeper",
+    "switch/air_conditioner_beeper",
+]
 
 async def _send_switch(host: str, path: str) -> bool:
+    # if path contains a known beeper slug, try both variants
+    if "beeper" in path.lower():
+        action = path.split("/")[-1]  # turn_on / turn_off
+        for base in BEEPER_PATHS:
+            try:
+                async with httpx.AsyncClient(timeout=3) as client:
+                    r = await client.post(f"http://{host}/{base}/{action}")
+                    if r.status_code < 300:
+                        return True
+                    elif r.status_code == 404:
+                        continue
+            except:
+                pass
+        return False
     try:
         async with httpx.AsyncClient(timeout=3) as client:
             r = await client.post(f"http://{host}/{path}")
@@ -322,7 +373,7 @@ async def _poll_device(device: dict):
             endpoint = "turn_on" if saved_beeper == "ON" else "turn_off"
             ok = await _send_switch(host, f"switch/air_conditioner_beeper/{endpoint}")
             if ok:
-                _add_log(f"{name}: beeper synced → {saved_beeper.lower()}", "info")
+                _verbose(f"{name}: beeper synced → {saved_beeper.lower()}", "info")
 
     # on-time tracking
     now_epoch = datetime.datetime.utcnow().timestamp()
@@ -348,7 +399,7 @@ async def _poll_device(device: dict):
     ds["stale"] = False
     _state["device_state"][host] = ds
 
-    _add_log(f"{name}: {state.get('current_temperature')}°C in, {ds.get('outdoor_temp')}°C out, mode={cur_mode}", "ok")
+    _verbose(f"{name}: {state.get('current_temperature')}°C in, {ds.get('outdoor_temp')}°C out, mode={cur_mode}", "ok")
 
     # ── temperature history (hourly) ──────────────────────
     _record_temp_history(host, ds)
@@ -626,7 +677,7 @@ async def _background_worker():
         try:
             first = _state["devices"][0]
             async with httpx.AsyncClient(timeout=4) as client:
-                r = await client.get(f"http://{first['host']}/climate/air_conditioner")
+                r = await client.get(f"http://{first['host']}/{CLIMATE_PATHS[0]}")
                 if r.status_code < 500:
                     _add_log("Network ready", "ok")
                     break
@@ -778,6 +829,26 @@ async def set_lock_temp(host: str, data: dict):
     status = "locked" if device["lock_temp"] else "unlocked"
     _add_log(f"{device['name']}: temp {status} at {device.get('locked_target_temp')}°C", "info")
     return {"ok": True, "lock_temp": device["lock_temp"], "locked_target_temp": device.get("locked_target_temp")}
+
+@app.post("/devices/{host:path}/display-toggle")
+async def display_toggle(host: str):
+    """Toggle the AC unit display on/off."""
+    device = next((d for d in _state["devices"] if d["host"] == host), None)
+    name = device["name"] if device else host
+    paths = [
+        "button/Air%20Conditioner%20Display%20Toggle/press",
+        "button/air_conditioner_display_toggle/press",
+    ]
+    for path in paths:
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                r = await client.post(f"http://{host}/{path}")
+                if r.status_code < 300:
+                    _add_log(f"{name}: display toggled", "info")
+                    return {"ok": True}
+        except:
+            pass
+    return {"ok": False, "error": "display toggle not supported"}
 
 @app.post("/devices/{host:path}/beeper/test")
 async def test_beeper(host: str):
@@ -1118,6 +1189,49 @@ async def health():
         "stale": sum(1 for d in device_health if d["stale"]),
         "timestamp": now.isoformat(),
     }
+
+@app.post("/vacation/{state}")
+async def set_vacation(state: str):
+    """Enable or disable vacation mode server-side."""
+    enabled = state == "on"
+    s = _state["settings"]
+    s["vacation_mode"] = enabled
+    vac_temp = s.get("vacation_max_temp", 32)
+
+    if enabled:
+        # save each device's current max_temp and pause schedules
+        for d in _state["devices"]:
+            d["_pre_vacation_max_temp"] = d.get("max_temp")
+            d["_pre_vacation_mode"] = _state["device_state"].get(d["host"], {}).get("mode", "OFF")
+            d["max_temp"] = vac_temp
+            # turn off if on
+            ds = _state["device_state"].get(d["host"], {})
+            if ds.get("mode", "OFF") not in ("OFF", None):
+                await _send_cmd(d["host"], {"mode": "OFF"})
+                ds["mode"] = "OFF"
+        for sch in _state["schedules"]:
+            if sch.get("enabled", True):
+                sch["_vacation_paused"] = True
+                sch["enabled"] = False
+        _add_log(f"🌴 Vacation mode ON — all units off, max temp {vac_temp}°C, schedules paused", "warn")
+    else:
+        # restore saved max_temp per device and re-enable schedules
+        for d in _state["devices"]:
+            d["max_temp"] = d.pop("_pre_vacation_max_temp", None)
+            d.pop("_pre_vacation_mode", None)
+        for sch in _state["schedules"]:
+            if sch.pop("_vacation_paused", False):
+                sch["enabled"] = True
+        _add_log("🌴 Vacation mode OFF — settings restored", "ok")
+
+    async with _lock:
+        _save_raw(_state)
+    return {"ok": True, "vacation_mode": enabled}
+
+@app.get("/vacation")
+async def get_vacation():
+    return {"vacation_mode": _state["settings"].get("vacation_mode", False),
+            "vacation_max_temp": _state["settings"].get("vacation_max_temp", 32)}
 
 @app.get("/backup")
 async def backup():
