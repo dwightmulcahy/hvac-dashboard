@@ -293,79 +293,77 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
       </div>
       <!-- General tab -->
       <div id="stab-content-general" style="display:none">
-        <div style="font-size:12px;color:var(--text2);line-height:2">
-          <div style="margin-bottom:12px">
-            <div class="clabel" style="margin-bottom:4px">THEME</div>
-            <div style="display:flex;gap:8px">
-              <button class="btn" id="gen-theme-dark" onclick="applyTheme('dark');updateThemeBtns()" style="font-size:12px">🌙 Dark</button>
-              <button class="btn" id="gen-theme-light" onclick="applyTheme('light');updateThemeBtns()" style="font-size:12px">☀️ Light</button>
+        <div style="font-size:12px;color:var(--text2)">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+            <div>
+              <div class="clabel" style="margin-bottom:4px">THEME</div>
+              <div style="display:flex;gap:6px">
+                <button class="btn" id="gen-theme-dark" onclick="applyTheme('dark');updateThemeBtns()" style="font-size:12px">🌙 Dark</button>
+                <button class="btn" id="gen-theme-light" onclick="applyTheme('light');updateThemeBtns()" style="font-size:12px">☀️ Light</button>
+              </div>
+            </div>
+            <div>
+              <div class="clabel" style="margin-bottom:4px">TEMPERATURE DISPLAY</div>
+              <div style="display:flex;gap:6px">
+                <button class="btn" id="gen-unit-c" onclick="selectTempUnit('C')" style="font-size:12px">°C</button>
+                <button class="btn" id="gen-unit-f" onclick="selectTempUnit('F')" style="font-size:12px">°F</button>
+                <button class="btn" id="gen-unit-both" onclick="selectTempUnit('both')" style="font-size:12px">Both</button>
+              </div>
+            </div>
+            <div>
+              <div class="clabel" style="margin-bottom:4px">DEVICE VOLTAGE</div>
+              <div style="display:flex;gap:6px">
+                <button class="btn" id="gen-v120" onclick="selectVoltage(120)" style="font-size:12px">120V</button>
+                <button class="btn" id="gen-v240" onclick="selectVoltage(240)" style="font-size:12px">240V</button>
+              </div>
+            </div>
+            <div>
+              <div class="clabel" style="margin-bottom:4px">VERBOSE LOGGING</div>
+              <div style="display:flex;gap:6px">
+                <button class="btn" id="gen-verbose-off" onclick="selectVerbose(false)" style="font-size:12px">Off</button>
+                <button class="btn" id="gen-verbose-on" onclick="selectVerbose(true)" style="font-size:12px">On</button>
+              </div>
+            </div>
+            <div>
+              <div class="clabel" style="margin-bottom:4px">POLL INTERVAL (seconds)</div>
+              <input type="number" id="gen-poll" class="inp" style="width:90px" min="10" max="300" value="120">
+            </div>
+            <div>
+              <div class="clabel" style="margin-bottom:4px">DEFAULT SEER (new devices)</div>
+              <select id="gen-seer" class="inp" style="width:90px">
+                <option value="14">14</option><option value="16">16</option><option value="18">18</option>
+                <option value="20" selected>20</option><option value="22">22</option><option value="24">24</option>
+              </select>
+            </div>
+            <div>
+              <div class="clabel" style="margin-bottom:4px">WATCHDOG TIMEOUT (min)</div>
+              <input type="number" id="gen-watchdog" class="inp" style="width:90px" min="1" max="60" value="5">
+            </div>
+            <div>
+              <div class="clabel" style="margin-bottom:4px">VACATION MAX TEMP</div>
+              <div style="display:flex;align-items:center;gap:6px">
+                <input type="number" id="gen-vacation-temp" class="inp" style="width:70px" min="25" max="40" value="32">
+                <span style="color:var(--text3);font-size:11px">°C</span>
+              </div>
+            </div>
+            <div style="grid-column:1/-1">
+              <div class="clabel" style="margin-bottom:4px">MAX TEMP GUARD HOURS</div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="time" id="gen-guard-start" class="inp" style="width:110px" value="08:00">
+                <span style="color:var(--text3)">to</span>
+                <input type="time" id="gen-guard-end" class="inp" style="width:110px" value="22:00">
+              </div>
+            </div>
+            <div style="grid-column:1/-1">
+              <div class="clabel" style="margin-bottom:4px">WATCHTOWER WEBHOOK URL</div>
+              <input type="text" id="gen-watchtower" class="inp" style="width:100%" placeholder="https://ntfy.sh/topic">
             </div>
           </div>
-          <div style="margin-bottom:12px">
-            <div class="clabel" style="margin-bottom:4px">POLL INTERVAL (seconds)</div>
-            <input type="number" id="gen-poll" class="inp" style="width:100px" min="10" max="300" value="120">
-          </div>
-          <div style="margin-bottom:12px">
-            <div class="clabel" style="margin-bottom:4px">VERBOSE LOGGING</div>
-            <div style="display:flex;gap:8px;align-items:center">
-              <button class="btn" id="gen-verbose-off" onclick="selectVerbose(false)" style="font-size:12px;border-color:var(--cool)">Off</button>
-              <button class="btn" id="gen-verbose-on" onclick="selectVerbose(true)" style="font-size:12px">On</button>
-              <span style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace">logs all poll data when enabled</span>
-            </div>
-          </div>
-          <div style="margin-bottom:12px">
-            <div class="clabel" style="margin-bottom:4px">DEFAULT SEER (new devices)</div>
-            <select id="gen-seer" class="inp" style="width:100px">
-              <option value="14">14</option>
-              <option value="16">16</option>
-              <option value="18">18</option>
-              <option value="20" selected>20</option>
-              <option value="22">22</option>
-              <option value="24">24</option>
-            </select>
-          </div>
-          <div style="margin-bottom:12px">
-            <div class="clabel" style="margin-bottom:4px">WATCHDOG TIMEOUT (minutes) — all devices</div>
-            <input type="number" id="gen-watchdog" class="inp" style="width:100px" min="1" max="60" value="5">
-          </div>
-          <div style="margin-bottom:12px">
-            <div class="clabel" style="margin-bottom:4px">MAX TEMP GUARD HOURS</div>
-            <div style="display:flex;align-items:center;gap:8px;font-size:12px">
-              <input type="number" id="gen-guard-start" class="inp" style="width:65px" min="0" max="23" value="8"> <span style="color:var(--text3)">to</span>
-              <input type="number" id="gen-guard-end" class="inp" style="width:65px" min="0" max="23" value="22">
-              <span style="color:var(--text3);font-size:11px;font-family:'DM Mono',monospace">(24h)</span>
-            </div>
-          </div>
-          <div style="margin-bottom:12px">
-            <div class="clabel" style="margin-bottom:4px">VACATION MAX TEMP (°C)</div>
-            <input type="number" id="gen-vacation-temp" class="inp" style="width:100px" min="25" max="40" value="32">
-          </div>
-          <div style="margin-bottom:12px">
-            <div class="clabel" style="margin-bottom:4px">DEVICE VOLTAGE</div>
-            <div style="display:flex;gap:8px">
-              <button class="btn" id="gen-v120" onclick="selectVoltage(120)" style="font-size:12px">120V</button>
-              <button class="btn" id="gen-v240" onclick="selectVoltage(240)" style="font-size:12px">240V</button>
-            </div>
-          </div>
-          <div style="margin-bottom:12px">
-            <div class="clabel" style="margin-bottom:4px">TEMPERATURE DISPLAY</div>
-            <div style="display:flex;gap:8px">
-              <button class="btn" id="gen-unit-c" onclick="selectTempUnit('C')" style="font-size:12px">°C only</button>
-              <button class="btn" id="gen-unit-f" onclick="selectTempUnit('F')" style="font-size:12px">°F only</button>
-              <button class="btn" id="gen-unit-both" onclick="selectTempUnit('both')" style="font-size:12px">Both</button>
-            </div>
-          </div>
-          <div style="margin-bottom:12px">
-            <div class="clabel" style="margin-bottom:4px">WATCHTOWER WEBHOOK URL</div>
-            <input type="text" id="gen-watchtower" class="inp" style="width:100%" placeholder="https://ntfy.sh/topic or https://hooks.slack.com/...">
-            <div style="font-size:10px;color:var(--text3);margin-top:3px;font-family:'DM Mono',monospace">Called when dashboard Docker image updates</div>
+          <div style="display:flex;justify-content:flex-end">
+            <button class="btn" onclick="saveGeneralSettings()" style="border-color:var(--ok);color:var(--ok)">Save</button>
           </div>
         </div>
-        <button class="btn" onclick="saveGeneralSettings()" style="border-color:var(--ok);color:var(--ok);margin-top:4px">Save</button>
       </div>
-    </div>
-  </div>
-</div>
 
 <!-- Schedule modal -->
 <div id="sch-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;align-items:center;justify-content:center">
@@ -961,6 +959,17 @@ async function addDevice(){
   addLog('Device added — edit hostname and name.','info');
 }
 
+function toggleDeviceMenu(i){
+  closeDeviceMenus(i);
+  const m=document.getElementById(`dev-menu-${i}`);
+  if(m)m.style.display=m.style.display==='none'?'block':'none';
+  setTimeout(()=>document.addEventListener('click',closeDeviceMenusAll,{once:true}),0);
+}
+function closeDeviceMenus(except=-1){
+  devices.forEach((_,i)=>{if(i!==except){const m=document.getElementById(`dev-menu-${i}`);if(m)m.style.display='none';}});
+}
+function closeDeviceMenusAll(){closeDeviceMenus();}
+
 function removeDevice(i){
   const d=devices[i];
   fetch(`${API}/devices/${encodeURIComponent(d.host)}`,{method:'DELETE'}).catch(_=>{});
@@ -980,7 +989,7 @@ function renderIPList(){
   document.getElementById('ip-list').innerHTML=header+devices.map((d,i)=>`
     <div class="irow" data-orig-host="${d.host}" data-idx="${i}" draggable="true"
       ondragstart="dragStart(event,${i})" ondragover="dragOver(event)" ondrop="dragDrop(event,${i})" ondragend="dragEnd(event)"
-      style="display:grid;grid-template-columns:20px 95px minmax(160px,1fr) 58px 58px 70px auto;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+      style="display:grid;grid-template-columns:20px 95px minmax(160px,1fr) 58px 58px 70px auto;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);position:relative">
       <span title="Drag to reorder" style="cursor:grab;color:var(--text3);font-size:14px;user-select:none;text-align:center">⠿</span>
       <input class="inp" value="${d.name==='New unit'?'':d.name}" placeholder="Name"
         oninput="devices[${i}].name=this.value;setDeviceDirty(${i})"
@@ -1001,10 +1010,13 @@ function renderIPList(){
       <div style="display:flex;gap:3px;flex-shrink:0">
         <button class="btn bico" id="save-btn-${i}" onclick="saveDeviceRow(${i})" title="Save"
           style="color:var(--text3);cursor:not-allowed" disabled>✓</button>
-        <button class="btn bico" onclick="testDevice(${i})" title="Test connection">⚡</button>
-        <button class="btn bico" onclick="otaDevice(${i})" title="Flash firmware via OTA">⬆</button>
-        ${d.loading?'<span class="spinner"></span>':`<button class="btn bico" onclick="pollDevice(${i}).then(updateSummary)" title="Poll">↺</button>`}
+        <button class="btn bico" onclick="toggleDeviceMenu(${i})" id="dev-menu-btn-${i}" title="More">···</button>
         <button class="btn bico" onclick="removeDevice(${i})" style="color:#ef4444" title="Remove">✕</button>
+      </div>
+      <div id="dev-menu-${i}" style="display:none;position:absolute;right:0;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;z-index:50;box-shadow:0 4px 12px rgba(0,0,0,.3);overflow:hidden;white-space:nowrap">
+        <div class="menu-item" onclick="testDevice(${i});closeDeviceMenus()">⚡ Test connection</div>
+        <div class="menu-item" onclick="otaDevice(${i});closeDeviceMenus()">⬆ Flash firmware</div>
+        <div class="menu-item" onclick="pollDevice(${i}).then(updateSummary);closeDeviceMenus()">↺ Poll now</div>
       </div>
     </div>
   `).join('');
@@ -1177,7 +1189,7 @@ function buildTileHTML(d,i){
           <button onclick="resetOnTime(${i})" title="Reset on-time counter" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:9px;padding:0 1px;line-height:1" onmouseover="this.style.color='var(--err)'" onmouseout="this.style.color='var(--text3)'">↺</button>
         </span>
         ${(()=>{const sig=x.wifi_signal?.value??d.state?.wifi_signal;const w=fmtWifi(sig);return sig!=null?(w?`<span>·</span><span title="${w.label}" style="color:${w.color}">${w.bar}</span>`:`<span>·</span><span style="color:var(--text3);font-size:10px">${sig}dBm</span>`):'';})()}
-        ${x.esphome_version?.value?`<span>·</span><span style="color:var(--text3)" title="ESPHome firmware version">fw ${x.esphome_version.value.split(' ')[0]}</span>`:(d.firmware_version?`<span>·</span><span style="color:var(--text3)" title="ESPHome firmware version">fw ${d.firmware_version}</span>`:'')}
+        ${(()=>{const fv=d.firmware_version||(x.esphome_version?.value?.split(' ')[0]);return fv?`<span>·</span><span style="color:var(--text3)" title="ESPHome firmware version">fw ${fv}</span>`:'';})()}
         ${d.maxTemp!=null?`<span>·</span><span>max <span style="color:${safeFloat(s.current_temperature)>=d.maxTemp?'var(--err)':'var(--text2)'}">${d.maxTemp}°C/${toF(d.maxTemp)}°F</span>${d._maxTempActive?' <span style="color:var(--err)">●</span>':''}</span>`:''}
         ${(()=>{
           if(!d.last_seen)return'';
@@ -1432,49 +1444,46 @@ async function testDevice(i){
   modal.style.display='flex';
   const start=Date.now();
   try{
-    const r=await fetch(`http://${d.host}/climate/air_conditioner`,{
-      signal:AbortSignal.timeout(4000)
-    });
+    // test via API health endpoint — avoids CORS issues
+    const hr=await fetch(`${API}/health`,{signal:AbortSignal.timeout(6000)});
     const ms=Date.now()-start;
-    if(r.ok){
-      body.innerHTML=`
-        <div style="color:var(--ok);font-size:14px;margin-bottom:8px">✓ Reachable</div>
-        <div><span style="color:var(--text3)">Device </span>${d.name}</div>
-        <div><span style="color:var(--text3)">Host   </span>${d.host}</div>
-        <div><span style="color:var(--text3)">Time   </span>${ms}ms</div>`;
-      addLog(`${d.name}: ✓ reachable — ${ms}ms`,'ok');
-      const rebootBtn=document.getElementById('test-modal-reboot-btn');
-      if(rebootBtn)rebootBtn.style.display='block';
-      document.getElementById('test-modal').dataset.host=d.host;
-      document.getElementById('test-modal').dataset.name=d.name;
-      // fetch and show health history
-      try{
-        const hr=await fetch(`${API}/devices/${encodeURIComponent(d.host)}/health-history`);
-        if(hr.ok){
-          const hd=await hr.json();
-          if(hd.history?.length){
+    if(hr.ok){
+      const health=await hr.json();
+      const dh=health.devices?.find(x=>x.host===d.host);
+      const isStale=dh?.stale||false;
+      const lastSeen=dh?.last_seen||d.last_seen;
+      if(!isStale){
+        body.innerHTML=`
+          <div style="color:var(--ok);font-size:14px;margin-bottom:8px">✓ Online</div>
+          <div><span style="color:var(--text3)">Device </span>${d.name}</div>
+          <div><span style="color:var(--text3)">Host   </span>${d.host}</div>
+          <div><span style="color:var(--text3)">API    </span>${ms}ms</div>
+          ${d.firmware_version?`<div><span style="color:var(--text3)">FW     </span>${d.firmware_version}</div>`:''}`;
+        if(rebootBtn)rebootBtn.style.display='block';
+        modal.dataset.host=d.host;modal.dataset.name=d.name;
+        addLog(`${d.name}: ✓ online — ${ms}ms`,'ok');
+        try{
+          const hhr=await fetch(`${API}/devices/${encodeURIComponent(d.host)}/health-history`);
+          if(hhr.ok){const hd=await hhr.json();if(hd.history?.length){
             const rows=hd.history.slice(0,5).map(e=>`<div style="display:flex;gap:8px"><span style="color:var(--text3)">${e.ts.split('T').pop().slice(0,8)}</span><span style="color:${e.event==='online'?'var(--ok)':e.event==='reboot'?'var(--warn)':'var(--err)'}">${e.event}</span></div>`).join('');
-            body.innerHTML+=`<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:6px;font-size:11px"><div style="color:var(--text3);margin-bottom:4px">Recent health events:</div>${rows}</div>`;
-          }
-        }
-      }catch(_){}
-    }else{
-      body.innerHTML=`
-        <div style="color:var(--err);font-size:14px;margin-bottom:8px">✗ HTTP ${r.status}</div>
-        <div><span style="color:var(--text3)">Device </span>${d.name}</div>
-        <div><span style="color:var(--text3)">Host   </span>${d.host}</div>
-        <div><span style="color:var(--text3)">Time   </span>${ms}ms</div>`;
-      addLog(`${d.name}: ✗ HTTP ${r.status} (${ms}ms)`,'err');
+            body.innerHTML+=`<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:6px;font-size:11px"><div style="color:var(--text3);margin-bottom:4px">Health events:</div>${rows}</div>`;
+          }}
+        }catch(_){}
+      }else{
+        body.innerHTML=`<div style="color:var(--warn);font-size:14px;margin-bottom:8px">⚠ Stale</div>
+          <div><span style="color:var(--text3)">Device </span>${d.name}</div>
+          <div><span style="color:var(--text3)">Host   </span>${d.host}</div>
+          <div style="color:var(--text3);font-size:11px;margin-top:4px">Not responding to polls</div>`;
+        addLog(`${d.name}: ⚠ stale`,'warn');
+      }
     }
   }catch(e){
     const ms=Date.now()-start;
     body.innerHTML=`
       <div style="color:var(--err);font-size:14px;margin-bottom:8px">✗ Unreachable</div>
       <div><span style="color:var(--text3)">Device </span>${d.name}</div>
-      <div><span style="color:var(--text3)">Host   </span>${d.host}</div>
-      <div><span style="color:var(--text3)">Error  </span>${e.message}</div>
-      <div><span style="color:var(--text3)">Time   </span>${ms}ms</div>`;
-    addLog(`${d.name}: ✗ unreachable — ${e.message} (${ms}ms)`,'err');
+      <div><span style="color:var(--text3)">Error  </span>${e.message}</div>`;
+    addLog(`${d.name}: ✗ unreachable`,'err');
   }
 }
 
@@ -1636,9 +1645,9 @@ function openSettings(tab){
   const vacEl=document.getElementById('gen-vacation-temp');
   if(vacEl)vacEl.value=gen.vacTemp||32;
   const gsEl=document.getElementById('gen-guard-start');
-  if(gsEl)gsEl.value=gen.guardStart||8;
+  if(gsEl)gsEl.value=`${String(gen.guardStart||8).padStart(2,'0')}:00`;
   const geEl=document.getElementById('gen-guard-end');
-  if(geEl)geEl.value=gen.guardEnd||22;
+  if(geEl)geEl.value=`${String(gen.guardEnd||22).padStart(2,'0')}:00`;
   selectVoltage(_voltage);
   selectVerbose(gen.verbose||false);
   selectTempUnit(_tempUnit);
@@ -1712,8 +1721,10 @@ function saveGeneralSettings(){
   const seer=+document.getElementById('gen-seer').value||20;
   const watchdog=+document.getElementById('gen-watchdog').value||5;
   const vacTemp=+document.getElementById('gen-vacation-temp').value||32;
-  const guardStart=+document.getElementById('gen-guard-start').value||8;
-  const guardEnd=+document.getElementById('gen-guard-end').value||22;
+  const guardStartVal=document.getElementById('gen-guard-start')?.value||'08:00';
+  const guardEndVal=document.getElementById('gen-guard-end')?.value||'22:00';
+  const guardStart=parseInt(guardStartVal.split(':')[0])||8;
+  const guardEnd=parseInt(guardEndVal.split(':')[0])||22;
   const watchtower=document.getElementById('gen-watchtower')?.value||'';
   VACATION_MAX_TEMP_SETTING=vacTemp;
   localStorage.setItem('hvac_general',JSON.stringify({poll,seer,watchdog,vacTemp,voltage:_voltage,guardStart,guardEnd,verbose:_verbose_logging,tempUnit:_tempUnit}));
