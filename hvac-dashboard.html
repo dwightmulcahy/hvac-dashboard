@@ -501,7 +501,7 @@ async function loadDevicesFromAPI(){
       };
     });
     devices=merged;
-  }catch(e){addLog('API not reachable — running in direct mode','warn');}
+  }catch(e){// API not reachable — silent}
 }
 
 async function saveDeviceToAPI(d){
@@ -534,19 +534,22 @@ function toggleTheme(){applyTheme(_theme==='dark'?'light':'dark');}
 let vacationMode=localStorage.getItem('hvac_vacation')==='true';
 const VACATION_MAX_TEMP=32;
 
-async function applyVacationMode(enabled){
+async function applyVacationMode(enabled, silent=false){
+  const wasOn=vacationMode;
   vacationMode=enabled;
   localStorage.setItem('hvac_vacation',enabled);
   const mi=document.getElementById('vacation-menu-item');
   if(mi)mi.textContent=enabled?'🌴 Vacation mode ●':'🌴 Vacation mode';
   if(mi)mi.style.color=enabled?'var(--warn)':'';
-  try{
-    await fetch(`${API}/vacation/${enabled?'on':'off'}`,{method:'POST'});
-  }catch(e){addLog(`Vacation mode failed: ${e.message}`,'err');}
-  addLog(`🌴 Vacation mode ${enabled?'ON':'OFF'}`,'warn');
-  // refresh devices to show updated max_temp
-  await loadDevicesFromAPI();
-  renderAll();
+  // only call API if state actually changed
+  if(!silent && wasOn!==enabled){
+    try{
+      await fetch(`${API}/vacation/${enabled?'on':'off'}`,{method:'POST'});
+      addLog(`🌴 Vacation mode ${enabled?'ON':'OFF'}`,'warn');
+    }catch(e){addLog(`Vacation mode failed: ${e.message}`,'err');}
+    await loadDevicesFromAPI();
+    renderAll();
+  }
 }
 function toggleVacationMode(){applyVacationMode(!vacationMode);}
 
@@ -787,7 +790,6 @@ async function pollDevice(i){
 }
 
 async function pollAll(){
-  addLog('Refreshing from API…','info');
   document.getElementById('s-time').textContent='…';
   await loadDevicesFromAPI();
   await fetchServerLogs();
@@ -2165,11 +2167,11 @@ async function refreshUsageView(){
 // ── Init ─────────────────────────────────────────────────
 async function init(){
   applyTheme(_theme);
-  // sync vacation mode from API
+  // sync vacation mode from API — silent (no API call, no log)
   try{
     const r=await fetch(`${API}/vacation`);
-    if(r.ok){const d=await r.json();vacationMode=d.vacation_mode;applyVacationMode(vacationMode);}
-  }catch(_){applyVacationMode(vacationMode);}
+    if(r.ok){const d=await r.json();vacationMode=d.vacation_mode;applyVacationMode(d.vacation_mode,true);}
+  }catch(_){applyVacationMode(vacationMode,true);}
   addLog('Connecting to API…','info');
   await checkApiStatus();
   await loadDevicesFromAPI();
@@ -2178,7 +2180,7 @@ async function init(){
   initMonthSelector();
   initRateSettingsFromAPI();
   updatePeakCard();
-  addLog('Ready — refreshing every 60s','ok');
+  // ready — no log
   pollAll();
 }
 
@@ -2225,7 +2227,7 @@ async function checkApiStatus(){
     }
   }catch(_){
     setApiStatus(false);
-    addLog('⚠ API unreachable — schedules and automation paused','err');
+    // API unreachable — silent
   }
 }
 
