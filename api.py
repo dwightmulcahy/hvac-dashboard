@@ -396,16 +396,15 @@ async def _poll_device(device: dict):
             except:
                 ds["actual_power_watts"] = None
 
-    # beeper sync — push saved state if device disagrees
-    saved_beeper = device.get("beeper", "OFF")
+    # beeper sync — read device state as source of truth, update saved if different
     if "beeper" in sensors:
-        device_beeper = sensors["beeper"].get("value", "OFF")
-        ds["beeper"] = saved_beeper
-        if device_beeper != saved_beeper:
-            endpoint = "turn_on" if saved_beeper == "ON" else "turn_off"
-            ok = await _send_switch(host, f"switch/air_conditioner_beeper/{endpoint}")
-            if ok:
-                _verbose(f"{name}: beeper synced → {saved_beeper.lower()}", "info")
+        raw = sensors["beeper"].get("value")
+        if raw is not None:
+            device_beeper = "ON" if raw is True or str(raw).upper() == "ON" else "OFF"
+            ds["beeper"] = device_beeper
+            if device.get("beeper") != device_beeper:
+                device["beeper"] = device_beeper
+                _verbose(f"{name}: beeper state updated → {device_beeper.lower()}", "info")
 
     # on-time tracking
     now_epoch = datetime.datetime.utcnow().timestamp()
