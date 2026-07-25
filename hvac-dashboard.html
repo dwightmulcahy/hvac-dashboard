@@ -2222,6 +2222,8 @@ function setApiStatus(ok, version){
   }
 }
 
+const DASHBOARD_VERSION='DASHBOARD_VERSION_PLACEHOLDER';
+
 async function checkApiStatus(){
   try{
     const r=await fetch(`${API}/`,{signal:AbortSignal.timeout(3000)});
@@ -2233,13 +2235,37 @@ async function checkApiStatus(){
         const build=d.build?` (build ${d.build})`:'';
         el.textContent=`${d.version||''}${build}`;
       }
+      // check if dashboard is out of date with API version
+      const apiVer=d.version||'';
+      const dashVer=DASHBOARD_VERSION;
+      if(apiVer && dashVer && dashVer!=='DASHBOARD_VERSION_PLACEHOLDER' && apiVer!==dashVer){
+        showUpdateBanner(apiVer);
+      }else{
+        hideUpdateBanner();
+      }
     }else{
       setApiStatus(false);
     }
   }catch(_){
     setApiStatus(false);
-    // API unreachable — silent
   }
+}
+
+function showUpdateBanner(newVersion){
+  let banner=document.getElementById('update-banner');
+  if(!banner){
+    banner=document.createElement('div');
+    banner.id='update-banner';
+    banner.style.cssText='position:fixed;top:0;left:0;right:0;z-index:500;background:var(--cool);color:#fff;text-align:center;padding:8px 16px;font-size:13px;font-family:"DM Mono",monospace;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:12px';
+    banner.innerHTML=`<span>🔄 Dashboard update available (API: ${newVersion}) — click to reload</span><button onclick="event.stopPropagation();hideUpdateBanner()" style="background:none;border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px">Dismiss</button>`;
+    banner.onclick=()=>location.reload();
+    document.body.prepend(banner);
+  }
+}
+
+function hideUpdateBanner(){
+  const banner=document.getElementById('update-banner');
+  if(banner)banner.remove();
 }
 
 init();

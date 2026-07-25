@@ -26,6 +26,9 @@ RUN mkdir -p /var/www/html /app /data
 COPY hvac-dashboard.html /var/www/html/index.html
 COPY api.py /app/api.py
 
+# Inject build version into dashboard
+RUN sed -i "s/DASHBOARD_VERSION_PLACEHOLDER/${APP_VERSION}/g" /var/www/html/index.html
+
 # Fix permissions
 RUN chown -R www-data:www-data /var/www/html && chmod -R 755 /var/www/html
 
