@@ -56,6 +56,8 @@ DEFAULT_STATE = {
         "vacation_mode": False,
         "vacation_max_temp": 32,
         "verbose_logging": False,
+        "temp_unit": "both",          # "C", "F", or "both"
+        "watchtower_webhook": "",     # optional webhook URL for update notifications
     },
     "usage": {
         "daily": {},        # {"2026-07-01": {"host": {runtime_min, est_kwh, ...}}}
@@ -84,6 +86,8 @@ DEVICE_DEFAULTS = {
     "_last_poll_epoch": None,
     "_on_time_minutes": 0.0,
     "_retry_queue": [],
+    "_health_history": [],    # [{ts, event: "online"|"offline", uptime?}] last 50
+    "_firmware_version": None,
 }
 
 SCHEDULE_DEFAULTS = {
@@ -185,6 +189,19 @@ def _verbose(msg: str, level: str = "info"):
     if _state["settings"].get("verbose_logging", False):
         _add_log(msg, level)
 
+# ── Health history ────────────────────────────────────────
+
+def _record_health_event(device: dict, event: str):
+    """Record online/offline/reboot event, keep last 50."""
+    if "_health_history" not in device:
+        device["_health_history"] = []
+    device["_health_history"].insert(0, {
+        "ts": _now_iso(),
+        "event": event,
+    })
+    device["_health_history"] = device["_health_history"][:50]
+
+
 # ── AC communication ──────────────────────────────────────
 
 # ESPHome entity paths — new firmware uses friendly name with spaces,
@@ -222,9 +239,9 @@ async def _fetch_sensors(host: str) -> dict:
             "sensor/Air%20Conditioner%20Uptime%20Days",
             "sensor/air_conditioner_uptime_days",
         ],
-        "beeper": [
-            "switch/Air%20Conditioner%20Beeper",
-            "switch/air_conditioner_beeper",
+        "power_usage": [
+            "sensor/Air%20Conditioner%20Power%20Usage",
+            "sensor/air_conditioner_power_usage",
         ],
     }
     wifi_paths = [
@@ -323,6 +340,7 @@ async def _poll_device(device: dict):
         device["_stale"] = True
         if not prev_stale:
             _add_log(f"{name}: 🔴 went offline", "err")
+            _record_health_event(device, "offline")
         _state["device_state"][host] = {"error": "unreachable", "host": host,
                                          "last_seen": device.get("_last_seen")}
         return
@@ -331,6 +349,7 @@ async def _poll_device(device: dict):
     if device.get("_stale"):
         device["_stale"] = False
         _add_log(f"{name}: 🟢 back online", "ok")
+        _record_health_event(device, "online")
 
     device["_last_seen"] = _now_iso()
     device["_stale"] = False
@@ -348,12 +367,12 @@ async def _poll_device(device: dict):
             try:
                 if float(new_uptime) < float(prev_uptime) - 0.001:
                     _add_log(f"{name}: ⚠ dongle rebooted (uptime reset)", "warn")
+                    _record_health_event(device, "reboot")
             except:
                 pass
         ds["uptime_days"] = new_uptime
     if "wifi_signal" in sensors:
         raw = sensors["wifi_signal"].get("value")
-        # ESPHome returns value as number (-43) or string ("-43 dBm")
         if raw is not None:
             try:
                 ds["wifi_signal"] = float(str(raw).split()[0])
@@ -361,8 +380,21 @@ async def _poll_device(device: dict):
                 ds["wifi_signal"] = raw
         log.debug(f"{name}: wifi={ds.get('wifi_signal')}dBm")
     if "esphome_version" in sensors:
-        ds["esphome_version"] = sensors["esphome_version"].get("state") or \
-                                sensors["esphome_version"].get("value")
+        fw = sensors["esphome_version"].get("state") or \
+             sensors["esphome_version"].get("value")
+        ds["esphome_version"] = fw
+        # store short version (strip build hash if present)
+        if fw:
+            device["_firmware_version"] = fw.split(" ")[0] if fw else None
+    # actual power_usage — use if non-zero, otherwise fall back to estimation
+    if "power_usage" in sensors:
+        raw_power = sensors["power_usage"].get("value")
+        if raw_power is not None:
+            try:
+                pw = float(str(raw_power).split()[0])
+                ds["actual_power_watts"] = pw if pw > 0 else None
+            except:
+                ds["actual_power_watts"] = None
 
     # beeper sync — push saved state if device disagrees
     saved_beeper = device.get("beeper", "OFF")
@@ -1239,6 +1271,30 @@ async def set_vacation(state: str):
 async def get_vacation():
     return {"vacation_mode": _state["settings"].get("vacation_mode", False),
             "vacation_max_temp": _state["settings"].get("vacation_max_temp", 32)}
+
+@app.get("/devices/{host:path}/health-history")
+async def get_health_history(host: str):
+    device = next((d for d in _state["devices"] if d["host"] == host), None)
+    if not device:
+        return {"host": host, "history": []}
+    return {"host": host, "name": device.get("name"), "history": device.get("_health_history", [])}
+
+@app.post("/watchtower-notify")
+async def watchtower_notify(data: dict):
+    """Called by Watchtower webhook when a new image is pulled."""
+    webhook_url = _state["settings"].get("watchtower_webhook", "")
+    image = data.get("container", data.get("image", "hvac-dashboard"))
+    tag = data.get("tag", "latest")
+    msg = f"🐳 {image}:{tag} updated and restarted"
+    _add_log(msg, "ok")
+    # forward to user's webhook if configured
+    if webhook_url:
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                await client.post(webhook_url, json={"text": msg, "title": "HVAC Dashboard Updated"})
+        except Exception as e:
+            _add_log(f"Watchtower webhook forward failed: {e}", "warn")
+    return {"ok": True}
 
 @app.get("/backup")
 async def backup():

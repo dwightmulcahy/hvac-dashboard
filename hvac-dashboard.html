@@ -336,6 +336,8 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
               <span style="color:var(--text3);font-size:11px;font-family:'DM Mono',monospace">(24h)</span>
             </div>
           </div>
+          <div style="margin-bottom:12px">
+            <div class="clabel" style="margin-bottom:4px">VACATION MAX TEMP (°C)</div>
             <input type="number" id="gen-vacation-temp" class="inp" style="width:100px" min="25" max="40" value="32">
           </div>
           <div style="margin-bottom:12px">
@@ -344,6 +346,19 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
               <button class="btn" id="gen-v120" onclick="selectVoltage(120)" style="font-size:12px">120V</button>
               <button class="btn" id="gen-v240" onclick="selectVoltage(240)" style="font-size:12px">240V</button>
             </div>
+          </div>
+          <div style="margin-bottom:12px">
+            <div class="clabel" style="margin-bottom:4px">TEMPERATURE DISPLAY</div>
+            <div style="display:flex;gap:8px">
+              <button class="btn" id="gen-unit-c" onclick="selectTempUnit('C')" style="font-size:12px">°C only</button>
+              <button class="btn" id="gen-unit-f" onclick="selectTempUnit('F')" style="font-size:12px">°F only</button>
+              <button class="btn" id="gen-unit-both" onclick="selectTempUnit('both')" style="font-size:12px">Both</button>
+            </div>
+          </div>
+          <div style="margin-bottom:12px">
+            <div class="clabel" style="margin-bottom:4px">WATCHTOWER WEBHOOK URL</div>
+            <input type="text" id="gen-watchtower" class="inp" style="width:100%" placeholder="https://ntfy.sh/topic or https://hooks.slack.com/...">
+            <div style="font-size:10px;color:var(--text3);margin-top:3px;font-family:'DM Mono',monospace">Called when dashboard Docker image updates</div>
           </div>
         </div>
         <button class="btn" onclick="saveGeneralSettings()" style="border-color:var(--ok);color:var(--ok);margin-top:4px">Save</button>
@@ -482,6 +497,7 @@ async function loadDevicesFromAPI(){
         stale:d.state?.stale||false,
         last_seen:d.state?.last_seen||d._last_seen||null,
         retry_queue_depth:d._retry_queue?.length||0,
+        firmware_version:d._firmware_version||d.state?.esphome_version?.split(' ')[0]||null,
       };
     });
     devices=merged;
@@ -731,7 +747,19 @@ function estWatts(state,extras,btu,seer){
 }
 
 function toF(c){const n=safeFloat(c);return n!=null?Math.round(n*9/5+32):null;}
-function fmtCF(c){const n=safeFloat(c);return n!=null?`${n.toFixed(1)}°C<br><span style="color:var(--text3);font-size:10px;font-weight:400">${toF(n)}°F</span>`:'—';}
+function fmtTemp(c){
+  const n=safeFloat(c);if(n==null)return'—';
+  if(_tempUnit==='F')return`${toF(n)}°F`;
+  if(_tempUnit==='C')return`${n.toFixed(1)}°C`;
+  return`${n.toFixed(1)}°C<br><span style="color:var(--text3);font-size:10px;font-weight:400">${toF(n)}°F</span>`;
+}
+function fmtTempInline(c){
+  const n=safeFloat(c);if(n==null)return'—';
+  if(_tempUnit==='F')return`${toF(n)}°F`;
+  if(_tempUnit==='C')return`${n.toFixed(1)}°C`;
+  return`${n.toFixed(1)}°C / ${toF(n)}°F`;
+}
+function fmtCF(c){return`<span>${fmtTemp(c)}</span>`;}
 
 function fmtUptime(days){
   if(days==null)return'—';
@@ -1124,7 +1152,7 @@ function buildTileHTML(d,i){
         </div>
         <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
           <button class="btn bico" onclick="adjustTemp(${i},-1)" ${dis} style="width:24px;height:24px">−</button>
-          <div class="tdisp" style="line-height:1.2;text-align:center">${on&&s.target_temperature!=null?`${parseFloat(safeFloat(s.target_temperature).toFixed(1))}°C<br><span style="font-size:10px;color:var(--text3);font-weight:400">${toF(s.target_temperature)}°F</span>`:'<span style="color:var(--text3);font-size:11px">off</span>'}</div>
+          <div class="tdisp" style="line-height:1.2;text-align:center">${on&&s.target_temperature!=null?fmtTemp(s.target_temperature):'<span style="color:var(--text3);font-size:11px">off</span>'}</div>
           <button class="btn bico" onclick="adjustTemp(${i},1)" ${dis} style="width:24px;height:24px">+</button>
           ${x.beeper!==undefined?`<button class="beeper ${x.beeper?.value==='ON'?'on':''}" onclick="toggleBeeper(${i})" ${busy?'disabled':''} style="font-size:11px;padding:0 7px;height:24px;border-radius:7px">🔔</button>`:''}
           <button onclick="toggleLockTemp(${i})" title="${d.lock_temp?'Locked at '+d.locked_target_temp+'°C — click to unlock':'Click to lock temp at current setpoint'}"
@@ -1139,15 +1167,15 @@ function buildTileHTML(d,i){
       </div>
       <div style="display:flex;gap:5px">
         <div class="stat" style="flex:1;text-align:center"><div class="slabel">In</div><div class="sval">${fmtCF(s.current_temperature)}</div></div>
-        <div class="stat" style="flex:1;text-align:center"><div class="slabel">Out</div><div class="sval" style="${safeFloat(x.outdoor_temp?.value)>30?'color:var(--heat)':''}">${x.outdoor_temp?.value!=null?safeFloat(x.outdoor_temp.value)?.toFixed(1)+'°C':'—'}${x.outdoor_temp?.value!=null?`<br><span style="color:var(--text3);font-size:10px">${toF(x.outdoor_temp.value)}°F</span>`:''}</div></div>
-        <div class="stat" style="flex:1;text-align:center"><div class="slabel">~W</div><div class="sval">${(()=>{const w=estWatts(s,x,d.btu,d.seer);return w===0?'<span style="color:var(--text3)">off</span>':w!=null?w+'W':'—';})()}</div></div>
+        <div class="stat" style="flex:1;text-align:center"><div class="slabel">Out</div><div class="sval" style="${safeFloat(x.outdoor_temp?.value)>30?'color:var(--heat):':''}">${x.outdoor_temp?.value!=null?fmtTemp(x.outdoor_temp.value):'—'}</div></div>
+        <div class="stat" style="flex:1;text-align:center"><div class="slabel">${d.state?.actual_power_watts!=null?'W':'~W'}</div><div class="sval">${(()=>{const actual=d.state?.actual_power_watts;if(actual!=null)return actual+'W';const w=estWatts(s,x,d.btu,d.seer);return w===0?'<span style="color:var(--text3)">off</span>':w!=null?w+'W':'—';})()}</div></div>
       </div>
       <div style="margin-top:5px;font-size:10px;font-family:'DM Mono',monospace;color:var(--text3);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <span title="Total time AC has been on">on <span style="color:var(--text2)">${fmtOnTime(d._onTimeMinutes||0)}</span>
           <button onclick="resetOnTime(${i})" title="Reset on-time counter" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:9px;padding:0 1px;line-height:1" onmouseover="this.style.color='var(--err)'" onmouseout="this.style.color='var(--text3)'">↺</button>
         </span>
         ${(()=>{const sig=x.wifi_signal?.value??d.state?.wifi_signal;const w=fmtWifi(sig);return sig!=null?(w?`<span>·</span><span title="${w.label}" style="color:${w.color}">${w.bar}</span>`:`<span>·</span><span style="color:var(--text3);font-size:10px">${sig}dBm</span>`):'';})()}
-        ${x.esphome_version?.value?`<span>·</span><span style="color:var(--text3)" title="ESPHome firmware version">fw ${x.esphome_version.value}</span>`:''}
+        ${x.esphome_version?.value?`<span>·</span><span style="color:var(--text3)" title="ESPHome firmware version">fw ${x.esphome_version.value.split(' ')[0]}</span>`:(d.firmware_version?`<span>·</span><span style="color:var(--text3)" title="ESPHome firmware version">fw ${d.firmware_version}</span>`:'')}
         ${d.maxTemp!=null?`<span>·</span><span>max <span style="color:${safeFloat(s.current_temperature)>=d.maxTemp?'var(--err)':'var(--text2)'}">${d.maxTemp}°C/${toF(d.maxTemp)}°F</span>${d._maxTempActive?' <span style="color:var(--err)">●</span>':''}</span>`:''}
         ${(()=>{
           if(!d.last_seen)return'';
@@ -1199,11 +1227,11 @@ function updateSummary(){
   if(onlineEl)onlineEl.textContent=`${live.length}/${devices.length}`;
   const avg=arr=>arr.length?(arr.reduce((a,b)=>a+b)/arr.length):null;
   const temps=on.filter(d=>d.state.current_temperature!=null).map(d=>parseFloat(d.state.current_temperature));
-  const t=avg(temps);document.getElementById('s-temp').innerHTML=t!=null?`${t.toFixed(1)}<span style="font-size:11px">°C</span>`:'—';
+  const t=avg(temps);document.getElementById('s-temp').innerHTML=t!=null?fmtTemp(t):'—';
   const outs=live.filter(d=>d.extras?.outdoor_temp?.value!=null).map(d=>parseFloat(d.extras.outdoor_temp.value));
-  const o=avg(outs);document.getElementById('s-out').innerHTML=o!=null?`${o.toFixed(1)}<span style="font-size:11px">°C</span>`:'—';
+  const o=avg(outs);document.getElementById('s-out').innerHTML=o!=null?fmtTemp(o):'—';
   const sets=on.filter(d=>d.state.target_temperature!=null).map(d=>parseFloat(d.state.target_temperature));
-  const sp=avg(sets);document.getElementById('s-set').innerHTML=sp!=null?`${sp.toFixed(1)}<span style="font-size:11px">°C</span>`:'—';
+  const sp=avg(sets);document.getElementById('s-set').innerHTML=sp!=null?fmtTemp(sp):'—';
   const totalEst=live.reduce((sum,d)=>{const w=estWatts(d.state,d.extras,d.btu,d.seer);return w!=null?sum+w:sum;},0);
   const activeUnits=on.length;
   document.getElementById('s-estload').innerHTML=totalEst>0?totalEst+'<span> W</span>':'<span>—</span>';
@@ -1413,12 +1441,21 @@ async function testDevice(i){
         <div><span style="color:var(--text3)">Host   </span>${d.host}</div>
         <div><span style="color:var(--text3)">Time   </span>${ms}ms</div>`;
       addLog(`${d.name}: ✓ reachable — ${ms}ms`,'ok');
-      // show reboot button
       const rebootBtn=document.getElementById('test-modal-reboot-btn');
       if(rebootBtn)rebootBtn.style.display='block';
-      // store host for rebootDongle
       document.getElementById('test-modal').dataset.host=d.host;
       document.getElementById('test-modal').dataset.name=d.name;
+      // fetch and show health history
+      try{
+        const hr=await fetch(`${API}/devices/${encodeURIComponent(d.host)}/health-history`);
+        if(hr.ok){
+          const hd=await hr.json();
+          if(hd.history?.length){
+            const rows=hd.history.slice(0,5).map(e=>`<div style="display:flex;gap:8px"><span style="color:var(--text3)">${e.ts.split('T').pop().slice(0,8)}</span><span style="color:${e.event==='online'?'var(--ok)':e.event==='reboot'?'var(--warn)':'var(--err)'}">${e.event}</span></div>`).join('');
+            body.innerHTML+=`<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:6px;font-size:11px"><div style="color:var(--text3);margin-bottom:4px">Recent health events:</div>${rows}</div>`;
+          }
+        }
+      }catch(_){}
     }else{
       body.innerHTML=`
         <div style="color:var(--err);font-size:14px;margin-bottom:8px">✗ HTTP ${r.status}</div>
@@ -1602,6 +1639,9 @@ function openSettings(tab){
   if(geEl)geEl.value=gen.guardEnd||22;
   selectVoltage(_voltage);
   selectVerbose(gen.verbose||false);
+  selectTempUnit(_tempUnit);
+  const wtEl=document.getElementById('gen-watchtower');
+  if(wtEl)wtEl.value=gen.watchtower||'';
   updateThemeBtns();
 }
 
@@ -1672,12 +1712,13 @@ function saveGeneralSettings(){
   const vacTemp=+document.getElementById('gen-vacation-temp').value||32;
   const guardStart=+document.getElementById('gen-guard-start').value||8;
   const guardEnd=+document.getElementById('gen-guard-end').value||22;
+  const watchtower=document.getElementById('gen-watchtower')?.value||'';
   VACATION_MAX_TEMP_SETTING=vacTemp;
-  localStorage.setItem('hvac_general',JSON.stringify({poll,seer,watchdog,vacTemp,voltage:_voltage,guardStart,guardEnd,verbose:_verbose_logging}));
+  localStorage.setItem('hvac_general',JSON.stringify({poll,seer,watchdog,vacTemp,voltage:_voltage,guardStart,guardEnd,verbose:_verbose_logging,tempUnit:_tempUnit}));
   devices.forEach(d=>{d.watchdog_minutes=watchdog;saveDeviceToAPI(d);});
   fetch(`${API}/settings`,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({poll_interval:poll,max_temp_guard_start:guardStart,max_temp_guard_end:guardEnd,
-      vacation_max_temp:vacTemp,verbose_logging:_verbose_logging})}).catch(_=>{});
+      vacation_max_temp:vacTemp,verbose_logging:_verbose_logging,temp_unit:_tempUnit,watchtower_webhook:watchtower})}).catch(_=>{});
   addLog(`General settings saved — watchdog ${watchdog}m, guard ${guardStart}:00–${guardEnd}:00, ${_voltage}V`,'ok');
   closeSettings();
 }
@@ -1690,6 +1731,16 @@ function selectVerbose(on){
   const onBtn=document.getElementById('gen-verbose-on');
   if(offBtn)offBtn.style.borderColor=!on?'var(--cool)':'var(--border2)';
   if(onBtn)onBtn.style.borderColor=on?'var(--cool)':'var(--border2)';
+}
+
+let _tempUnit=(()=>{try{return JSON.parse(localStorage.getItem('hvac_general')||'{}').tempUnit||'both';}catch(_){return'both';}})();
+
+function selectTempUnit(unit){
+  _tempUnit=unit;
+  ['c','f','both'].forEach(u=>{
+    const btn=document.getElementById(`gen-unit-${u}`);
+    if(btn)btn.style.borderColor=unit===u?'var(--cool)':'var(--border2)';
+  });
 }
 
 function selectVoltage(v){
