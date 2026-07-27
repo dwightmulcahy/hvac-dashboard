@@ -145,6 +145,9 @@ def _month() -> str:
 def _ts() -> str:
     return datetime.datetime.now().strftime("%H:%M:%S")
 
+def _ts_iso() -> str:
+    return datetime.datetime.now().isoformat(timespec='seconds')
+
 def _effective_rate() -> float:
     s = _state["settings"]
     if not s.get("tiered", True):
@@ -178,7 +181,7 @@ def _est_watts(device_state: dict, btu: int, seer: int) -> Optional[float]:
     return round(max_w * load)
 
 def _add_log(msg: str, level: str = "info"):
-    entry = {"time": _ts(), "msg": msg, "level": level}
+    entry = {"time": _ts(), "iso": _ts_iso(), "msg": msg, "level": level}
     log.info(f"[{level.upper()}] {msg}")
     _state["logs"].insert(0, entry)
     if len(_state["logs"]) > 200:
