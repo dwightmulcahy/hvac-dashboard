@@ -516,7 +516,7 @@ async function saveDeviceToAPI(d){
 
 function saveDevices(){devices.forEach(d=>saveDeviceToAPI(d));}
 
-const ts=()=>new Date().toTimeString().slice(0,5);
+const ts=()=>new Date().toTimeString().slice(0,8);
 
 // ── Theme ─────────────────────────────────────────────────
 let _theme=localStorage.getItem('hvac_theme')||'dark';
@@ -583,12 +583,19 @@ async function fetchServerLogs(){
     const r=await fetch(`${API}/logs?limit=100`);
     if(r.ok){
       const data=await r.json();
-      // merge server logs in — deduplicate by msg+time
+      // merge server logs — deduplicate by msg+time
       const existing=new Set(logEntries.map(e=>e.time+e.msg));
       data.logs.forEach(l=>{
+        // normalize time to HH:MM:SS
+        if(l.time&&l.time.length===5)l.time=l.time+':00';
         if(!existing.has(l.time+l.msg))logEntries.push(l);
       });
-      logEntries.sort((a,b)=>b.time.localeCompare(a.time));
+      // sort descending — pad HH:MM to HH:MM:00 for correct ordering
+      logEntries.sort((a,b)=>{
+        const ta=a.time?.length===5?a.time+':00':a.time||'';
+        const tb=b.time?.length===5?b.time+':00':b.time||'';
+        return tb.localeCompare(ta);
+      });
       if(logEntries.length>200)logEntries.length=200;
       renderLog();
     }
@@ -2185,6 +2192,8 @@ async function init(){
   }catch(_){applyVacationMode(vacationMode,true);}
   addLog('Connecting to API…','info');
   await checkApiStatus();
+  // force badge refresh after short delay in case API was slow to respond
+  setTimeout(checkApiStatus, 2000);
   await loadDevicesFromAPI();
   await loadSchedulesFromAPI();
   renderIPList();renderUnits();renderSchedules();
