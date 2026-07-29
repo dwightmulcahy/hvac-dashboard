@@ -1900,33 +1900,37 @@ function snapTimePicker(){
 }
 
 function openScheduleModal(idx=null){
+  const modal=document.getElementById('sch-modal');
+  if(!modal)return;
   editSchIdx=idx;
-  document.getElementById('sch-modal-title').textContent=idx!==null?'Edit schedule':'Add schedule';
+  const titleEl=document.getElementById('sch-modal-title');
+  if(titleEl)titleEl.textContent=idx!==null?'Edit schedule':'Add schedule';
   const sel=document.getElementById('sch-device');
-  sel.innerHTML=devices.map((d,i)=>`<option value="${i}">${d.name}</option>`).join('');
+  if(sel)sel.innerHTML=devices.map((d,i)=>`<option value="${i}">${d.name}</option>`).join('');
   document.querySelectorAll('.dbtn').forEach(b=>b.classList.remove('on'));
   if(idx!==null){
     const s=schedules[idx];
-    sel.value=devices.findIndex(d=>d.host===(s.device_host||s.host));
+    if(sel)sel.value=devices.findIndex(d=>d.host===(s.device_host||s.host));
     setTimePicker(s.time);
     s.days.forEach(d=>document.querySelector(`.dbtn[data-d="${d}"]`)?.classList.add('on'));
-    document.getElementById('sch-power-en').checked=s.power!==null;
-    document.getElementById('sch-power').value=s.power||'on';
-    document.getElementById('sch-mode-en').checked=s.mode!==null;
-    document.getElementById('sch-mode').value=s.mode||'COOL';
-    document.getElementById('sch-temp-en').checked=s.temp!==null;
+    const setPw=document.getElementById('sch-power-en');if(setPw)setPw.checked=s.power!==null;
+    const pw=document.getElementById('sch-power');if(pw)pw.value=s.power||'on';
+    const setMd=document.getElementById('sch-mode-en');if(setMd)setMd.checked=s.mode!==null;
+    const md=document.getElementById('sch-mode');if(md)md.value=s.mode||'COOL';
+    const setTp=document.getElementById('sch-temp-en');if(setTp)setTp.checked=s.temp!==null;
     const hasEnd=!!s.end_time;
-    document.getElementById('sch-end-en').checked=hasEnd;
-    document.getElementById('sch-end-row').style.display=hasEnd?'flex':'none';
-    if(hasEnd)document.getElementById('sch-end-time').value=s.end_time;
-    document.getElementById('sch-temp').value=s.temp||24;
+    const endEn=document.getElementById('sch-end-en');if(endEn)endEn.checked=hasEnd;
+    const endRow=document.getElementById('sch-end-row');if(endRow)endRow.style.display=hasEnd?'flex':'none';
+    const endTime=document.getElementById('sch-end-time');if(endTime&&hasEnd)endTime.value=s.end_time;
+    const tp=document.getElementById('sch-temp');if(tp)tp.value=s.temp||24;
   }else{
     setTimePicker('07:00');
-    document.getElementById('sch-power-en').checked=false;
-    document.getElementById('sch-mode-en').checked=false;
-    document.getElementById('sch-temp-en').checked=false;
+    ['sch-power-en','sch-mode-en','sch-temp-en','sch-end-en'].forEach(id=>{
+      const el=document.getElementById(id);if(el)el.checked=false;
+    });
+    const endRow=document.getElementById('sch-end-row');if(endRow)endRow.style.display='none';
   }
-  document.getElementById('sch-modal').style.display='flex';
+  modal.style.display='flex';
 }
 
 function selectDays(preset){
