@@ -2189,7 +2189,6 @@ async function init(){
     const r=await fetch(`${API}/vacation`);
     if(r.ok){const d=await r.json();vacationMode=d.vacation_mode;applyVacationMode(d.vacation_mode,true);}
   }catch(_){applyVacationMode(vacationMode,true);}
-  addLog('Connecting to API…','info');
   await checkApiStatus();
   // force badge refresh after short delay in case API was slow to respond
   setTimeout(checkApiStatus, 2000);

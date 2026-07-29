@@ -338,7 +338,6 @@ async def _poll_device(device: dict):
 
     state = await _fetch_state(host)
     if state is None:
-        _add_log(f"{name}: unreachable", "err")
         prev_stale = device.get("_stale", False)
         device["_stale"] = True
         if not prev_stale:
