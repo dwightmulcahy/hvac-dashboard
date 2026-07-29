@@ -639,7 +639,6 @@ async def _check_schedules():
             continue
         if js_day not in sch.get("days", []):
             continue
-        # prevent double-fire within the same day
         last_run = sch.get("last_run", "")
         if last_run and last_run.startswith(today):
             continue
@@ -657,21 +656,43 @@ async def _check_schedules():
         mode = sch.get("mode")
         temp = sch.get("temp")
 
+        # build list of commands to send
+        commands = []
         if power == "off":
-            await _send_cmd(host, {"mode": "OFF"})
-            _add_log(f"{name}: scheduled off", "ok")
+            commands.append({"mode": "OFF"})
         else:
             if power == "on" and mode:
-                await _send_cmd(host, {"mode": mode})
-                _add_log(f"{name}: scheduled on → {mode}", "ok")
+                commands.append({"mode": mode})
             elif mode:
-                await _send_cmd(host, {"mode": mode})
-                _add_log(f"{name}: scheduled mode → {mode}", "ok")
+                commands.append({"mode": mode})
             if temp:
-                await _send_cmd(host, {"target_temperature": temp})
-                _add_log(f"{name}: scheduled temp → {temp}°C", "ok")
+                commands.append({"target_temperature": temp})
 
-        # store date+time so the same schedule can fire again tomorrow
+        # send commands — queue any that fail for retry on next poll
+        all_ok = True
+        for cmd in commands:
+            ok = await _send_cmd(host, cmd)
+            if ok:
+                if "mode" in cmd:
+                    m = cmd["mode"]
+                    if m == "OFF":
+                        _add_log(f"{name}: scheduled off", "ok")
+                    elif power == "on":
+                        _add_log(f"{name}: scheduled on → {m}", "ok")
+                    else:
+                        _add_log(f"{name}: scheduled mode → {m}", "ok")
+                if "target_temperature" in cmd:
+                    _add_log(f"{name}: scheduled temp → {cmd['target_temperature']}°C", "ok")
+            else:
+                all_ok = False
+                if "_retry_queue" not in device:
+                    device["_retry_queue"] = []
+                device["_retry_queue"].append(cmd)
+                _add_log(f"{name}: schedule command failed — queued for retry: {cmd}", "warn")
+
+        if not all_ok:
+            _add_log(f"{name}: schedule @ {hhmm} partially failed — {len(device['_retry_queue'])} cmd(s) queued", "warn")
+
         sch["last_run"] = f"{today} {_ts()}"
 
     # ── Check schedule end times ──────────────────────────────
@@ -691,8 +712,14 @@ async def _check_schedules():
         if not device:
             continue
         name = device["name"]
-        _add_log(f"Schedule end: {name} @ {hhmm} — auto off", "info")
-        await _send_cmd(host, {"mode": "OFF"})
+        ok = await _send_cmd(host, {"mode": "OFF"})
+        if ok:
+            _add_log(f"Schedule end: {name} @ {hhmm} — auto off", "ok")
+        else:
+            if "_retry_queue" not in device:
+                device["_retry_queue"] = []
+            device["_retry_queue"].append({"mode": "OFF"})
+            _add_log(f"Schedule end: {name} @ {hhmm} — failed, queued for retry", "warn")
         sch["_last_end_run"] = f"{today} {_ts()}"
 
 # ── Main background worker ────────────────────────────────
