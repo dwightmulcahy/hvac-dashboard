@@ -346,6 +346,13 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
                 <span style="color:var(--text3);font-size:11px">°C</span>
               </div>
             </div>
+            <div>
+              <div class="clabel" style="margin-bottom:4px">VACATION AUTO-END (days)</div>
+              <div style="display:flex;align-items:center;gap:6px">
+                <input type="number" id="gen-vacation-days" class="inp" style="width:70px" min="0" max="90" value="14">
+                <span style="color:var(--text3);font-size:11px">0=off</span>
+              </div>
+            </div>
             <div style="grid-column:1/-1">
               <div class="clabel" style="margin-bottom:4px">MAX TEMP GUARD HOURS</div>
               <div style="display:flex;align-items:center;gap:8px">
@@ -1734,13 +1741,15 @@ function saveGeneralSettings(){
   const guardEndVal=document.getElementById('gen-guard-end')?.value||'22:00';
   const guardStart=parseInt(guardStartVal.split(':')[0])||8;
   const guardEnd=parseInt(guardEndVal.split(':')[0])||22;
+  const vacDays=+document.getElementById('gen-vacation-days')?.value||14;
   const watchtower=document.getElementById('gen-watchtower')?.value||'';
   VACATION_MAX_TEMP_SETTING=vacTemp;
   localStorage.setItem('hvac_general',JSON.stringify({poll,seer,watchdog,vacTemp,voltage:_voltage,guardStart,guardEnd,verbose:_verbose_logging,tempUnit:_tempUnit}));
   devices.forEach(d=>{d.watchdog_minutes=watchdog;saveDeviceToAPI(d);});
   fetch(`${API}/settings`,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({poll_interval:poll,max_temp_guard_start:guardStart,max_temp_guard_end:guardEnd,
-      vacation_max_temp:vacTemp,verbose_logging:_verbose_logging,temp_unit:_tempUnit,watchtower_webhook:watchtower})}).catch(_=>{});
+      vacation_max_temp:vacTemp,verbose_logging:_verbose_logging,temp_unit:_tempUnit,
+      watchtower_webhook:watchtower,vacation_days_limit:vacDays})}).catch(_=>{});
   addLog(`General settings saved — watchdog ${watchdog}m, guard ${guardStart}:00–${guardEnd}:00, ${_voltage}V`,'ok');
   closeSettings();
 }
@@ -1973,7 +1982,13 @@ function saveSchedule(){
   const method=editSchIdx!==null?'PUT':'POST';
   const url=editSchIdx!==null?`${API}/schedules/${schedules[editSchIdx].id}`:`${API}/schedules`;
   fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(sch)})
-    .then(()=>loadSchedulesFromAPI().then(renderSchedules))
+    .then(r=>r.json())
+    .then(data=>{
+      if(data.warnings?.length){
+        data.warnings.forEach(w=>addLog(`⚠ ${w}`,'warn'));
+      }
+      return loadSchedulesFromAPI().then(renderSchedules);
+    })
     .catch(e=>addLog(`Schedule save failed: ${e.message}`,'err'));
   closeSchModal();
   addLog(`Schedule saved: ${sch.device_name} @ ${sch.time} [${days.map(d=>DAY_NAMES[d]).join(',')}]`,'ok');

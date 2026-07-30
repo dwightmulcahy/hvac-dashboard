@@ -66,6 +66,8 @@ DEFAULT_STATE = {
         "max_temp_guard_end": 22,
         "vacation_mode": False,
         "vacation_max_temp": 32,
+        "vacation_started_at": None,   # ISO timestamp when vacation was enabled
+        "vacation_days_limit": 14,     # auto-end vacation after this many days (0=disabled)
         "verbose_logging": False,
         "temp_unit": "both",          # "C", "F", or "both"
         "watchtower_webhook": "",     # optional webhook URL for update notifications
@@ -876,11 +878,12 @@ async def _background_worker():
         try:
             interval = _state["settings"].get("poll_interval", 60)
 
-            # Poll all devices
+            # Poll all devices with jitter to avoid simultaneous requests
             for device in _state["devices"]:
                 await _poll_device(device)
                 await _check_max_temp(device)
                 _check_watchdog(device)
+                await asyncio.sleep(0.5)  # jitter between devices
 
             # Check schedules (once per minute)
             hhmm = datetime.datetime.now().strftime("%H:%M")
@@ -893,6 +896,28 @@ async def _background_worker():
             if hhmm == "06:00" and today != last_rate_update:
                 last_rate_update = today
                 await _fetch_exchange_rate()
+
+            # Auto-end vacation mode if time limit exceeded
+            s = _state["settings"]
+            if s.get("vacation_mode") and s.get("vacation_started_at"):
+                days_limit = s.get("vacation_days_limit", 14)
+                if days_limit > 0:
+                    try:
+                        started = datetime.datetime.fromisoformat(s["vacation_started_at"])
+                        elapsed_days = (datetime.datetime.now() - started).days
+                        if elapsed_days >= days_limit:
+                            _add_log(f"🌴 Vacation mode auto-ended after {elapsed_days} days", "warn")
+                            # inline vacation off logic
+                            s["vacation_mode"] = False
+                            s["vacation_started_at"] = None
+                            for d in _state["devices"]:
+                                d["max_temp"] = d.pop("_pre_vacation_max_temp", None)
+                                d.pop("_pre_vacation_mode", None)
+                            for sch in _state["schedules"]:
+                                if sch.pop("_vacation_paused", False):
+                                    sch["enabled"] = True
+                    except Exception:
+                        pass
 
             # Save state after each cycle
             async with _lock:
@@ -1076,6 +1101,28 @@ class ScheduleConfig(BaseModel):
     temp: Optional[float] = None
     enabled: bool = True
 
+def _detect_schedule_conflicts(new_sch: dict, exclude_id: str = None) -> list:
+    """Return list of conflict descriptions for a schedule against existing ones."""
+    conflicts = []
+    new_host = new_sch.get("device_host")
+    new_time = new_sch.get("time")
+    new_days = set(new_sch.get("days", []))
+    for s in _state["schedules"]:
+        if not s.get("enabled", True):
+            continue
+        if s.get("id") == exclude_id:
+            continue
+        if s.get("device_host") != new_host:
+            continue
+        if s.get("time") != new_time:
+            continue
+        overlap = new_days & set(s.get("days", []))
+        if overlap:
+            day_names = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"]
+            days_str = ",".join(day_names[d] for d in sorted(overlap))
+            conflicts.append(f"conflicts with schedule {s['id']} @ {s['time']} on {days_str}")
+    return conflicts
+
 @app.get("/schedules")
 async def get_schedules():
     return {"schedules": _state["schedules"]}
@@ -1085,10 +1132,14 @@ async def add_schedule(cfg: ScheduleConfig):
     import uuid
     sch = {**SCHEDULE_DEFAULTS, **cfg.dict()}
     sch["id"] = cfg.id or str(uuid.uuid4())[:8]
+    conflicts = _detect_schedule_conflicts(sch)
+    if conflicts:
+        for c in conflicts:
+            _add_log(f"⚠ Schedule conflict: {c}", "warn")
     _state["schedules"].append(sch)
     async with _lock:
         _save_raw(_state)
-    return {"ok": True, "id": sch["id"]}
+    return {"ok": True, "id": sch["id"], "warnings": conflicts}
 
 @app.put("/schedules/{sch_id}")
 async def update_schedule(sch_id: str, cfg: ScheduleConfig):
@@ -1097,9 +1148,13 @@ async def update_schedule(sch_id: str, cfg: ScheduleConfig):
         return {"ok": False, "error": "not found"}
     sch.update(cfg.dict())
     sch["id"] = sch_id
+    conflicts = _detect_schedule_conflicts(sch, exclude_id=sch_id)
+    if conflicts:
+        for c in conflicts:
+            _add_log(f"⚠ Schedule conflict: {c}", "warn")
     async with _lock:
         _save_raw(_state)
-    return {"ok": True}
+    return {"ok": True, "warnings": conflicts}
 
 @app.delete("/schedules/{sch_id}")
 async def delete_schedule(sch_id: str):
@@ -1354,7 +1409,7 @@ async def ota_upload(host: str, firmware: UploadFile):
 
 @app.get("/health")
 async def health():
-    """Detailed health check — per-device status and staleness."""
+    """Detailed health check — per-device status, worker health, system info."""
     now = datetime.datetime.utcnow()
     device_health = []
     for d in _state["devices"]:
@@ -1365,6 +1420,7 @@ async def health():
                 elapsed = round((now - datetime.datetime.fromisoformat(last_seen)).total_seconds() / 60, 1)
             except Exception:
                 pass
+        ds = _state["device_state"].get(d["host"], {})
         device_health.append({
             "host": d["host"],
             "name": d["name"],
@@ -1374,13 +1430,33 @@ async def health():
             "watchdog_minutes": d.get("watchdog_minutes", 5),
             "retry_queue_depth": len(d.get("_retry_queue", [])),
             "consecutive_failures": d.get("_consecutive_failures", 0),
+            "mode": ds.get("mode"),
+            "indoor_temp": ds.get("current_temperature"),
+            "firmware": d.get("_firmware_version"),
+            "max_temp_active": d.get("_max_temp_active", False),
         })
-    all_ok = all(not d["stale"] for d in device_health) if device_health else False
+    stale_count = sum(1 for d in device_health if d["stale"])
+    all_ok = stale_count == 0 and len(_state["devices"]) > 0
+    # check if worker has been polling recently
+    last_polls = [d.get("_last_seen") for d in _state["devices"] if d.get("_last_seen")]
+    worker_last_poll = max(last_polls) if last_polls else None
+    worker_stale = False
+    if worker_last_poll:
+        try:
+            worker_age_mins = (now - datetime.datetime.fromisoformat(worker_last_poll)).total_seconds() / 60
+            worker_stale = worker_age_mins > (_state["settings"].get("poll_interval", 120) / 60 * 3)
+        except Exception:
+            pass
     return {
-        "status": "ok" if all_ok else "degraded",
+        "status": "ok" if all_ok and not worker_stale else "degraded",
         "devices": device_health,
         "total": len(_state["devices"]),
-        "stale": sum(1 for d in device_health if d["stale"]),
+        "online": sum(1 for d in device_health if not d["stale"]),
+        "stale": stale_count,
+        "vacation_mode": _state["settings"].get("vacation_mode", False),
+        "schedules_active": sum(1 for s in _state["schedules"] if s.get("enabled")),
+        "worker_stale": worker_stale,
+        "worker_last_poll": worker_last_poll,
         "timestamp": now.isoformat(),
     }
 
@@ -1393,6 +1469,7 @@ async def set_vacation(state: str):
     vac_temp = s.get("vacation_max_temp", 32)
 
     if enabled:
+        s["vacation_started_at"] = _now_iso()
         # save each device's current max_temp and pause schedules
         for d in _state["devices"]:
             d["_pre_vacation_max_temp"] = d.get("max_temp")
@@ -1409,6 +1486,7 @@ async def set_vacation(state: str):
                 sch["enabled"] = False
         _add_log(f"🌴 Vacation mode ON — all units off, max temp {vac_temp}°C, schedules paused", "warn")
     else:
+        s["vacation_started_at"] = None
         # restore saved max_temp per device and re-enable schedules
         for d in _state["devices"]:
             d["max_temp"] = d.pop("_pre_vacation_max_temp", None)
@@ -1424,8 +1502,13 @@ async def set_vacation(state: str):
 
 @app.get("/vacation")
 async def get_vacation():
-    return {"vacation_mode": _state["settings"].get("vacation_mode", False),
-            "vacation_max_temp": _state["settings"].get("vacation_max_temp", 32)}
+    s = _state["settings"]
+    return {
+        "vacation_mode": s.get("vacation_mode", False),
+        "vacation_max_temp": s.get("vacation_max_temp", 32),
+        "vacation_started_at": s.get("vacation_started_at"),
+        "vacation_days_limit": s.get("vacation_days_limit", 14),
+    }
 
 @app.get("/devices/{host:path}/health-history")
 async def get_health_history(host: str):
