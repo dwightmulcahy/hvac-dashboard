@@ -90,6 +90,8 @@ DEVICE_DEFAULTS = {
     "lock_temp": False,
     "locked_target_temp": None,
     "_max_temp_active": False,
+    "_pre_autocool_mode": None,
+    "_pre_autocool_temp": None,
     "_last_poll": None,
     "_last_seen": None,
     "_stale": False,
@@ -119,6 +121,7 @@ SCHEDULE_DEFAULTS = {
 
 def _load_raw() -> dict:
     if not os.path.exists(DATA_FILE):
+        log.info("No state file found — starting fresh")
         return json.loads(json.dumps(DEFAULT_STATE))
     try:
         with open(DATA_FILE) as f:
@@ -129,15 +132,39 @@ def _load_raw() -> dict:
                 data[k] = json.loads(json.dumps(v))
         return data
     except Exception as e:
-        log.error(f"Failed to load state: {e}")
+        log.error(f"Failed to load state: {e} — falling back to defaults")
+        # save corrupt file for inspection
+        try:
+            import shutil
+            shutil.copy(DATA_FILE, DATA_FILE + ".corrupt")
+        except Exception:
+            pass
         return json.loads(json.dumps(DEFAULT_STATE))
 
 def _save_raw(data: dict):
-    os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(DATA_FILE)), exist_ok=True)
     tmp = DATA_FILE + ".tmp"
     with open(tmp, "w") as f:
         json.dump(data, f, indent=2)
     os.replace(tmp, DATA_FILE)
+    # daily backup rotation — keep last 3
+    try:
+        today = datetime.date.today().isoformat()
+        backup = DATA_FILE + f".bak.{today}"
+        if not os.path.exists(backup):
+            import shutil
+            shutil.copy(DATA_FILE, backup)
+            # remove backups older than 3 days
+            bak_dir = os.path.dirname(os.path.abspath(DATA_FILE))
+            base = os.path.basename(DATA_FILE)
+            backups = sorted([
+                f for f in os.listdir(bak_dir)
+                if f.startswith(base + ".bak.")
+            ])
+            for old in backups[:-3]:
+                os.remove(os.path.join(bak_dir, old))
+    except Exception:
+        pass
 
 # in-memory state (loaded once at startup, saved on every mutation)
 _state: dict = _load_raw()
@@ -592,18 +619,9 @@ async def _check_max_temp(device: dict):
     except:
         return
     cur_mode = ds.get("mode", "OFF")
+    # consider unit "cooling" only if it's in COOL or AUTO mode
     is_cooling = cur_mode in ("COOL", "AUTO", "HEAT_COOL")
     active = device.get("_max_temp_active", False)
-
-    # on first poll after restart, infer active state:
-    # if unit is cooling and indoor < max_temp, it was probably auto-cooled
-    # and the API restarted before the guard could turn it off
-    if not active and is_cooling and indoor < max_temp and max_temp is not None:
-        # only infer if we've never set _last_mode (true first poll)
-        if device.get("_last_mode") is None:
-            device["_max_temp_active"] = True
-            active = True
-            _add_log(f"{name}: 🌡 inferred active auto-cool on startup (indoor {indoor}°C < max {max_temp}°C, mode {cur_mode})", "info")
 
     if indoor >= max_temp and not is_cooling and not active:
         device["_max_temp_active"] = True        # save current state so we can restore it after cooling
@@ -742,6 +760,75 @@ async def _check_schedules():
             _add_log(f"Schedule end: {name} @ {hhmm} — failed, queued for retry", "warn")
         sch["_last_end_run"] = f"{today} {_ts()}"
 
+async def _check_missed_schedules():
+    """Fire any schedules that were missed while the API was down.
+    Only fires if missed within the last MISSED_WINDOW_MINUTES minutes."""
+    MISSED_WINDOW_MINUTES = 30
+    now = datetime.datetime.now()
+    today = now.strftime("%Y-%m-%d")
+    js_day = now.isoweekday() % 7
+
+    for sch in _state["schedules"]:
+        if not sch.get("enabled", True):
+            continue
+        if js_day not in sch.get("days", []):
+            continue
+
+        # parse schedule time
+        try:
+            sch_hh, sch_mm = map(int, sch["time"].split(":"))
+        except Exception:
+            continue
+
+        sch_dt = now.replace(hour=sch_hh, minute=sch_mm, second=0, microsecond=0)
+        if sch_dt > now:
+            continue  # hasn't happened yet today
+
+        # check if it was missed — last_run not today or before scheduled time
+        last_run = sch.get("last_run", "")
+        if last_run and last_run.startswith(today):
+            continue  # already ran today
+
+        # only fire if within the missed window
+        missed_mins = (now - sch_dt).total_seconds() / 60
+        if missed_mins > MISSED_WINDOW_MINUTES:
+            continue
+
+        host = sch.get("device_host", "")
+        device = next((d for d in _state["devices"] if d["host"] == host), None)
+        if not device:
+            continue
+
+        name = device["name"]
+        _add_log(f"⚡ Missed schedule recovered: {name} @ {sch['time']} ({int(missed_mins)}m late)", "warn")
+
+        power = sch.get("power")
+        mode = sch.get("mode")
+        temp = sch.get("temp")
+        commands = []
+        if power == "off":
+            commands.append({"mode": "OFF"})
+        else:
+            if power == "on" and mode:
+                commands.append({"mode": mode})
+            elif mode:
+                commands.append({"mode": mode})
+            if temp:
+                commands.append({"target_temperature": temp})
+
+        for cmd in commands:
+            ok = await _send_cmd(host, cmd)
+            if not ok:
+                if "_retry_queue" not in device:
+                    device["_retry_queue"] = []
+                device["_retry_queue"].append(cmd)
+
+        sch["last_run"] = f"{today} {_ts()}"
+
+    async with _lock:
+        _save_raw(_state)
+
+
 # ── Main background worker ────────────────────────────────
 
 async def _background_worker():
@@ -765,6 +852,9 @@ async def _background_worker():
             delay = min(2 ** attempt, 60)
             _add_log(f"Network not ready — retrying in {delay}s (attempt {attempt+1})", "warn")
             await asyncio.sleep(delay)
+
+    # ── Check for missed schedules during downtime ────────────
+    await _check_missed_schedules()
 
     while True:
         try:
