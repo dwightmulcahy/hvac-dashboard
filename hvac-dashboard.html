@@ -1197,7 +1197,7 @@ function buildTileHTML(d,i){
       </div>
       <div style="display:flex;gap:5px">
         <div class="stat" style="flex:1;text-align:center"><div class="slabel">In</div><div class="sval">${fmtCF(s.current_temperature)}</div></div>
-        <div class="stat" style="flex:1;text-align:center"><div class="slabel">Out</div><div class="sval" style="${safeFloat(x.outdoor_temp?.value)>30?'color:var(--heat):':''}">${x.outdoor_temp?.value!=null?fmtTemp(x.outdoor_temp.value):'—'}</div></div>
+        <div class="stat" style="flex:1;text-align:center"><div class="slabel">Out${d._outTrend?` <span style="color:${d._outTrendColor||'var(--text3)'}">${d._outTrend}</span>`:''}</div><div class="sval" style="${safeFloat(x.outdoor_temp?.value)>30?'color:var(--heat):':''}">${x.outdoor_temp?.value!=null?fmtTemp(x.outdoor_temp.value):'—'}</div></div>
         <div class="stat" style="flex:1;text-align:center"><div class="slabel">${d.state?.actual_power_watts!=null?'W':'~W'}</div><div class="sval">${(()=>{const actual=d.state?.actual_power_watts;if(actual!=null)return actual+'W';const w=estWatts(s,x,d.btu,d.seer);return w===0?'<span style="color:var(--text3)">off</span>':w!=null?w+'W':'—';})()}</div></div>
       </div>
       <div style="margin-top:5px;font-size:10px;font-family:'DM Mono',monospace;color:var(--text3);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -1230,22 +1230,35 @@ async function renderSparkline(i){
     const data=await r.json();
     const hist=data.history||[];
     if(hist.length<2){el.innerHTML='';return;}
-    // build SVG sparkline for indoor temp
-    const vals=hist.map(h=>h.in).filter(v=>v!=null);
-    const min=Math.min(...vals)-1;
-    const max=Math.max(...vals)+1;
+    // build SVG sparkline — use combined range for both in and out
+    const inVals=hist.map(h=>h.in).filter(v=>v!=null);
+    const outVals=hist.map(h=>h.out).filter(v=>v!=null);
+    const allVals=[...inVals,...outVals];
+    const minV=Math.min(...allVals)-1;
+    const maxV=Math.max(...allVals)+1;
     const w=el.offsetWidth||200;
-    const h=28;
+    const h=34;
     const xStep=w/(hist.length-1);
-    const yScale=v=>h-((v-min)/(max-min||1))*h;
-    const pts=hist.map((h,i)=>`${(i*xStep).toFixed(1)},${yScale(h.in).toFixed(1)}`).join(' ');
-    // outdoor line if available
-    const hasOut=hist.some(h=>h.out!=null);
-    const outPts=hasOut?hist.map((h,i)=>`${(i*xStep).toFixed(1)},${yScale(h.out||h.in).toFixed(1)}`).join(' '):'';
+    const yScale=v=>h-((v-minV)/(maxV-minV||1))*h;
+    const pts=hist.map((p,j)=>`${(j*xStep).toFixed(1)},${yScale(p.in).toFixed(1)}`).join(' ');
+    const hasOut=outVals.length>1;
+    const outPts=hasOut?hist.map((p,j)=>`${(j*xStep).toFixed(1)},${yScale(p.out??p.in).toFixed(1)}`).join(' '):'';
+    // outdoor trend: compare last 3 readings
+    let trendIcon='';let trendColor='var(--text3)';
+    if(hasOut&&outVals.length>=3){
+      const recent=outVals.slice(-3);
+      const delta=recent[recent.length-1]-recent[0];
+      if(delta>0.5){trendIcon='▲';trendColor='var(--heat)';}
+      else if(delta<-0.5){trendIcon='▼';trendColor='var(--cool)';}
+      else{trendIcon='→';trendColor='var(--text3)';}
+    }
+    // store trend on device for tile footer
+    d._outTrend=trendIcon;d._outTrendColor=trendColor;
     el.innerHTML=`<svg width="100%" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="display:block">
       ${hasOut?`<polyline points="${outPts}" fill="none" stroke="var(--heat)" stroke-width="1" opacity="0.5"/>`:''}
       <polyline points="${pts}" fill="none" stroke="var(--cool)" stroke-width="1.5"/>
-      <text x="2" y="10" font-size="8" fill="var(--text3)" font-family="monospace">${vals[vals.length-1]}°C</text>
+      <text x="2" y="10" font-size="8" fill="var(--text3)" font-family="monospace">${inVals[inVals.length-1]}°C</text>
+      ${trendIcon?`<text x="${w-18}" y="10" font-size="9" fill="${trendColor}" font-family="monospace">${trendIcon}</text>`:''}
     </svg>`;
   }catch(_){}
 }

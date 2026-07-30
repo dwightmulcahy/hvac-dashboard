@@ -24,6 +24,12 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # load persisted logs from disk
+    persisted = _load_log_file()
+    if persisted:
+        _state["logs"] = persisted
+        log.info(f"Loaded {len(persisted)} log entries from disk")
+
     # register SIGTERM handler to log clean shutdown
     def _on_sigterm(*_):
         _add_log("HVAC API stopping (SIGTERM)", "warn")
@@ -148,8 +154,10 @@ def _load_raw() -> dict:
 def _save_raw(data: dict):
     os.makedirs(os.path.dirname(os.path.abspath(DATA_FILE)), exist_ok=True)
     tmp = DATA_FILE + ".tmp"
+    # exclude logs from JSON state — persisted separately in log file
+    save_data = {k: v for k, v in data.items() if k != "logs"}
     with open(tmp, "w") as f:
-        json.dump(data, f, indent=2)
+        json.dump(save_data, f, indent=2)
     os.replace(tmp, DATA_FILE)
     # daily backup rotation — keep last 3
     try:
@@ -222,12 +230,65 @@ def _est_watts(device_state: dict, btu: int, seer: int) -> Optional[float]:
     load = min(1.0, 0.2 + (delta / 8) * 0.8 + penalty * 0.3)
     return round(max_w * load)
 
+LOG_FILE = os.environ.get("LOG_FILE", DATA_FILE.replace(".json", "_log.jsonl"))
+_LOG_MAX_LINES = 2000
+
+def _append_log_file(entry: dict):
+    """Append a log entry to the persistent JSONL log file."""
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(LOG_FILE)), exist_ok=True)
+        with open(LOG_FILE, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+        # rotate: keep last _LOG_MAX_LINES lines
+        _rotate_log_file()
+    except Exception as e:
+        log.warning(f"Log file write failed: {e}")
+
+def _rotate_log_file():
+    """Keep log file under _LOG_MAX_LINES by trimming oldest entries."""
+    try:
+        if not os.path.exists(LOG_FILE):
+            return
+        with open(LOG_FILE) as f:
+            lines = f.readlines()
+        if len(lines) > _LOG_MAX_LINES:
+            with open(LOG_FILE, "w") as f:
+                f.writelines(lines[-_LOG_MAX_LINES:])
+    except Exception:
+        pass
+
+def _load_log_file() -> list:
+    """Load recent log entries from the persistent log file."""
+    try:
+        if not os.path.exists(LOG_FILE):
+            return []
+        with open(LOG_FILE) as f:
+            lines = f.readlines()
+        entries = []
+        for line in reversed(lines[-500:]):  # load last 500 into memory
+            try:
+                entries.append(json.loads(line.strip()))
+            except Exception:
+                pass
+        return entries
+    except Exception as e:
+        log.warning(f"Log file load failed: {e}")
+        return []
+
+def _clear_log_file():
+    """Clear the persistent log file."""
+    try:
+        open(LOG_FILE, "w").close()
+    except Exception:
+        pass
+
 def _add_log(msg: str, level: str = "info"):
     entry = {"time": _ts(), "iso": _ts_iso(), "msg": msg, "level": level}
     log.info(f"[{level.upper()}] {msg}")
     _state["logs"].insert(0, entry)
     if len(_state["logs"]) > 500:
         _state["logs"] = _state["logs"][:500]
+    _append_log_file(entry)
 
 def _verbose(msg: str, level: str = "info"):
     """Only log if verbose_logging is enabled."""
@@ -1258,6 +1319,7 @@ async def usage_rolling30():
 @app.delete("/logs")
 async def clear_logs():
     _state["logs"] = []
+    _clear_log_file()
     async with _lock:
         _save_raw(_state)
     return {"ok": True}
