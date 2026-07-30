@@ -581,20 +581,21 @@ function updateLogBadge(){
 
 async function fetchServerLogs(){
   try{
-    const r=await fetch(`${API}/logs?limit=100`);
+    const r=await fetch(`${API}/logs?limit=200`);
     if(r.ok){
       const data=await r.json();
       const existing=new Set(logEntries.map(e=>(e.iso||e.time)+e.msg));
+      const today=new Date().toISOString().slice(0,10);
       data.logs.forEach(l=>{
+        // synthesize iso from time if not present
+        if(!l.iso&&l.time){
+          const t=l.time.length===5?l.time+':00':l.time;
+          l.iso=`${today}T${t}`;
+        }
         const key=(l.iso||l.time)+l.msg;
         if(!existing.has(key))logEntries.push(l);
       });
-      // sort by ISO if available, fall back to time string
-      logEntries.sort((a,b)=>{
-        const ta=a.iso||a.time||'';
-        const tb=b.iso||b.time||'';
-        return tb.localeCompare(ta);
-      });
+      logEntries.sort((a,b)=>(b.iso||b.time||'').localeCompare(a.iso||a.time||''));
       if(logEntries.length>200)logEntries.length=200;
       renderLog();
     }

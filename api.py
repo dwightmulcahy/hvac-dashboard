@@ -184,8 +184,8 @@ def _add_log(msg: str, level: str = "info"):
     entry = {"time": _ts(), "iso": _ts_iso(), "msg": msg, "level": level}
     log.info(f"[{level.upper()}] {msg}")
     _state["logs"].insert(0, entry)
-    if len(_state["logs"]) > 200:
-        _state["logs"] = _state["logs"][:200]
+    if len(_state["logs"]) > 500:
+        _state["logs"] = _state["logs"][:500]
 
 def _verbose(msg: str, level: str = "info"):
     """Only log if verbose_logging is enabled."""
@@ -417,13 +417,14 @@ async def _poll_device(device: dict):
         device["_on_time_minutes"] = device.get("_on_time_minutes", 0) + elapsed_mins
         _record_usage(device, ds, elapsed_mins)
 
-    # log mode changes
+    # log mode changes — always log, including first poll after restart
     cur_mode = state.get("mode", "OFF")
-    if last_mode and last_mode != cur_mode:
-        if cur_mode != "OFF":
-            _add_log(f"{name}: turned on ({cur_mode})", "ok")
+    if last_mode != cur_mode:
+        if cur_mode == "OFF":
+            prev = f" (was {last_mode})" if last_mode and last_mode != "OFF" else ""
+            _add_log(f"{name}: turned off{prev}", "info")
         else:
-            _add_log(f"{name}: turned off", "info")
+            _add_log(f"{name}: turned on ({cur_mode})", "ok")
 
     device["_last_mode"] = cur_mode
     device["_last_poll_epoch"] = now_epoch
