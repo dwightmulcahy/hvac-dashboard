@@ -581,13 +581,21 @@ async def _check_max_temp(device: dict):
     except:
         return
     cur_mode = ds.get("mode", "OFF")
-    # consider unit "cooling" only if it's in COOL or AUTO mode
     is_cooling = cur_mode in ("COOL", "AUTO", "HEAT_COOL")
     active = device.get("_max_temp_active", False)
 
+    # on first poll after restart, infer active state:
+    # if unit is cooling and indoor < max_temp, it was probably auto-cooled
+    # and the API restarted before the guard could turn it off
+    if not active and is_cooling and indoor < max_temp and max_temp is not None:
+        # only infer if we've never set _last_mode (true first poll)
+        if device.get("_last_mode") is None:
+            device["_max_temp_active"] = True
+            active = True
+            _add_log(f"{name}: 🌡 inferred active auto-cool on startup (indoor {indoor}°C < max {max_temp}°C, mode {cur_mode})", "info")
+
     if indoor >= max_temp and not is_cooling and not active:
-        device["_max_temp_active"] = True
-        # save current state so we can restore it after cooling
+        device["_max_temp_active"] = True        # save current state so we can restore it after cooling
         device["_pre_autocool_mode"] = cur_mode
         device["_pre_autocool_temp"] = ds.get("target_temperature")
         # target temp: 2°C below max, clamped to device min
