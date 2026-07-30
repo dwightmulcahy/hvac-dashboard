@@ -101,6 +101,8 @@ DEVICE_DEFAULTS = {
     "_retry_queue": [],
     "_health_history": [],    # [{ts, event: "online"|"offline", uptime?}] last 50
     "_firmware_version": None,
+    "_consecutive_failures": 0,
+    "_fail_notified": False,
 }
 
 SCHEDULE_DEFAULTS = {
@@ -378,17 +380,30 @@ async def _poll_device(device: dict):
     if state is None:
         prev_stale = device.get("_stale", False)
         device["_stale"] = True
+        device["_consecutive_failures"] = device.get("_consecutive_failures", 0) + 1
+        failures = device["_consecutive_failures"]
         if not prev_stale:
             _add_log(f"{name}: 🔴 went offline", "err")
             _record_health_event(device, "offline")
+        elif failures % 10 == 0:
+            # log every 10th consecutive failure
+            _add_log(f"{name}: still unreachable ({failures} consecutive failures)", "warn")
+        # cap retry queue at 10 entries
+        if len(device.get("_retry_queue", [])) > 10:
+            dropped = len(device["_retry_queue"]) - 10
+            device["_retry_queue"] = device["_retry_queue"][-10:]
+            _verbose(f"{name}: retry queue capped — dropped {dropped} oldest entries", "warn")
         _state["device_state"][host] = {"error": "unreachable", "host": host,
                                          "last_seen": device.get("_last_seen")}
         return
 
     # ── watchdog: mark recovered if was stale ─────────────
     if device.get("_stale"):
+        failures = device.get("_consecutive_failures", 0)
         device["_stale"] = False
-        _add_log(f"{name}: 🟢 back online", "ok")
+        device["_consecutive_failures"] = 0
+        device["_fail_notified"] = False
+        _add_log(f"{name}: 🟢 back online (was down {failures} poll(s))", "ok")
         _record_health_event(device, "online")
 
     device["_last_seen"] = _now_iso()
@@ -624,7 +639,7 @@ async def _check_max_temp(device: dict):
     active = device.get("_max_temp_active", False)
 
     if indoor >= max_temp and not is_cooling and not active:
-        device["_max_temp_active"] = True        # save current state so we can restore it after cooling
+        device["_max_temp_active"] = True
         device["_pre_autocool_mode"] = cur_mode
         device["_pre_autocool_temp"] = ds.get("target_temperature")
         # target temp: 2°C below max, clamped to device min
@@ -640,7 +655,8 @@ async def _check_max_temp(device: dict):
             ds["target_temperature"] = str(target)
         if not ok1 and not ok2:
             device["_max_temp_active"] = False
-    elif indoor < max_temp and active:
+    elif indoor < (max_temp - 1) and active:
+        # hysteresis: turn off 1°C below max to prevent rapid cycling
         device["_max_temp_active"] = False
         prev_mode = device.pop("_pre_autocool_mode", "OFF")
         prev_temp = device.pop("_pre_autocool_temp", None)
@@ -1357,6 +1373,7 @@ async def health():
             "minutes_since_seen": elapsed,
             "watchdog_minutes": d.get("watchdog_minutes", 5),
             "retry_queue_depth": len(d.get("_retry_queue", [])),
+            "consecutive_failures": d.get("_consecutive_failures", 0),
         })
     all_ok = all(not d["stale"] for d in device_health) if device_health else False
     return {

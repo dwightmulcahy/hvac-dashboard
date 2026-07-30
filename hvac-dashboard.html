@@ -495,6 +495,7 @@ async function loadDevicesFromAPI(){
         stale:d.state?.stale||false,
         last_seen:d.state?.last_seen||d._last_seen||null,
         retry_queue_depth:d._retry_queue?.length||0,
+        consecutive_failures:d._consecutive_failures||0,
         firmware_version:d._firmware_version||d.state?.esphome_version?.split(' ')[0]||null,
       };
     });
@@ -1111,7 +1112,7 @@ function renderUnits(){
 
   devices.forEach((d,i)=>{
     const tileId=`tile-${i}`;
-    const stateKey=`${d.state?.mode}|${d.state?.target_temperature}|${d.state?.current_temperature}|${d.extras?.outdoor_temp?.value}|${d.busy}|${d.stale}|${d.lock_temp}|${d.retry_queue_depth}`;
+    const stateKey=`${d.state?.mode}|${d.state?.target_temperature}|${d.state?.current_temperature}|${d.extras?.outdoor_temp?.value}|${d.busy}|${d.stale}|${d.lock_temp}|${d.retry_queue_depth}|${d.consecutive_failures}`;
     let tile=document.getElementById(tileId);
 
     if(!tile){
@@ -1169,6 +1170,7 @@ function buildTileHTML(d,i){
           <span class="uname">${d.name}</span>
           ${busy?'<span class="spinner"></span>':''}
           ${d.stale?'<span style="font-size:10px;color:var(--warn);font-family:\'DM Mono\',monospace" title="Device not responding">⚠ stale</span>':''}
+          ${d.stale&&d.consecutive_failures>1?`<span style="font-size:10px;color:var(--err);font-family:'DM Mono',monospace" title="${d.consecutive_failures} consecutive poll failures">⚠${d.consecutive_failures}</span>`:''}
           ${d.retry_queue_depth?`<span style="font-size:10px;color:var(--warn);font-family:'DM Mono',monospace" title="${d.retry_queue_depth} command(s) queued for retry">↺${d.retry_queue_depth}</span>`:''}
         </div>
         <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
