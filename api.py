@@ -9,6 +9,7 @@ import datetime
 import json
 import logging
 import os
+import signal
 from typing import Optional, List
 
 import httpx
@@ -23,9 +24,19 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # register SIGTERM handler to log clean shutdown
+    def _on_sigterm(*_):
+        _add_log("HVAC API stopping (SIGTERM)", "warn")
+        _save_raw(_state)
+
+    signal.signal(signal.SIGTERM, _on_sigterm)
     asyncio.create_task(_background_worker())
     _add_log("HVAC API started", "info")
     yield
+    # shutdown
+    _add_log("HVAC API stopped", "warn")
+    async with _lock:
+        _save_raw(_state)
 
 app = FastAPI(title="HVAC Automation API", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
