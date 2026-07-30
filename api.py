@@ -6,14 +6,17 @@ All automation runs 24/7 in the container regardless of browser state.
 
 import asyncio
 import datetime
+import hashlib
 import json
 import logging
 import os
+import secrets
 import signal
 from typing import Optional, List
 
 import httpx
-from fastapi import FastAPI, UploadFile
+from fastapi import FastAPI, UploadFile, HTTPException, Header
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -29,6 +32,9 @@ async def lifespan(app: FastAPI):
     if persisted:
         _state["logs"] = persisted
         log.info(f"Loaded {len(persisted)} log entries from disk")
+
+    # ensure default admin user exists
+    _ensure_default_admin()
 
     # register SIGTERM handler to log clean shutdown
     def _on_sigterm(*_):
@@ -46,6 +52,46 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="HVAC Automation API", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+@app.middleware("http")
+async def auth_middleware(request, call_next):
+    """Enforce auth based on method and path."""
+    path = request.url.path
+    method = request.method
+
+    # always allow: auth endpoints, health, root status, GET reads
+    open_paths = {"/api/", "/", "/health", "/health/push", "/exchange-rate"}
+    if path in open_paths or path.startswith("/auth/"):
+        return await call_next(request)
+
+    # if no users configured yet, allow everything (first run)
+    if not _state.get("users"):
+        return await call_next(request)
+
+    authorization = request.headers.get("Authorization")
+    info = _get_token_info(authorization)
+
+    if info is None:
+        return JSONResponse(status_code=401, content={"detail": "Authentication required"})
+
+    role = info.get("role", "viewer")
+
+    # viewer: GET only (except auth endpoints)
+    if method == "GET":
+        return await call_next(request)
+
+    # operator: can send commands, toggle beeper, poll
+    operator_patterns = ["/cmd", "/beeper/", "/poll", "/display-toggle", "/vacation/"]
+    if method == "POST" and any(p in path for p in operator_patterns):
+        if ROLE_WEIGHTS.get(role, 0) >= ROLE_WEIGHTS["operator"]:
+            return await call_next(request)
+        return JSONResponse(status_code=403, content={"detail": "Operator role required"})
+
+    # everything else (settings, devices, schedules, backup, restore, reset) needs admin
+    if ROLE_WEIGHTS.get(role, 0) >= ROLE_WEIGHTS["admin"]:
+        return await call_next(request)
+
+    return JSONResponse(status_code=403, content={"detail": "Admin role required"})
 
 DATA_FILE = os.environ.get("DATA_FILE", "/data/hvac_state.json")
 _lock = asyncio.Lock()
@@ -85,6 +131,7 @@ DEFAULT_STATE = {
     },
     "device_state": {},     # {"host": {last polled climate state + extras}}
     "logs": [],             # recent automation log entries
+    "users": {},            # {"username": {hash, salt, role, must_change_password}}
 }
 
 DEVICE_DEFAULTS = {
@@ -127,7 +174,73 @@ SCHEDULE_DEFAULTS = {
     "last_run": None,
 }
 
-# ── State persistence ─────────────────────────────────────
+# ── Auth ──────────────────────────────────────────────────
+
+ROLES = ["admin", "operator", "viewer"]
+ROLE_WEIGHTS = {"viewer": 0, "operator": 1, "admin": 2}
+
+# in-memory token store: {token: {username, role, expires}}
+_tokens: dict = {}
+TOKEN_TTL_HOURS = 24
+
+def _hash_password(password: str, salt: str = None) -> tuple:
+    """Return (hash, salt) for a password."""
+    if salt is None:
+        salt = secrets.token_hex(16)
+    h = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 200_000)
+    return h.hex(), salt
+
+def _verify_password(password: str, stored_hash: str, salt: str) -> bool:
+    h, _ = _hash_password(password, salt)
+    return secrets.compare_digest(h, stored_hash)
+
+def _create_token(username: str, role: str) -> str:
+    token = secrets.token_urlsafe(32)
+    expires = datetime.datetime.utcnow() + datetime.timedelta(hours=TOKEN_TTL_HOURS)
+    _tokens[token] = {"username": username, "role": role, "expires": expires.isoformat()}
+    # clean expired tokens
+    now = datetime.datetime.utcnow().isoformat()
+    expired = [t for t, v in _tokens.items() if v["expires"] < now]
+    for t in expired:
+        del _tokens[t]
+    return token
+
+def _get_token_info(authorization: str = None) -> Optional[dict]:
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization[7:]
+    info = _tokens.get(token)
+    if not info:
+        return None
+    if info["expires"] < datetime.datetime.utcnow().isoformat():
+        del _tokens[token]
+        return None
+    return info
+
+def _require_role(role: str, authorization: str = None):
+    """Raise 401/403 if token doesn't meet required role level."""
+    # if no users configured yet, allow all (first-run)
+    if not _state.get("users"):
+        return {"username": "admin", "role": "admin"}
+    info = _get_token_info(authorization)
+    if not info:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if ROLE_WEIGHTS.get(info["role"], 0) < ROLE_WEIGHTS.get(role, 0):
+        raise HTTPException(status_code=403, detail=f"Requires {role} role")
+    return info
+
+def _ensure_default_admin():
+    """Create default admin/admin user if no users exist."""
+    if not _state["users"]:
+        h, s = _hash_password("admin")
+        _state["users"]["admin"] = {
+            "hash": h, "salt": s,
+            "role": "admin",
+            "must_change_password": True,
+        }
+        log.info("Created default admin/admin user — password change required on first login")
+
+
 
 def _load_raw() -> dict:
     if not os.path.exists(DATA_FILE):
@@ -1469,7 +1582,125 @@ async def ota_upload(host: str, firmware: UploadFile):
         _add_log(f"{name}: OTA error — {e}", "err")
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
 
-@app.get("/health")
+@app.post("/auth/login")
+async def login(data: dict):
+    username = data.get("username", "").strip().lower()
+    password = data.get("password", "")
+    user = _state["users"].get(username)
+    if not user or not _verify_password(password, user["hash"], user["salt"]):
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    token = _create_token(username, user["role"])
+    return {
+        "ok": True,
+        "token": token,
+        "username": username,
+        "role": user["role"],
+        "must_change_password": user.get("must_change_password", False),
+    }
+
+@app.post("/auth/logout")
+async def logout(authorization: Optional[str] = Header(None)):
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:]
+        _tokens.pop(token, None)
+    return {"ok": True}
+
+@app.post("/auth/change-password")
+async def change_password(data: dict, authorization: Optional[str] = Header(None)):
+    info = _require_role("viewer", authorization)
+    username = info["username"]
+    old_pw = data.get("old_password", "")
+    new_pw = data.get("new_password", "")
+    if len(new_pw) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    user = _state["users"].get(username)
+    if not user or not _verify_password(old_pw, user["hash"], user["salt"]):
+        raise HTTPException(status_code=401, detail="Current password incorrect")
+    h, s = _hash_password(new_pw)
+    user["hash"] = h
+    user["salt"] = s
+    user["must_change_password"] = False
+    async with _lock:
+        _save_raw(_state)
+    _add_log(f"Password changed for user '{username}'", "info")
+    return {"ok": True}
+
+@app.get("/auth/users")
+async def list_users(authorization: Optional[str] = Header(None)):
+    _require_role("admin", authorization)
+    return {"users": [
+        {"username": u, "role": v["role"], "must_change_password": v.get("must_change_password", False)}
+        for u, v in _state["users"].items()
+    ]}
+
+@app.post("/auth/users")
+async def add_user(data: dict, authorization: Optional[str] = Header(None)):
+    _require_role("admin", authorization)
+    username = data.get("username", "").strip().lower()
+    password = data.get("password", "")
+    role = data.get("role", "viewer")
+    if not username or len(password) < 6:
+        raise HTTPException(status_code=400, detail="Username and password (6+ chars) required")
+    if role not in ROLES:
+        raise HTTPException(status_code=400, detail=f"Role must be one of {ROLES}")
+    if username in _state["users"]:
+        raise HTTPException(status_code=409, detail="User already exists")
+    h, s = _hash_password(password)
+    _state["users"][username] = {"hash": h, "salt": s, "role": role, "must_change_password": False}
+    async with _lock:
+        _save_raw(_state)
+    _add_log(f"User '{username}' added with role '{role}'", "info")
+    return {"ok": True}
+
+@app.delete("/auth/users/{username}")
+async def delete_user(username: str, authorization: Optional[str] = Header(None)):
+    info = _require_role("admin", authorization)
+    if username == info["username"]:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    if username not in _state["users"]:
+        raise HTTPException(status_code=404, detail="User not found")
+    del _state["users"][username]
+    # revoke any active tokens for this user
+    to_revoke = [t for t, v in _tokens.items() if v["username"] == username]
+    for t in to_revoke:
+        del _tokens[t]
+    async with _lock:
+        _save_raw(_state)
+    _add_log(f"User '{username}' deleted", "warn")
+    return {"ok": True}
+
+@app.put("/auth/users/{username}/role")
+async def set_user_role(username: str, data: dict, authorization: Optional[str] = Header(None)):
+    info = _require_role("admin", authorization)
+    if username == info["username"]:
+        raise HTTPException(status_code=400, detail="Cannot change your own role")
+    user = _state["users"].get(username)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    role = data.get("role")
+    if role not in ROLES:
+        raise HTTPException(status_code=400, detail=f"Role must be one of {ROLES}")
+    user["role"] = role
+    async with _lock:
+        _save_raw(_state)
+    return {"ok": True}
+
+@app.get("/auth/me")
+async def get_me(authorization: Optional[str] = Header(None)):
+    # if no users, return open access
+    if not _state.get("users"):
+        return {"username": "admin", "role": "admin", "must_change_password": False}
+    info = _get_token_info(authorization)
+    if not info:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = _state["users"].get(info["username"], {})
+    return {
+        "username": info["username"],
+        "role": info["role"],
+        "must_change_password": user.get("must_change_password", False),
+    }
+
+
 async def health():
     """Detailed health check — per-device status, worker health, system info."""
     now = datetime.datetime.utcnow()

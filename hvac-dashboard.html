@@ -132,7 +132,10 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
         <div class="menu-divider"></div>
         <div class="menu-item" id="vacation-menu-item" onclick="toggleVacationMode();closeMenu()">🌴 Vacation mode</div>
         <div class="menu-divider"></div>
-        <div class="menu-item" onclick="openSettings('general');closeMenu()">⚙ Settings</div>
+        <div class="menu-item" id="menu-settings" onclick="openSettings('general');closeMenu()">⚙ Settings</div>
+        <div class="menu-divider"></div>
+        <div class="menu-item" onclick="openUserManagement();closeMenu()">👤 Users</div>
+        <div class="menu-item" id="menu-logout" onclick="doLogout()">Sign out</div>
         <div class="menu-divider"></div>
         <div class="menu-item" onclick="document.getElementById('about-modal').style.display='flex';closeMenu()">ℹ About</div>
       </div>
@@ -249,6 +252,48 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
 <div id="schedule-list" style="display:none"><div class="empty">No schedules yet.</div></div>
 <div id="log-box-container" style="display:none"><div class="log" id="log-box"></div></div>
 <select id="usage-month-sel" style="display:none" onchange="refreshUsageView()"></select>
+
+<!-- Login modal -->
+<div id="login-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:500;align-items:center;justify-content:center">
+  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl);width:320px;max-width:95vw;padding:24px">
+    <h2 style="margin:0 0 4px;font-size:18px">HVAC Dashboard</h2>
+    <p style="margin:0 0 20px;font-size:12px;color:var(--text3)">Sign in to continue</p>
+    <div id="login-error" style="display:none;color:var(--err);font-size:12px;margin-bottom:12px;font-family:'DM Mono',monospace"></div>
+    <div style="margin-bottom:12px">
+      <div class="clabel" style="margin-bottom:4px">USERNAME</div>
+      <input type="text" id="login-user" class="inp" style="width:100%" autocomplete="username" placeholder="username">
+    </div>
+    <div style="margin-bottom:20px">
+      <div class="clabel" style="margin-bottom:4px">PASSWORD</div>
+      <input type="password" id="login-pw" class="inp" style="width:100%" autocomplete="current-password" placeholder="password"
+        onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="btn" onclick="doLogin()" style="width:100%;border-color:var(--ok);color:var(--ok);padding:8px">Sign in</button>
+  </div>
+</div>
+
+<!-- Change password modal -->
+<div id="changepw-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:500;align-items:center;justify-content:center">
+  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl);width:320px;max-width:95vw;padding:24px">
+    <h2 style="margin:0 0 4px;font-size:18px">Change Password</h2>
+    <p style="margin:0 0 20px;font-size:12px;color:var(--warn)">⚠ Default password detected — please set a new password to continue.</p>
+    <div id="changepw-error" style="display:none;color:var(--err);font-size:12px;margin-bottom:12px;font-family:'DM Mono',monospace"></div>
+    <div style="margin-bottom:12px">
+      <div class="clabel" style="margin-bottom:4px">CURRENT PASSWORD</div>
+      <input type="password" id="changepw-old" class="inp" style="width:100%" placeholder="current password">
+    </div>
+    <div style="margin-bottom:12px">
+      <div class="clabel" style="margin-bottom:4px">NEW PASSWORD</div>
+      <input type="password" id="changepw-new" class="inp" style="width:100%" placeholder="min 6 characters">
+    </div>
+    <div style="margin-bottom:20px">
+      <div class="clabel" style="margin-bottom:4px">CONFIRM NEW PASSWORD</div>
+      <input type="password" id="changepw-confirm" class="inp" style="width:100%" placeholder="confirm new password"
+        onkeydown="if(event.key==='Enter')doChangePassword()">
+    </div>
+    <button class="btn" onclick="doChangePassword()" style="width:100%;border-color:var(--ok);color:var(--ok);padding:8px">Set New Password</button>
+  </div>
+</div>
 
 <!-- Connection test modal -->
 <div id="test-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;align-items:center;justify-content:center">
@@ -468,6 +513,205 @@ const ENTITY='air_conditioner';
 const MODES=['COOL','HEAT','HEAT_COOL','FAN_ONLY','DRY'];
 const MODE_LABEL={COOL:'cool',HEAT:'heat',HEAT_COOL:'auto',FAN_ONLY:'fan',DRY:'dry'};
 // ── API base ──────────────────────────────────────────────
+// ── Auth ─────────────────────────────────────────────────
+let _authToken = localStorage.getItem('hvac_token') || '';
+let _authRole = localStorage.getItem('hvac_role') || '';
+let _authUser = localStorage.getItem('hvac_user') || '';
+
+// wrap fetch to inject auth header
+const _origFetch = window.fetch.bind(window);
+window.fetch = (url, opts={}) => {
+  if(typeof url === 'string' && url.includes('/api/') && _authToken){
+    opts.headers = {...(opts.headers||{}), 'Authorization': `Bearer ${_authToken}`};
+  }
+  return _origFetch(url, opts).then(r => {
+    if(r.status === 401 && !url.includes('/auth/')){
+      showLoginModal();
+    }
+    return r;
+  });
+};
+
+function showLoginModal(){
+  document.getElementById('login-modal').style.display='flex';
+  document.getElementById('login-error').style.display='none';
+  setTimeout(()=>document.getElementById('login-user')?.focus(), 100);
+}
+
+function hideLoginModal(){
+  document.getElementById('login-modal').style.display='none';
+}
+
+async function doLogin(){
+  const user=document.getElementById('login-user').value.trim();
+  const pw=document.getElementById('login-pw').value;
+  const errEl=document.getElementById('login-error');
+  errEl.style.display='none';
+  try{
+    const r=await _origFetch(`${API}/auth/login`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username:user,password:pw})
+    });
+    if(!r.ok){
+      const d=await r.json();
+      errEl.textContent=d.detail||'Login failed';
+      errEl.style.display='block';
+      return;
+    }
+    const data=await r.json();
+    _authToken=data.token;
+    _authRole=data.role;
+    _authUser=data.username;
+    localStorage.setItem('hvac_token',data.token);
+    localStorage.setItem('hvac_role',data.role);
+    localStorage.setItem('hvac_user',data.username);
+    hideLoginModal();
+    updateAuthUI();
+    if(data.must_change_password){
+      showChangePwModal();
+    }else{
+      init();
+    }
+  }catch(e){
+    errEl.textContent=`Connection error: ${e.message}`;
+    errEl.style.display='block';
+  }
+}
+
+function showChangePwModal(){
+  document.getElementById('changepw-modal').style.display='flex';
+  document.getElementById('changepw-error').style.display='none';
+}
+
+async function doChangePassword(){
+  const oldPw=document.getElementById('changepw-old').value;
+  const newPw=document.getElementById('changepw-new').value;
+  const confirmPw=document.getElementById('changepw-confirm').value;
+  const errEl=document.getElementById('changepw-error');
+  errEl.style.display='none';
+  if(newPw!==confirmPw){errEl.textContent='Passwords do not match';errEl.style.display='block';return;}
+  if(newPw.length<6){errEl.textContent='Password must be at least 6 characters';errEl.style.display='block';return;}
+  try{
+    const r=await fetch(`${API}/auth/change-password`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({old_password:oldPw,new_password:newPw})
+    });
+    if(!r.ok){const d=await r.json();errEl.textContent=d.detail||'Failed';errEl.style.display='block';return;}
+    document.getElementById('changepw-modal').style.display='none';
+    addLog('Password changed successfully','ok');
+    init();
+  }catch(e){errEl.textContent=e.message;errEl.style.display='block';}
+}
+
+async function doLogout(){
+  await fetch(`${API}/auth/logout`,{method:'POST'}).catch(_=>{});
+  _authToken='';_authRole='';_authUser='';
+  localStorage.removeItem('hvac_token');
+  localStorage.removeItem('hvac_role');
+  localStorage.removeItem('hvac_user');
+  showLoginModal();
+  closeMenu();
+}
+
+function updateAuthUI(){
+  // show username in ··· menu and enforce role-based UI
+  const logoutItem=document.getElementById('menu-logout');
+  if(logoutItem)logoutItem.textContent=`Sign out (${_authUser||'?'})`;
+  // hide settings for non-admins
+  const settingsItem=document.getElementById('menu-settings');
+  if(settingsItem)settingsItem.style.display=_authRole==='viewer'?'none':'block';
+}
+
+async function checkAuth(){
+  // if no users configured, skip auth
+  try{
+    const r=await _origFetch(`${API}/auth/me`,{headers:{'Authorization':`Bearer ${_authToken}`}});
+    if(r.status===401){showLoginModal();return false;}
+    if(r.ok){
+      const d=await r.json();
+      _authRole=d.role;_authUser=d.username;
+      localStorage.setItem('hvac_role',d.role);
+      localStorage.setItem('hvac_user',d.username);
+      updateAuthUI();
+      if(d.must_change_password){showChangePwModal();return false;}
+      return true;
+    }
+  }catch(_){}
+  return true; // network error — proceed optimistically
+}
+
+// ── Auth user management (admin only) ────────────────────
+async function openUserManagement(){
+  if(_authRole!=='admin'){addLog('Admin role required','err');return;}
+  try{
+    const r=await fetch(`${API}/auth/users`);
+    if(!r.ok)return;
+    const data=await r.json();
+    const body=document.getElementById('section-modal-body');
+    const title=document.getElementById('section-modal-title');
+    if(!body||!title)return;
+    document.getElementById('section-modal').style.display='flex';
+    title.textContent='User Management';
+    document.getElementById('section-modal-toolbar').innerHTML=
+      `<button class="btn" style="font-size:11px" onclick="showAddUserForm()">+ Add user</button>`;
+    body.innerHTML=`
+      <div id="add-user-form" style="display:none;background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:14px">
+        <div style="display:grid;grid-template-columns:1fr 1fr auto auto;gap:8px;align-items:end">
+          <div><div class="clabel" style="margin-bottom:3px">USERNAME</div><input type="text" id="new-user-name" class="inp" style="width:100%"></div>
+          <div><div class="clabel" style="margin-bottom:3px">PASSWORD</div><input type="password" id="new-user-pw" class="inp" style="width:100%"></div>
+          <div><div class="clabel" style="margin-bottom:3px">ROLE</div><select id="new-user-role" class="inp"><option>viewer</option><option>operator</option><option>admin</option></select></div>
+          <button class="btn" onclick="addUser()" style="border-color:var(--ok);color:var(--ok)">Add</button>
+        </div>
+      </div>
+      <table style="width:100%;font-size:12px;border-collapse:collapse">
+        <thead><tr style="color:var(--text3);font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.05em">
+          <th style="text-align:left;padding:6px 0;border-bottom:1px solid var(--border)">Username</th>
+          <th style="text-align:left;padding:6px 0;border-bottom:1px solid var(--border)">Role</th>
+          <th style="padding:6px 0;border-bottom:1px solid var(--border)"></th>
+        </tr></thead>
+        <tbody>${data.users.map(u=>`<tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:8px 0">${u.username}${u.must_change_password?' <span style="color:var(--warn);font-size:10px">⚠ pw change required</span>':''}</td>
+          <td style="padding:8px 0"><span style="font-family:\'DM Mono\',monospace;color:var(--text3)">${u.role}</span></td>
+          <td style="padding:8px 0;text-align:right;display:flex;gap:6px;justify-content:flex-end">
+            <select onchange="changeUserRole('${u.username}',this.value)" class="inp" style="font-size:11px">
+              ${ROLE_OPTIONS.map(r=>`<option value="${r}" ${r===u.role?'selected':''}>${r}</option>`).join('')}
+            </select>
+            ${u.username!==_authUser?`<button class="btn bico" onclick="deleteUser('${u.username}')" style="color:var(--err)" title="Delete">✕</button>`:''}
+          </td>
+        </tr>`).join('')}</tbody>
+      </table>`;
+  }catch(e){addLog(`User management error: ${e.message}`,'err');}
+}
+
+const ROLE_OPTIONS=['viewer','operator','admin'];
+
+function showAddUserForm(){
+  const f=document.getElementById('add-user-form');
+  if(f)f.style.display=f.style.display==='none'?'block':'none';
+}
+
+async function addUser(){
+  const name=document.getElementById('new-user-name')?.value.trim();
+  const pw=document.getElementById('new-user-pw')?.value;
+  const role=document.getElementById('new-user-role')?.value;
+  if(!name||!pw){addLog('Username and password required','err');return;}
+  const r=await fetch(`${API}/auth/users`,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({username:name,password:pw,role})});
+  if(r.ok){addLog(`User '${name}' added`,'ok');openUserManagement();}
+  else{const d=await r.json();addLog(d.detail||'Failed','err');}
+}
+
+async function deleteUser(username){
+  if(!confirm(`Delete user '${username}'?`))return;
+  const r=await fetch(`${API}/auth/users/${username}`,{method:'DELETE'});
+  if(r.ok){addLog(`User '${username}' deleted`,'warn');openUserManagement();}
+}
+
+async function changeUserRole(username,role){
+  await fetch(`${API}/auth/users/${username}/role`,{method:'PUT',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({role})});
+}
+
 const API=window.location.origin+'/api';
 
 // ── Devices — backed by API ───────────────────────────────
@@ -2219,6 +2463,9 @@ async function refreshUsageView(){
 // ── Init ─────────────────────────────────────────────────
 async function init(){
   applyTheme(_theme);
+  // check auth before loading anything
+  const authed = await checkAuth();
+  if(!authed)return;
   // sync vacation mode from API — silent (no API call, no log)
   try{
     const r=await fetch(`${API}/vacation`);
