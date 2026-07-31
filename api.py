@@ -646,11 +646,11 @@ async def _poll_device(device: dict):
         device["_on_time_minutes"] = device.get("_on_time_minutes", 0) + elapsed_mins
         _record_usage(device, ds, elapsed_mins)
 
-    # log mode changes — always log, including first poll after restart
+    # log mode changes — skip first poll after restart (last_mode=None means no prior state)
     cur_mode = state.get("mode", "OFF")
-    if last_mode != cur_mode:
+    if last_mode is not None and last_mode != cur_mode:
         if cur_mode == "OFF":
-            prev = f" (was {last_mode})" if last_mode and last_mode != "OFF" else ""
+            prev = f" (was {last_mode})" if last_mode != "OFF" else ""
             _add_log(f"{name}: turned off{prev}", "info")
         else:
             _add_log(f"{name}: turned on ({cur_mode})", "ok")
@@ -794,12 +794,6 @@ async def _check_max_temp(device: dict):
     max_temp = device.get("max_temp")
     if max_temp is None:
         return
-    # check guard hours
-    now_hour = datetime.datetime.now().hour
-    guard_start = _state["settings"].get("max_temp_guard_start", 8)
-    guard_end = _state["settings"].get("max_temp_guard_end", 22)
-    if not (guard_start <= now_hour < guard_end):
-        return
     host = device["host"]
     name = device["name"]
     ds = _state["device_state"].get(host, {})
@@ -814,7 +808,13 @@ async def _check_max_temp(device: dict):
     is_cooling = cur_mode in ("COOL", "AUTO", "HEAT_COOL")
     active = device.get("_max_temp_active", False)
 
-    if indoor >= max_temp and not is_cooling and not active:
+    # guard hours only apply to triggering auto-on — auto-off always allowed
+    now_hour = datetime.datetime.now().hour
+    guard_start = _state["settings"].get("max_temp_guard_start", 8)
+    guard_end = _state["settings"].get("max_temp_guard_end", 22)
+    within_guard_hours = guard_start <= now_hour < guard_end
+
+    if indoor >= max_temp and not is_cooling and not active and within_guard_hours:
         device["_max_temp_active"] = True
         device["_pre_autocool_mode"] = cur_mode
         device["_pre_autocool_temp"] = ds.get("target_temperature")
@@ -932,7 +932,15 @@ async def _check_schedules():
             continue
         if end_time != hhmm:
             continue
-        if js_day not in sch.get("days", []):
+        # for end times, check if yesterday's day is in the schedule
+        # (handles overnight schedules like 20:45–06:45)
+        start_time = sch.get("time", "00:00")
+        is_overnight = end_time < start_time  # e.g. end=06:45 < start=20:45
+        if is_overnight:
+            check_day = (js_day - 1) % 7
+        else:
+            check_day = js_day
+        if check_day not in sch.get("days", []):
             continue
         last_end_run = sch.get("_last_end_run", "")
         if last_end_run and last_end_run.startswith(today):
@@ -1211,8 +1219,10 @@ async def set_lock_temp(host: str, data: dict):
         device["locked_target_temp"] = None
     async with _lock:
         _save_raw(_state)
-    status = "locked" if device["lock_temp"] else "unlocked"
-    _add_log(f"{device['name']}: temp {status} at {device.get('locked_target_temp')}°C", "info")
+    if device["lock_temp"]:
+        _add_log(f"{device['name']}: temp 🔒 locked at {device.get('locked_target_temp')}°C", "info")
+    else:
+        _add_log(f"{device['name']}: temp 🔓 unlocked", "info")
     return {"ok": True, "lock_temp": device["lock_temp"], "locked_target_temp": device.get("locked_target_temp")}
 
 @app.post("/devices/{host:path}/display-toggle")
@@ -1355,7 +1365,11 @@ async def get_settings():
 
 @app.put("/settings")
 async def update_settings(settings: dict):
+    prev_verbose = _state["settings"].get("verbose_logging", False)
     _state["settings"].update(settings)
+    new_verbose = _state["settings"].get("verbose_logging", False)
+    if new_verbose != prev_verbose:
+        _add_log(f"Verbose logging {'enabled' if new_verbose else 'disabled'}", "info")
     async with _lock:
         _save_raw(_state)
     return {"ok": True}
