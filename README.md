@@ -204,6 +204,55 @@ Returns `200` when all devices healthy, `503` when any are stale.
 
 ---
 
+## Authentication
+
+The dashboard uses token-based authentication with three role levels:
+
+| Role | Access |
+|---|---|
+| **viewer** | Read-only — view dashboard, no commands |
+| **operator** | Send commands (on/off/mode/temp), view all |
+| **admin** | Full access — settings, devices, schedules, users |
+
+### First Login
+
+Default credentials on first run: **`admin` / `admin`**
+
+You will be forced to change the password before accessing the dashboard.
+
+### Managing Users
+
+Open `··· → Users` (admin only) to add, delete, or change roles for users.
+
+### Forgot Password
+
+If you lose the admin password:
+
+**1 — Get the recovery key from Docker logs:**
+```bash
+docker logs hvac-dashboard 2>&1 | grep RECOVERY
+```
+Output:
+```
+WARNING  === RECOVERY KEY: abc123xyz_your_key_here ===
+WARNING  === Use POST /api/auth/recover with this key to reset admin password ===
+```
+
+**2 — Reset via the dashboard:**
+
+Click **Forgot password?** on the login screen, paste the recovery key, and set a new password.
+
+**Or via curl:**
+```bash
+curl -X POST http://homenas.local:8080/api/auth/recover \
+  -H "Content-Type: application/json" \
+  -d '{"recovery_key":"abc123xyz_your_key_here","new_password":"newpassword"}'
+```
+
+The recovery key is generated fresh on every container start, is single-use, and is never written to disk — it only exists in memory and in the Docker logs.
+
+---
+
 ## Release Process
 
 ```bash
@@ -236,7 +285,7 @@ GitHub Actions builds multi-arch (`amd64` + `arm64`) images and pushes to Docker
 
 ## Developer
 
-dWiGhT Mulcahy (dwight.codes@gmail.com)
+Dwight Mulcahy
 
 ## License
 
