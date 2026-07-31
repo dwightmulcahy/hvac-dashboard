@@ -1686,7 +1686,7 @@ async def add_user(data: dict, authorization: Optional[str] = Header(None)):
     if username in _state["users"]:
         raise HTTPException(status_code=409, detail="User already exists")
     h, s = _hash_password(password)
-    _state["users"][username] = {"hash": h, "salt": s, "role": role, "must_change_password": False}
+    _state["users"][username] = {"hash": h, "salt": s, "role": role, "must_change_password": True}
     async with _lock:
         _save_raw(_state)
     _add_log(f"User '{username}' added with role '{role}'", "info")

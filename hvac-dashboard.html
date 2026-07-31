@@ -714,6 +714,7 @@ async function openUserManagement(){
       `<button class="btn" style="font-size:11px" onclick="showAddUserForm()">+ Add user</button>`;
     body.innerHTML=`
       <div id="add-user-form" style="display:none;background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:14px">
+        <div id="add-user-error" style="display:none;color:var(--err);font-size:11px;margin-bottom:8px;font-family:'DM Mono',monospace"></div>
         <div style="display:grid;grid-template-columns:1fr 1fr auto auto;gap:8px;align-items:end">
           <div><div class="clabel" style="margin-bottom:3px">USERNAME</div><input type="text" id="new-user-name" class="inp" style="width:100%"></div>
           <div><div class="clabel" style="margin-bottom:3px">PASSWORD</div><input type="password" id="new-user-pw" class="inp" style="width:100%"></div>
@@ -743,6 +744,11 @@ async function openUserManagement(){
 
 const ROLE_OPTIONS=['viewer','operator','admin'];
 
+async function openScheduleModalFromMenu(){
+  // ensure schedules are loaded before opening modal
+  await loadSchedulesFromAPI();
+  openScheduleModal();
+}
 function showAddUserForm(){
   const f=document.getElementById('add-user-form');
   if(f)f.style.display=f.style.display==='none'?'block':'none';
@@ -751,16 +757,33 @@ function showAddUserForm(){
 let _addingUser=false;
 async function addUser(){
   if(_addingUser)return;
+  const name=document.getElementById('new-user-name')?.value.trim();
+  const pw=document.getElementById('new-user-pw')?.value;
+  const role=document.getElementById('new-user-role')?.value;
+  const errEl=document.getElementById('add-user-error');
+  if(errEl)errEl.style.display='none';
+
+  if(!name){
+    if(errEl){errEl.textContent='Username is required';errEl.style.display='block';}
+    return;
+  }
+  if(!pw||pw.length<6){
+    if(errEl){errEl.textContent='Password must be at least 6 characters';errEl.style.display='block';}
+    return;
+  }
   _addingUser=true;
   try{
-    const name=document.getElementById('new-user-name')?.value.trim();
-    const pw=document.getElementById('new-user-pw')?.value;
-    const role=document.getElementById('new-user-role')?.value;
-    if(!name||!pw){addLog('Username and password required','err');return;}
     const r=await fetch(`${API}/auth/users`,{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({username:name,password:pw,role})});
-    if(r.ok){addLog(`User '${name}' added`,'ok');openUserManagement();}
-    else{const d=await r.json();addLog(d.detail||'Failed','err');}
+    const data=await r.json();
+    if(r.ok){
+      addLog(`User '${name}' added`,'ok');
+      openUserManagement();
+    }else{
+      if(errEl){errEl.textContent=data.detail||'Failed to add user';errEl.style.display='block';}
+    }
+  }catch(e){
+    if(errEl){errEl.textContent=e.message;errEl.style.display='block';}
   }finally{_addingUser=false;}
 }
 
@@ -1892,7 +1915,7 @@ async function runMaxTempMonitor(){
 // ── Section modals ────────────────────────────────────────
 let _activeSection=null;
 
-function openSection(name){
+async function openSection(name){
   _activeSection=name;
   const modal=document.getElementById('section-modal');
   const title=document.getElementById('section-modal-title');
@@ -1921,6 +1944,8 @@ function openSection(name){
     title.textContent='Schedules';
     toolbar.innerHTML=`<button class="btn" style="font-size:11px;padding:2px 8px" onclick="openScheduleModal()">+ Schedule</button>`;
     body.innerHTML='<div id="schedule-list"><div class="empty">No schedules yet.</div></div>';
+    await loadSchedulesFromAPI();
+    await loadDevicesFromAPI();
     renderSchedules();
   }else if(name==='log'){
     title.textContent='Log';
