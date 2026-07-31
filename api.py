@@ -36,6 +36,12 @@ async def lifespan(app: FastAPI):
     # ensure default admin user exists
     _ensure_default_admin()
 
+    # generate a one-time recovery key and print to logs
+    # use this if you forget your password: POST /api/auth/recover
+    _state["_recovery_key"] = secrets.token_urlsafe(24)
+    log.warning(f"=== RECOVERY KEY: {_state['_recovery_key']} ===")
+    log.warning("=== Use POST /api/auth/recover with this key to reset admin password ===")
+
     # register SIGTERM handler to log clean shutdown
     def _on_sigterm(*_):
         _add_log("HVAC API stopping (SIGTERM)", "warn")
@@ -63,7 +69,6 @@ async def auth_middleware(request, call_next):
     open_paths = {"/api/", "/", "/health", "/health/push", "/exchange-rate"}
     if path in open_paths or path.startswith("/auth/"):
         return await call_next(request)
-
     # if no users configured yet, allow everything (first run)
     if not _state.get("users"):
         return await call_next(request)
@@ -1595,6 +1600,27 @@ async def ota_upload(host: str, firmware: UploadFile):
     except Exception as e:
         _add_log(f"{name}: OTA error — {e}", "err")
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+@app.post("/auth/recover")
+async def recover_password(data: dict):
+    """Reset admin password using the recovery key printed to Docker logs on startup."""
+    key = data.get("recovery_key", "")
+    new_password = data.get("new_password", "")
+    stored_key = _state.get("_recovery_key", "")
+    if not stored_key or not secrets.compare_digest(key, stored_key):
+        raise HTTPException(status_code=403, detail="Invalid recovery key")
+    if len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    h, s = _hash_password(new_password)
+    _state["users"]["admin"] = {"hash": h, "salt": s, "role": "admin", "must_change_password": False}
+    # invalidate recovery key after use
+    _state["_recovery_key"] = secrets.token_urlsafe(24)
+    # revoke all existing tokens
+    _tokens.clear()
+    async with _lock:
+        _save_raw(_state)
+    _add_log("Admin password reset via recovery key", "warn")
+    return {"ok": True, "message": "Admin password reset — please log in with new password"}
 
 @app.post("/auth/login")
 async def login(data: dict):

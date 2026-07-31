@@ -269,6 +269,33 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
         onkeydown="if(event.key==='Enter')doLogin()">
     </div>
     <button class="btn" onclick="doLogin()" style="width:100%;border-color:var(--ok);color:var(--ok);padding:8px">Sign in</button>
+    <div style="text-align:center;margin-top:12px">
+      <span onclick="showRecoveryModal()" style="font-size:11px;color:var(--text3);cursor:pointer;text-decoration:underline">Forgot password?</span>
+    </div>
+  </div>
+</div>
+
+<!-- Recovery modal -->
+<div id="recovery-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:500;align-items:center;justify-content:center">
+  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl);width:320px;max-width:95vw;padding:24px">
+    <h2 style="margin:0 0 4px;font-size:18px">Reset Password</h2>
+    <p style="margin:0 0 16px;font-size:12px;color:var(--text3)">Find the recovery key in your Docker logs:<br>
+      <code style="font-size:10px;color:var(--cool)">docker logs hvac-dashboard 2>&1 | grep RECOVERY</code>
+    </p>
+    <div id="recovery-error" style="display:none;color:var(--err);font-size:12px;margin-bottom:12px;font-family:'DM Mono',monospace"></div>
+    <div style="margin-bottom:12px">
+      <div class="clabel" style="margin-bottom:4px">RECOVERY KEY</div>
+      <input type="text" id="recovery-key" class="inp" style="width:100%;font-family:'DM Mono',monospace;font-size:11px" placeholder="paste key from Docker logs">
+    </div>
+    <div style="margin-bottom:20px">
+      <div class="clabel" style="margin-bottom:4px">NEW PASSWORD</div>
+      <input type="password" id="recovery-pw" class="inp" style="width:100%" placeholder="min 6 characters"
+        onkeydown="if(event.key==='Enter')doRecover()">
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn" onclick="document.getElementById('recovery-modal').style.display='none'" style="flex:1">Cancel</button>
+      <button class="btn" onclick="doRecover()" style="flex:1;border-color:var(--ok);color:var(--ok)">Reset</button>
+    </div>
   </div>
 </div>
 
@@ -532,6 +559,37 @@ window.fetch = (url, opts={}) => {
   });
 };
 
+function showRecoveryModal(){
+  document.getElementById('recovery-modal').style.display='flex';
+  document.getElementById('recovery-error').style.display='none';
+}
+
+async function doRecover(){
+  const key=document.getElementById('recovery-key').value.trim();
+  const pw=document.getElementById('recovery-pw').value;
+  const errEl=document.getElementById('recovery-error');
+  errEl.style.display='none';
+  if(!key){errEl.textContent='Recovery key required';errEl.style.display='block';return;}
+  if(pw.length<6){errEl.textContent='Password must be at least 6 characters';errEl.style.display='block';return;}
+  try{
+    const r=await _origFetch(`${API}/auth/recover`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({recovery_key:key,new_password:pw})
+    });
+    const data=await r.json();
+    if(r.ok){
+      document.getElementById('recovery-modal').style.display='none';
+      showLoginModal();
+      document.getElementById('login-error').style.display='block';
+      document.getElementById('login-error').style.color='var(--ok)';
+      document.getElementById('login-error').textContent='✓ Password reset — please log in with your new password';
+    }else{
+      errEl.textContent=data.detail||'Recovery failed';
+      errEl.style.display='block';
+    }
+  }catch(e){errEl.textContent=e.message;errEl.style.display='block';}
+}
+
 function showLoginModal(){
   document.getElementById('login-modal').style.display='flex';
   document.getElementById('login-error').style.display='none';
@@ -690,15 +748,20 @@ function showAddUserForm(){
   if(f)f.style.display=f.style.display==='none'?'block':'none';
 }
 
+let _addingUser=false;
 async function addUser(){
-  const name=document.getElementById('new-user-name')?.value.trim();
-  const pw=document.getElementById('new-user-pw')?.value;
-  const role=document.getElementById('new-user-role')?.value;
-  if(!name||!pw){addLog('Username and password required','err');return;}
-  const r=await fetch(`${API}/auth/users`,{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({username:name,password:pw,role})});
-  if(r.ok){addLog(`User '${name}' added`,'ok');openUserManagement();}
-  else{const d=await r.json();addLog(d.detail||'Failed','err');}
+  if(_addingUser)return;
+  _addingUser=true;
+  try{
+    const name=document.getElementById('new-user-name')?.value.trim();
+    const pw=document.getElementById('new-user-pw')?.value;
+    const role=document.getElementById('new-user-role')?.value;
+    if(!name||!pw){addLog('Username and password required','err');return;}
+    const r=await fetch(`${API}/auth/users`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username:name,password:pw,role})});
+    if(r.ok){addLog(`User '${name}' added`,'ok');openUserManagement();}
+    else{const d=await r.json();addLog(d.detail||'Failed','err');}
+  }finally{_addingUser=false;}
 }
 
 async function deleteUser(username){
