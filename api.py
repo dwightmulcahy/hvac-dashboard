@@ -1174,11 +1174,19 @@ async def add_device(cfg: DeviceConfig):
 async def update_device(host: str, cfg: DeviceConfig):
     device = next((d for d in _state["devices"] if d["host"] == host), None)
     if not device:
-        # host not found — check if new host already exists (avoid duplicate)
         if not any(d["host"] == cfg.host for d in _state["devices"]):
             _state["devices"].append({**DEVICE_DEFAULTS, **cfg.dict()})
     else:
+        host_changed = cfg.host and cfg.host != host
         device.update(cfg.dict())
+        if host_changed:
+            # clear stale state and retry queue when host changes
+            device["_retry_queue"] = []
+            device["_stale"] = False
+            device["_consecutive_failures"] = 0
+            _state["device_state"].pop(host, None)
+            name = device.get("name", host)
+            _add_log(f"{name}: host changed to {cfg.host} — retry queue cleared", "info")
     async with _lock:
         _save_raw(_state)
     return {"ok": True}
