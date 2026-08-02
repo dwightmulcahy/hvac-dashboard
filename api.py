@@ -1203,6 +1203,24 @@ async def delete_device(host: str):
 class CommandPayload(BaseModel):
     params: dict
 
+@app.post("/devices/{host:path}/poll")
+async def poll_device_now(host: str):
+    """Poll a single device immediately and return its current state."""
+    device = next((d for d in _state["devices"] if d["host"] == host), None)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    await _poll_device(device)
+    await _check_max_temp(device)
+    async with _lock:
+        _save_raw(_state)
+    ds = _state["device_state"].get(host, {})
+    return {
+        "ok": not device.get("_stale", False),
+        "stale": device.get("_stale", False),
+        "firmware_version": device.get("_firmware_version"),
+        "state": ds,
+    }
+
 @app.post("/devices/{host:path}/cmd")
 async def send_device_cmd(host: str, payload: CommandPayload, authorization: Optional[str] = Header(None)):
     info = _get_token_info(authorization)

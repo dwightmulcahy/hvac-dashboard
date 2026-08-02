@@ -119,6 +119,7 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
       <h1>HVAC Dashboard</h1>
     </div>
     <span id="api-status" style="font-size:11px;font-family:'DM Mono',monospace;padding:3px 8px;border-radius:6px;background:var(--bg3);color:var(--text3);white-space:nowrap">⬤ API</span>
+    <span id="role-badge" style="display:none;font-size:10px;font-family:'DM Mono',monospace;padding:2px 7px;border-radius:5px;background:var(--bg3);color:var(--text3);white-space:nowrap"></span>
   </div>
   <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
     <button class="btn" onclick="pollAll()" style="font-size:12px">↺ Poll</button>
@@ -134,7 +135,6 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
         <div class="menu-divider"></div>
         <div class="menu-item" id="menu-settings" onclick="openSettings('general');closeMenu()">⚙ Settings</div>
         <div class="menu-divider"></div>
-        <div class="menu-item" onclick="openUserManagement();closeMenu()">👤 Users</div>
         <div class="menu-item" id="menu-logout" onclick="doLogout()">Sign out</div>
         <div class="menu-divider"></div>
         <div class="menu-item" onclick="document.getElementById('about-modal').style.display='flex';closeMenu()">ℹ About</div>
@@ -275,6 +275,28 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
   </div>
 </div>
 
+<!-- Vacation mode confirmation modal -->
+<div id="vacation-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;align-items:center;justify-content:center">
+  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl);width:320px;max-width:95vw;padding:20px">
+    <div style="font-size:14px;font-weight:500;margin-bottom:14px">🌴 Enable Vacation Mode?</div>
+    <p style="font-size:12px;color:var(--text2);margin:0 0 14px">All units will be turned off and schedules paused.</p>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <div class="clabel" style="margin:0;white-space:nowrap">MAX TEMP</div>
+      <input type="number" id="vac-max-temp" class="inp" style="width:70px" min="25" max="40" value="32">
+      <span style="font-size:11px;color:var(--text3)">°C</span>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:18px">
+      <div class="clabel" style="margin:0;white-space:nowrap">AUTO-END</div>
+      <input type="number" id="vac-days" class="inp" style="width:70px" min="0" max="90" value="14">
+      <span style="font-size:11px;color:var(--text3)">days (0=off)</span>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn" onclick="document.getElementById('vacation-modal').style.display='none'">Cancel</button>
+      <button class="btn" onclick="confirmVacationOn()" style="border-color:var(--warn);color:var(--warn)">Enable</button>
+    </div>
+  </div>
+</div>
+
 <!-- Recovery modal -->
 <div id="recovery-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:500;align-items:center;justify-content:center">
   <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl);width:320px;max-width:95vw;padding:24px">
@@ -346,6 +368,7 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
         <button class="stab active" id="stab-general" onclick="switchTab('general')">⚙ General</button>
         <button class="stab" id="stab-devices" onclick="switchTab('devices')">📱 Devices</button>
         <button class="stab" id="stab-rates" onclick="switchTab('rates')">⚡ Rates</button>
+        <button class="stab" id="stab-users" onclick="switchTab('users')">👤 Users</button>
       </div>
       <button class="btn bico" onclick="closeSettings()" style="font-size:16px;color:var(--text3)">✕</button>
     </div>
@@ -354,6 +377,10 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
       <!-- Rates tab -->
       <div id="stab-content-rates">
         <div id="settings-rates-body"></div>
+      </div>
+      <!-- Users tab -->
+      <div id="stab-content-users" style="display:none">
+        <div id="settings-users-body"><div style="color:var(--text3);font-size:12px">Loading…</div></div>
       </div>
       <!-- Devices tab -->
       <div id="stab-content-devices" style="display:none">
@@ -416,13 +443,6 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
               <div style="display:flex;align-items:center;gap:6px">
                 <input type="number" id="gen-vacation-temp" class="inp" style="width:70px" min="25" max="40" value="32">
                 <span style="color:var(--text3);font-size:11px">°C</span>
-              </div>
-            </div>
-            <div>
-              <div class="clabel" style="margin-bottom:4px">VACATION AUTO-END (days)</div>
-              <div style="display:flex;align-items:center;gap:6px">
-                <input type="number" id="gen-vacation-days" class="inp" style="width:70px" min="0" max="90" value="14">
-                <span style="color:var(--text3);font-size:11px">0=off</span>
               </div>
             </div>
             <div style="grid-column:1/-1">
@@ -672,12 +692,21 @@ async function doLogout(){
 }
 
 function updateAuthUI(){
-  // show username in ··· menu and enforce role-based UI
   const logoutItem=document.getElementById('menu-logout');
   if(logoutItem)logoutItem.textContent=`Sign out (${_authUser||'?'})`;
-  // hide settings for non-admins
   const settingsItem=document.getElementById('menu-settings');
   if(settingsItem)settingsItem.style.display=_authRole==='viewer'?'none':'block';
+  // role badge
+  const badge=document.getElementById('role-badge');
+  if(badge&&_authRole){
+    const colors={admin:'var(--ok)',operator:'var(--cool)',viewer:'var(--text3)'};
+    const labels={admin:'admin',operator:'operator',viewer:'read only'};
+    badge.textContent=labels[_authRole]||_authRole;
+    badge.style.color=colors[_authRole]||'var(--text3)';
+    badge.style.borderColor=colors[_authRole]||'var(--border)';
+    badge.style.border='1px solid';
+    badge.style.display='inline';
+  }
 }
 
 async function checkAuth(){
@@ -699,49 +728,84 @@ async function checkAuth(){
 }
 
 // ── Auth user management (admin only) ────────────────────
-async function openUserManagement(){
-  if(_authRole!=='admin'){addLog('Admin role required','err');return;}
-  try{
-    const r=await fetch(`${API}/auth/users`);
-    if(!r.ok)return;
-    const data=await r.json();
-    const body=document.getElementById('section-modal-body');
-    const title=document.getElementById('section-modal-title');
-    if(!body||!title)return;
-    document.getElementById('section-modal').style.display='flex';
-    title.textContent='User Management';
-    document.getElementById('section-modal-toolbar').innerHTML=
-      `<button class="btn" style="font-size:11px" onclick="showAddUserForm()">+ Add user</button>`;
-    body.innerHTML=`
-      <div id="add-user-form" style="display:none;background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:14px">
-        <div id="add-user-error" style="display:none;color:var(--err);font-size:11px;margin-bottom:8px;font-family:'DM Mono',monospace"></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr auto auto;gap:8px;align-items:end">
-          <div><div class="clabel" style="margin-bottom:3px">USERNAME</div><input type="text" id="new-user-name" class="inp" style="width:100%"></div>
-          <div><div class="clabel" style="margin-bottom:3px">PASSWORD</div><input type="password" id="new-user-pw" class="inp" style="width:100%"></div>
-          <div><div class="clabel" style="margin-bottom:3px">ROLE</div><select id="new-user-role" class="inp"><option>viewer</option><option>operator</option><option>admin</option></select></div>
-          <button class="btn" onclick="addUser()" style="border-color:var(--ok);color:var(--ok)">Add</button>
-        </div>
-      </div>
-      <table style="width:100%;font-size:12px;border-collapse:collapse">
-        <thead><tr style="color:var(--text3);font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.05em">
-          <th style="text-align:left;padding:6px 0;border-bottom:1px solid var(--border)">Username</th>
-          <th style="text-align:left;padding:6px 0;border-bottom:1px solid var(--border)">Role</th>
-          <th style="padding:6px 0;border-bottom:1px solid var(--border)"></th>
-        </tr></thead>
-        <tbody>${data.users.map(u=>`<tr style="border-bottom:1px solid var(--border)">
-          <td style="padding:8px 0">${u.username}${u.must_change_password?' <span style="color:var(--warn);font-size:10px">⚠ pw change required</span>':''}</td>
-          <td style="padding:8px 0"><span style="font-family:\'DM Mono\',monospace;color:var(--text3)">${u.role}</span></td>
-          <td style="padding:8px 0;text-align:right;display:flex;gap:6px;justify-content:flex-end">
-            <select onchange="changeUserRole('${u.username}',this.value)" class="inp" style="font-size:11px">
-              ${ROLE_OPTIONS.map(r=>`<option value="${r}" ${r===u.role?'selected':''}>${r}</option>`).join('')}
-            </select>
-            ${u.username!==_authUser?`<button class="btn bico" onclick="deleteUser('${u.username}')" style="color:var(--err)" title="Delete">✕</button>`:''}
-          </td>
-        </tr>`).join('')}</tbody>
-      </table>`;
-  }catch(e){addLog(`User management error: ${e.message}`,'err');}
+async function renderUsersTab(){
+  const body=document.getElementById('settings-users-body');
+  if(!body)return;
+  if(_authRole!=='admin'){
+    body.textContent='Admin access required to manage users.';
+    return;
+  }
+  body.textContent='Loading…';
+  let data;
+  try{const r=await fetch(`${API}/auth/users`);if(!r.ok)throw new Error('HTTP '+r.status);data=await r.json();}
+  catch(e){body.textContent='Failed: '+e.message;return;}
+
+  body.innerHTML='';
+
+  // add user form
+  const form=document.createElement('div');
+  form.id='add-user-form';
+  form.style.cssText='display:none;background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:14px';
+  form.innerHTML='<div id="add-user-error" style="display:none;color:var(--err);font-size:11px;margin-bottom:8px"></div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr auto auto;gap:8px;align-items:end">'
+    +'<div><div class="clabel" style="margin-bottom:3px">USERNAME</div><input type="text" id="new-user-name" class="inp" style="width:100%"></div>'
+    +'<div><div class="clabel" style="margin-bottom:3px">PASSWORD</div><input type="password" id="new-user-pw" class="inp" style="width:100%"></div>'
+    +'<div><div class="clabel" style="margin-bottom:3px">ROLE</div><select id="new-user-role" class="inp"><option>viewer</option><option>operator</option><option>admin</option></select></div>'
+    +'<button class="btn" onclick="addUser()" style="border-color:var(--ok);color:var(--ok)">Add</button>'
+    +'</div>';
+  body.appendChild(form);
+
+  // add user button
+  const addRow=document.createElement('div');
+  addRow.style.cssText='display:flex;justify-content:flex-end;margin-bottom:10px';
+  addRow.innerHTML='<button class="btn" onclick="showAddUserForm()" style="font-size:11px">+ Add user</button>';
+  body.appendChild(addRow);
+
+  // users table
+  const table=document.createElement('table');
+  table.style.cssText='width:100%;font-size:12px;border-collapse:collapse';
+  const thead=document.createElement('thead');
+  thead.innerHTML='<tr><th style="text-align:left;padding:6px 0;border-bottom:1px solid var(--border)">Username</th>'
+    +'<th style="text-align:left;padding:6px 0;border-bottom:1px solid var(--border)">Role</th>'
+    +'<th style="padding:6px 0;border-bottom:1px solid var(--border)"></th></tr>';
+  table.appendChild(thead);
+  const tbody=document.createElement('tbody');
+  data.users.forEach(function(u){
+    const tr=document.createElement('tr');
+    tr.style.borderBottom='1px solid var(--border)';
+    // name cell
+    const td1=document.createElement('td');td1.style.padding='8px 0';
+    td1.textContent=u.username;
+    if(u.must_change_password){const s=document.createElement('span');s.style.cssText='color:var(--warn);font-size:10px';s.textContent=' ⚠ pw required';td1.appendChild(s);}
+    tr.appendChild(td1);
+    // role cell
+    const td2=document.createElement('td');td2.style.padding='8px 0';
+    const sel=document.createElement('select');sel.className='inp';sel.style.fontSize='11px';
+    ROLE_OPTIONS.forEach(function(ro){const opt=document.createElement('option');opt.value=ro;opt.textContent=ro;if(ro===u.role)opt.selected=true;sel.appendChild(opt);});
+    sel.onchange=function(){changeUserRole(u.username,this.value);};
+    td2.appendChild(sel);tr.appendChild(td2);
+    // actions cell
+    const td3=document.createElement('td');td3.style.cssText='padding:8px 0;text-align:right;display:flex;gap:4px;justify-content:flex-end';
+    const resetBtn=document.createElement('button');resetBtn.className='btn';
+    resetBtn.style.cssText='font-size:10px;padding:2px 6px;color:var(--warn);border-color:var(--warn)';
+    resetBtn.textContent='⚠ Reset pw';resetBtn.onclick=function(){forcePasswordReset(u.username);};
+    td3.appendChild(resetBtn);
+    if(u.username!==_authUser){
+      const delBtn=document.createElement('button');delBtn.className='btn bico';
+      delBtn.style.color='var(--err)';delBtn.title='Delete';delBtn.textContent='✕';
+      delBtn.onclick=function(){deleteUser(u.username);};
+      td3.appendChild(delBtn);
+    }
+    tr.appendChild(td3);tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);body.appendChild(table);
 }
 
+async function forcePasswordReset(username){
+  const r=await fetch(`${API}/auth/users/${username}/force-reset`,{method:'POST'});
+  if(r.ok){addLog(`Password reset forced for '${username}'`,'warn');renderUsersTab();}
+  else{const d=await r.json();addLog(d.detail||'Failed','err');}
+}
 const ROLE_OPTIONS=['viewer','operator','admin'];
 
 async function openScheduleModalFromMenu(){
@@ -790,12 +854,14 @@ async function addUser(){
 async function deleteUser(username){
   if(!confirm(`Delete user '${username}'?`))return;
   const r=await fetch(`${API}/auth/users/${username}`,{method:'DELETE'});
-  if(r.ok){addLog(`User '${username}' deleted`,'warn');openUserManagement();}
+  if(r.ok){addLog(`User '${username}' deleted`,'warn');renderUsersTab();}
+  else{const d=await r.json();addLog(d.detail||'Failed','err');}
 }
 
 async function changeUserRole(username,role){
-  await fetch(`${API}/auth/users/${username}/role`,{method:'PUT',
+  const r=await fetch(`${API}/auth/users/${username}/role`,{method:'PUT',
     headers:{'Content-Type':'application/json'},body:JSON.stringify({role})});
+  if(r.ok)addLog(`User '${username}' role → ${role}`,'info');
 }
 
 const API=window.location.origin+'/api';
@@ -887,7 +953,29 @@ async function applyVacationMode(enabled, silent=false){
     renderAll();
   }
 }
-function toggleVacationMode(){applyVacationMode(!vacationMode);}
+function toggleVacationMode(){
+  if(!vacationMode){
+    // show confirmation dialog with options
+    const gen=JSON.parse(localStorage.getItem('hvac_general')||'{}');
+    const vacTempEl=document.getElementById('vac-max-temp');
+    const vacDaysEl=document.getElementById('vac-days');
+    if(vacTempEl)vacTempEl.value=gen.vacTemp||32;
+    if(vacDaysEl)vacDaysEl.value=gen.vacDays||14;
+    document.getElementById('vacation-modal').style.display='flex';
+  }else{
+    applyVacationMode(false);
+  }
+}
+
+async function confirmVacationOn(){
+  document.getElementById('vacation-modal').style.display='none';
+  const maxTemp=+document.getElementById('vac-max-temp').value||32;
+  const days=+document.getElementById('vac-days').value||0;
+  // update settings first
+  await fetch(`${API}/settings`,{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({vacation_max_temp:maxTemp,vacation_days_limit:days})}).catch(_=>{});
+  applyVacationMode(true);
+}
 
 // ── Log badge ─────────────────────────────────────────────
 let _unreadWarns=0;
@@ -1799,50 +1887,89 @@ async function testDevice(i){
   const body=document.getElementById('test-modal-body');
   const rebootBtn=document.getElementById('test-modal-reboot-btn');
   if(rebootBtn)rebootBtn.style.display='none';
-  body.innerHTML=`<div style="color:var(--text3)">Testing ${d.host}…</div>`;
+  body.textContent='Testing '+d.host+'…';
   modal.style.display='flex';
   const start=Date.now();
   try{
-    // test via API health endpoint — avoids CORS issues
-    const hr=await fetch(`${API}/health`,{signal:AbortSignal.timeout(6000)});
+    // poll the device directly through the API
+    const r=await fetch(`${API}/devices/${encodeURIComponent(d.host)}/poll`,{
+      method:'POST',signal:AbortSignal.timeout(8000)
+    });
     const ms=Date.now()-start;
-    if(hr.ok){
-      const health=await hr.json();
-      const dh=health.devices?.find(x=>x.host===d.host);
-      const isStale=dh?.stale||false;
-      const lastSeen=dh?.last_seen||d.last_seen;
-      if(!isStale){
-        body.innerHTML=`
-          <div style="color:var(--ok);font-size:14px;margin-bottom:8px">✓ Online</div>
-          <div><span style="color:var(--text3)">Device </span>${d.name}</div>
-          <div><span style="color:var(--text3)">Host   </span>${d.host}</div>
-          <div><span style="color:var(--text3)">API    </span>${ms}ms</div>
-          ${d.firmware_version?`<div><span style="color:var(--text3)">FW     </span>${d.firmware_version}</div>`:''}`;
-        if(rebootBtn)rebootBtn.style.display='block';
-        modal.dataset.host=d.host;modal.dataset.name=d.name;
-        addLog(`${d.name}: ✓ online — ${ms}ms`,'ok');
-        try{
-          const hhr=await fetch(`${API}/devices/${encodeURIComponent(d.host)}/health-history`);
-          if(hhr.ok){const hd=await hhr.json();if(hd.history?.length){
-            const rows=hd.history.slice(0,5).map(e=>`<div style="display:flex;gap:8px"><span style="color:var(--text3)">${e.ts.split('T').pop().slice(0,8)}</span><span style="color:${e.event==='online'?'var(--ok)':e.event==='reboot'?'var(--warn)':'var(--err)'}">${e.event}</span></div>`).join('');
-            body.innerHTML+=`<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:6px;font-size:11px"><div style="color:var(--text3);margin-bottom:4px">Health events:</div>${rows}</div>`;
-          }}
-        }catch(_){}
-      }else{
-        body.innerHTML=`<div style="color:var(--warn);font-size:14px;margin-bottom:8px">⚠ Stale</div>
-          <div><span style="color:var(--text3)">Device </span>${d.name}</div>
-          <div><span style="color:var(--text3)">Host   </span>${d.host}</div>
-          <div style="color:var(--text3);font-size:11px;margin-top:4px">Not responding to polls</div>`;
-        addLog(`${d.name}: ⚠ stale`,'warn');
-      }
+    if(r.ok){
+      const data=await r.json();
+      body.innerHTML='';
+      const ok=document.createElement('div');
+      ok.style.cssText='color:var(--ok);font-size:14px;margin-bottom:8px';
+      ok.textContent='✓ Online';
+      body.appendChild(ok);
+      const info=[
+        ['Device',d.name],
+        ['Host',d.host],
+        ['Time',ms+'ms'],
+        ['FW',d.firmware_version||data.firmware_version||'—'],
+      ];
+      info.forEach(function(row){
+        const div=document.createElement('div');
+        const label=document.createElement('span');
+        label.style.color='var(--text3)';
+        label.textContent=row[0].padEnd(6,' ')+'  ';
+        div.appendChild(label);
+        div.appendChild(document.createTextNode(row[1]));
+        body.appendChild(div);
+      });
+      if(rebootBtn)rebootBtn.style.display='block';
+      modal.dataset.host=d.host;
+      modal.dataset.name=d.name;
+      addLog(d.name+': ✓ online — '+ms+'ms','ok');
+      // health history
+      try{
+        const hhr=await fetch(`${API}/devices/${encodeURIComponent(d.host)}/health-history`);
+        if(hhr.ok){
+          const hd=await hhr.json();
+          if(hd.history&&hd.history.length){
+            const section=document.createElement('div');
+            section.style.cssText='margin-top:8px;border-top:1px solid var(--border);padding-top:6px;font-size:11px';
+            const label=document.createElement('div');
+            label.style.color='var(--text3)';
+            label.style.marginBottom='4px';
+            label.textContent='Health events:';
+            section.appendChild(label);
+            hd.history.slice(0,5).forEach(function(e){
+              const row=document.createElement('div');
+              row.style.cssText='display:flex;gap:8px';
+              const t=document.createElement('span');
+              t.style.color='var(--text3)';
+              t.textContent=e.ts.split('T').pop().slice(0,8);
+              const ev=document.createElement('span');
+              ev.style.color=e.event==='online'?'var(--ok)':e.event==='reboot'?'var(--warn)':'var(--err)';
+              ev.textContent=e.event;
+              row.appendChild(t);row.appendChild(ev);
+              section.appendChild(row);
+            });
+            body.appendChild(section);
+          }
+        }
+      }catch(_){}
+    }else{
+      body.innerHTML='';
+      const err=document.createElement('div');
+      err.style.cssText='color:var(--err);font-size:14px;margin-bottom:8px';
+      err.textContent='✗ Poll failed ('+r.status+')';
+      body.appendChild(err);
+      addLog(d.name+': ✗ poll failed — HTTP '+r.status,'err');
     }
   }catch(e){
-    const ms=Date.now()-start;
-    body.innerHTML=`
-      <div style="color:var(--err);font-size:14px;margin-bottom:8px">✗ Unreachable</div>
-      <div><span style="color:var(--text3)">Device </span>${d.name}</div>
-      <div><span style="color:var(--text3)">Error  </span>${e.message}</div>`;
-    addLog(`${d.name}: ✗ unreachable`,'err');
+    body.innerHTML='';
+    const err=document.createElement('div');
+    err.style.cssText='color:var(--err);font-size:14px;margin-bottom:8px';
+    err.textContent='✗ Unreachable';
+    body.appendChild(err);
+    const detail=document.createElement('div');
+    detail.style.cssText='font-size:11px;color:var(--text3);margin-top:4px';
+    detail.textContent=e.message;
+    body.appendChild(detail);
+    addLog(d.name+': ✗ unreachable','err');
   }
 }
 
@@ -2020,13 +2147,16 @@ function openSettings(tab){
 function closeSettings(){document.getElementById('settings-modal').style.display='none';}
 
 function switchTab(tab){
-  ['general','devices','rates'].forEach(t=>{
-    document.getElementById('stab-'+t).classList.toggle('active',t===tab);
-    document.getElementById('stab-content-'+t).style.display=t===tab?'block':'none';
+  ['general','devices','rates','users'].forEach(t=>{
+    const btn=document.getElementById('stab-'+t);
+    if(btn)btn.classList.toggle('active',t===tab);
+    const content=document.getElementById('stab-content-'+t);
+    if(content)content.style.display=t===tab?'block':'none';
   });
   _activeTab=tab;
   if(tab==='rates')populateRatesTab();
   if(tab==='devices')renderIPList();
+  if(tab==='users')renderUsersTab();
 }
 
 function populateRatesTab(){
@@ -2086,7 +2216,6 @@ function saveGeneralSettings(){
   const guardEndVal=document.getElementById('gen-guard-end')?.value||'22:00';
   const guardStart=parseInt(guardStartVal.split(':')[0])||8;
   const guardEnd=parseInt(guardEndVal.split(':')[0])||22;
-  const vacDays=+document.getElementById('gen-vacation-days')?.value||14;
   const watchtower=document.getElementById('gen-watchtower')?.value||'';
   VACATION_MAX_TEMP_SETTING=vacTemp;
   localStorage.setItem('hvac_general',JSON.stringify({poll,seer,watchdog,vacTemp,voltage:_voltage,guardStart,guardEnd,verbose:_verbose_logging,tempUnit:_tempUnit}));
@@ -2094,7 +2223,7 @@ function saveGeneralSettings(){
   fetch(`${API}/settings`,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({poll_interval:poll,max_temp_guard_start:guardStart,max_temp_guard_end:guardEnd,
       vacation_max_temp:vacTemp,verbose_logging:_verbose_logging,temp_unit:_tempUnit,
-      watchtower_webhook:watchtower,vacation_days_limit:vacDays})}).catch(_=>{});
+      watchtower_webhook:watchtower})}).catch(_=>{});
   addLog(`General settings saved — watchdog ${watchdog}m, guard ${guardStart}:00–${guardEnd}:00, ${_voltage}V`,'ok');
   closeSettings();
 }
