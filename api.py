@@ -658,7 +658,7 @@ async def _poll_device(device: dict):
             prev = f" (was {last_mode})" if last_mode != "OFF" else ""
             _add_log(f"{name}: turned off{prev}", "info")
         else:
-            _add_log(f"{name}: turned on ({cur_mode})", "ok")
+            _add_log(f"{name}: turned on ({cur_mode}) — detected externally", "ok")
 
     device["_last_mode"] = cur_mode
     device["_last_poll_epoch"] = now_epoch
@@ -1196,19 +1196,30 @@ class CommandPayload(BaseModel):
     params: dict
 
 @app.post("/devices/{host:path}/cmd")
-async def send_device_cmd(host: str, payload: CommandPayload):
+async def send_device_cmd(host: str, payload: CommandPayload, authorization: Optional[str] = Header(None)):
+    info = _get_token_info(authorization)
+    user = info["username"] if info else "api"
+    device = next((d for d in _state["devices"] if d["host"] == host), None)
+    name = device["name"] if device else host
     ok = await _send_cmd(host, payload.params)
     if ok:
         ds = _state["device_state"].get(host, {})
         ds.update(payload.params)
+        # log dashboard-initiated mode changes
+        if "mode" in payload.params:
+            m = payload.params["mode"]
+            if m == "OFF":
+                _add_log(f"{name}: turned off by {user}", "info")
+            else:
+                _add_log(f"{name}: turned on ({m}) by {user}", "ok")
+        if "target_temperature" in payload.params:
+            _add_log(f"{name}: set → {payload.params['target_temperature']}°C by {user}", "info")
     else:
-        # queue for retry when device comes back online
-        device = next((d for d in _state["devices"] if d["host"] == host), None)
         if device is not None:
             if "_retry_queue" not in device:
                 device["_retry_queue"] = []
             device["_retry_queue"].append(payload.params)
-            _add_log(f"{device['name']}: command queued for retry {payload.params}", "warn")
+            _add_log(f"{name}: command queued for retry {payload.params}", "warn")
     return {"ok": ok, "queued": not ok}
 
 @app.post("/devices/{host:path}/lock")
@@ -1709,6 +1720,18 @@ async def delete_user(username: str, authorization: Optional[str] = Header(None)
     _add_log(f"User '{username}' deleted", "warn")
     return {"ok": True}
 
+@app.post("/auth/users/{username}/force-reset")
+async def force_password_reset(username: str, authorization: Optional[str] = Header(None)):
+    _require_role("admin", authorization)
+    user = _state["users"].get(username)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user["must_change_password"] = True
+    async with _lock:
+        _save_raw(_state)
+    _add_log(f"Password reset forced for user '{username}'", "warn")
+    return {"ok": True}
+
 @app.put("/auth/users/{username}/role")
 async def set_user_role(username: str, data: dict, authorization: Optional[str] = Header(None)):
     info = _require_role("admin", authorization)
@@ -1720,9 +1743,11 @@ async def set_user_role(username: str, data: dict, authorization: Optional[str] 
     role = data.get("role")
     if role not in ROLES:
         raise HTTPException(status_code=400, detail=f"Role must be one of {ROLES}")
+    old_role = user.get("role", "viewer")
     user["role"] = role
     async with _lock:
         _save_raw(_state)
+    _add_log(f"User '{username}' role changed: {old_role} → {role} (by {info['username']})", "info")
     return {"ok": True}
 
 @app.get("/auth/me")
