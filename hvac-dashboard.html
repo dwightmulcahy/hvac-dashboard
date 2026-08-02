@@ -454,6 +454,13 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
               </div>
             </div>
             <div style="grid-column:1/-1">
+              <div class="clabel" style="margin-bottom:4px">NIGHTLY DONGLE REBOOT</div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="time" id="gen-nightly-reboot" class="inp" style="width:110px" value="03:00">
+                <span style="font-size:11px;color:var(--text3)">leave blank to disable</span>
+              </div>
+            </div>
+            <div style="grid-column:1/-1">
               <div class="clabel" style="margin-bottom:4px">WATCHTOWER WEBHOOK URL</div>
               <input type="text" id="gen-watchtower" class="inp" style="width:100%" placeholder="https://ntfy.sh/topic">
             </div>
@@ -2141,6 +2148,8 @@ function openSettings(tab){
   selectTempUnit(_tempUnit);
   const wtEl=document.getElementById('gen-watchtower');
   if(wtEl)wtEl.value=gen.watchtower||'';
+  const nrEl=document.getElementById('gen-nightly-reboot');
+  if(nrEl)nrEl.value=gen.nightlyReboot||'03:00';
   updateThemeBtns();
 }
 
@@ -2217,13 +2226,14 @@ function saveGeneralSettings(){
   const guardStart=parseInt(guardStartVal.split(':')[0])||8;
   const guardEnd=parseInt(guardEndVal.split(':')[0])||22;
   const watchtower=document.getElementById('gen-watchtower')?.value||'';
+  const nightlyReboot=document.getElementById('gen-nightly-reboot')?.value||'';
   VACATION_MAX_TEMP_SETTING=vacTemp;
   localStorage.setItem('hvac_general',JSON.stringify({poll,seer,watchdog,vacTemp,voltage:_voltage,guardStart,guardEnd,verbose:_verbose_logging,tempUnit:_tempUnit}));
   devices.forEach(d=>{d.watchdog_minutes=watchdog;saveDeviceToAPI(d);});
   fetch(`${API}/settings`,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({poll_interval:poll,max_temp_guard_start:guardStart,max_temp_guard_end:guardEnd,
       vacation_max_temp:vacTemp,verbose_logging:_verbose_logging,temp_unit:_tempUnit,
-      watchtower_webhook:watchtower})}).catch(_=>{});
+      watchtower_webhook:watchtower,nightly_reboot_time:nightlyReboot})}).catch(_=>{});
   addLog(`General settings saved — watchdog ${watchdog}m, guard ${guardStart}:00–${guardEnd}:00, ${_voltage}V`,'ok');
   closeSettings();
 }

@@ -128,6 +128,7 @@ DEFAULT_STATE = {
         "verbose_logging": False,
         "temp_unit": "both",          # "C", "F", or "both"
         "watchtower_webhook": "",     # optional webhook URL for update notifications
+        "nightly_reboot_time": "03:00",  # HH:MM to reboot all dongles, "" to disable
     },
     "usage": {
         "daily": {},        # {"2026-07-01": {"host": {runtime_min, est_kwh, ...}}}
@@ -1040,6 +1041,7 @@ async def _background_worker():
     _add_log("Background worker started", "info")
     last_schedule_check = ""
     last_rate_update = ""
+    last_nightly_reboot = ""
 
     # ── Startup retry with exponential backoff ────────────────
     # Wait for network before first real poll
@@ -1083,6 +1085,35 @@ async def _background_worker():
             if hhmm == "06:00" and today != last_rate_update:
                 last_rate_update = today
                 await _fetch_exchange_rate()
+
+            # Nightly dongle reboot
+            nightly_reboot_time = _state["settings"].get("nightly_reboot_time", "03:00")
+            if nightly_reboot_time and hhmm == nightly_reboot_time and today != last_nightly_reboot:
+                last_nightly_reboot = today
+                _add_log("🔄 Nightly dongle reboot starting…", "info")
+                for device in _state["devices"]:
+                    host = device["host"]
+                    name = device["name"]
+                    paths = [
+                        f"http://{host}/button/air_conditioner_restart/press",
+                        f"http://{host}/button/Air%20Conditioner%20Restart/press",
+                    ]
+                    rebooted = False
+                    for path in paths:
+                        try:
+                            async with httpx.AsyncClient(timeout=5) as client:
+                                r = await client.post(path)
+                                if r.status_code < 300:
+                                    rebooted = True
+                                    break
+                        except Exception:
+                            pass
+                    if rebooted:
+                        _verbose(f"{name}: nightly reboot sent", "info")
+                    else:
+                        _add_log(f"{name}: nightly reboot failed — unreachable", "warn")
+                    await asyncio.sleep(5)  # stagger 5s apart
+                _add_log("🔄 Nightly dongle reboot complete", "ok")
 
             # Auto-end vacation mode if time limit exceeded
             s = _state["settings"]
