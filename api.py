@@ -1873,17 +1873,43 @@ async def discover_devices(subnet: Optional[str] = None):
                 if rc.status_code == 200:
                     data = rc.json()
                     fw = None
+                    mac_suffix = None
+                    hostname = None
                     try:
                         rv = await client.get(f"http://{ip}/text_sensor/air_conditioner_esphome_version")
                         if rv.status_code == 200:
                             fw = rv.json().get("value", "").split(" ")[0]
                     except Exception:
                         pass
+                    try:
+                        rm = await client.get(f"http://{ip}/text_sensor/air_conditioner_mac_address")
+                        if rm.status_code == 200:
+                            mac = rm.json().get("value", "")
+                            if mac:
+                                mac_suffix = mac.replace(":", "")[-6:].lower()
+                    except Exception:
+                        pass
+                    # try reverse DNS for a friendly hostname
+                    try:
+                        import socket
+                        hostname = socket.gethostbyaddr(ip)[0]
+                    except Exception:
+                        pass
+                    # smart default name: prefer resolved hostname, else MAC suffix, else IP
+                    if hostname and not hostname.replace(".", "").isdigit():
+                        suggested_name = hostname.split(".")[0].replace("air-conditioner-", "AC ").replace("-", " ").title()
+                    elif mac_suffix:
+                        suggested_name = f"AC {mac_suffix}"
+                    else:
+                        suggested_name = f"AC ({ip})"
                     found.append({
                         "ip": ip,
                         "mode": data.get("mode"),
                         "current_temperature": data.get("current_temperature"),
                         "firmware": fw,
+                        "hostname": hostname,
+                        "mac_suffix": mac_suffix,
+                        "suggested_name": suggested_name,
                         "already_configured": ip in existing_hosts or ip in existing_ips,
                     })
         except Exception:

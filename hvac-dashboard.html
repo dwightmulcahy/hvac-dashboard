@@ -387,11 +387,13 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
           <span style="font-size:12px;color:var(--text2)">Drag ⠿ to reorder</span>
           <div style="display:flex;gap:6px;align-items:center">
+            <button class="btn" onclick="testAllDevices()" style="font-size:11px">⚡ Test all</button>
             <input type="text" id="discover-subnet" class="inp" style="width:140px;font-size:11px" placeholder="192.168.27.0/24">
             <button class="btn" onclick="discoverDevices()" style="font-size:11px">🔍 Discover</button>
             <button class="btn bico" onclick="addDevice()" title="Add device" style="font-size:14px">+</button>
           </div>
         </div>
+        <div id="test-all-results" style="display:none;background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px"></div>
         <div id="discover-results" style="display:none;background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px"></div>
         <div id="ip-list"></div>
       </div>
@@ -468,6 +470,15 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
             <div style="grid-column:1/-1">
               <div class="clabel" style="margin-bottom:4px">WATCHTOWER WEBHOOK URL</div>
               <input type="text" id="gen-watchtower" class="inp" style="width:100%" placeholder="https://ntfy.sh/topic">
+            </div>
+            <div style="grid-column:1/-1;border-top:1px solid var(--border);padding-top:14px;margin-top:4px">
+              <div class="clabel" style="margin-bottom:8px">BACKUP &amp; RESTORE</div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <button class="btn" onclick="exportConfig()" style="font-size:12px">⬇ Export config</button>
+                <button class="btn" onclick="document.getElementById('import-file-input').click()" style="font-size:12px">⬆ Import config</button>
+                <input type="file" id="import-file-input" accept=".json" style="display:none" onchange="importConfig(event)">
+              </div>
+              <div style="font-size:10px;color:var(--text3);margin-top:4px">Exports devices, schedules, and settings. Users and passwords are never included.</div>
             </div>
           </div>
           <div style="display:flex;justify-content:flex-end">
@@ -710,7 +721,7 @@ function updateAuthUI(){
   const logoutItem=document.getElementById('menu-logout');
   if(logoutItem)logoutItem.textContent=`Sign out (${_authUser||'?'})`;
   const settingsItem=document.getElementById('menu-settings');
-  if(settingsItem)settingsItem.style.display=_authRole==='viewer'?'none':'block';
+  if(settingsItem)settingsItem.style.display=_authRole==='admin'?'block':'none';
   // role badge
   const badge=document.getElementById('role-badge');
   if(badge&&_authRole){
@@ -1425,13 +1436,85 @@ function closeDeviceMenus(except=-1){
 }
 function closeDeviceMenusAll(){closeDeviceMenus();}
 
+async function testAllDevices(){
+  const resultsEl=document.getElementById('test-all-results');
+  if(!resultsEl)return;
+  resultsEl.style.display='block';
+  resultsEl.innerHTML='';
+  const hdr=document.createElement('div');
+  hdr.style.cssText='color:var(--text3);margin-bottom:8px;font-size:11px';
+  hdr.textContent='Testing '+devices.length+' device(s)…';
+  resultsEl.appendChild(hdr);
+
+  const rows={};
+  devices.forEach(function(d,i){
+    const row=document.createElement('div');
+    row.style.cssText='display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)';
+    const name=document.createElement('span');
+    name.style.cssText='flex:1;min-width:0';
+    name.textContent=d.name;
+    const status=document.createElement('span');
+    status.style.cssText='color:var(--text3);font-family:"DM Mono",monospace;font-size:11px';
+    status.textContent='⏳ testing…';
+    row.appendChild(name);row.appendChild(status);
+    resultsEl.appendChild(row);
+    rows[i]=status;
+  });
+
+  // test all devices concurrently
+  const results=await Promise.allSettled(devices.map(async function(d,i){
+    const start=Date.now();
+    try{
+      const r=await fetch(`${API}/devices/${encodeURIComponent(d.host)}/poll`,{
+        method:'POST',signal:AbortSignal.timeout(8000)
+      });
+      const ms=Date.now()-start;
+      if(r.ok){
+        const data=await r.json();
+        return {i,ok:!data.stale,ms,fw:data.firmware_version};
+      }
+      return {i,ok:false,ms,error:'HTTP '+r.status};
+    }catch(e){
+      return {i,ok:false,ms:Date.now()-start,error:e.message};
+    }
+  }));
+
+  let okCount=0,failCount=0;
+  results.forEach(function(result){
+    if(result.status!=='fulfilled')return;
+    const {i,ok,ms,fw,error}=result.value;
+    const status=rows[i];
+    if(!status)return;
+    if(ok){
+      okCount++;
+      status.style.color='var(--ok)';
+      status.textContent='✓ '+ms+'ms'+(fw?' · fw '+fw:'');
+    }else{
+      failCount++;
+      status.style.color='var(--err)';
+      status.textContent='✗ '+(error||'stale')+' ('+ms+'ms)';
+    }
+  });
+
+  hdr.textContent='Tested '+devices.length+' device(s): '+okCount+' online, '+failCount+' failed';
+  addLog('Test all: '+okCount+' online, '+failCount+' failed','ok');
+  await loadDevicesFromAPI();
+  renderIPList();
+}
+
 async function discoverDevices(){
   const resultsEl=document.getElementById('discover-results');
   const subnetInput=document.getElementById('discover-subnet');
   if(!resultsEl)return;
+  // restore last-used subnet if input is empty
+  if(subnetInput&&!subnetInput.value){
+    const saved=localStorage.getItem('hvac_discover_subnet');
+    if(saved)subnetInput.value=saved;
+  }
   resultsEl.style.display='block';
   resultsEl.textContent='🔍 Scanning network…';
   const subnet=subnetInput?.value.trim()||'';
+  if(subnet)localStorage.setItem('hvac_discover_subnet',subnet);
   const url=subnet?`${API}/discover?subnet=${encodeURIComponent(subnet)}`:`${API}/discover`;
   try{
     const r=await fetch(url);
@@ -1452,8 +1535,11 @@ async function discoverDevices(){
     data.found.forEach(function(d){
       const row=document.createElement('div');
       row.style.cssText='display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)';
+      const nameEl=document.createElement('span');
+      nameEl.style.cssText='flex:1;min-width:0';
+      nameEl.textContent=d.suggested_name||d.ip;
       const ip=document.createElement('span');
-      ip.style.cssText='font-family:"DM Mono",monospace;flex:1';
+      ip.style.cssText='font-family:"DM Mono",monospace;color:var(--text3);font-size:10px';
       ip.textContent=d.ip;
       const temp=document.createElement('span');
       temp.style.color='var(--text3)';
@@ -1470,10 +1556,10 @@ async function discoverDevices(){
         btn.className='btn';
         btn.style.cssText='font-size:10px;padding:2px 8px;border-color:var(--ok);color:var(--ok)';
         btn.textContent='+ Add';
-        btn.onclick=function(){addDeviceFromDiscovery(d.ip);};
+        btn.onclick=function(){addDeviceFromDiscovery(d.ip,d.suggested_name);};
         status.appendChild(btn);
       }
-      row.appendChild(ip);row.appendChild(temp);row.appendChild(fw);row.appendChild(status);
+      row.appendChild(nameEl);row.appendChild(ip);row.appendChild(temp);row.appendChild(fw);row.appendChild(status);
       resultsEl.appendChild(row);
     });
     if(data.new&&data.new.length===0){
@@ -1487,14 +1573,14 @@ async function discoverDevices(){
   }
 }
 
-async function addDeviceFromDiscovery(ip){
+async function addDeviceFromDiscovery(ip,suggestedName){
+  const name=suggestedName||('AC ('+ip+')');
   const r=await fetch(`${API}/devices`,{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({host:ip,name:'New AC ('+ip+')',btu:12000,seer:20})});
+    body:JSON.stringify({host:ip,name:name,btu:12000,seer:20})});
   if(r.ok){
-    addLog('Device '+ip+' added — update name in Settings → Devices','ok');
+    addLog('Device "'+name+'" added at '+ip,'ok');
     await loadDevicesFromAPI();
     renderIPList();
-    // refresh discover results
     discoverDevices();
   }
 }
@@ -2269,7 +2355,14 @@ function switchTab(tab){
   });
   _activeTab=tab;
   if(tab==='rates')populateRatesTab();
-  if(tab==='devices')renderIPList();
+  if(tab==='devices'){
+    renderIPList();
+    const subnetInput=document.getElementById('discover-subnet');
+    if(subnetInput&&!subnetInput.value){
+      const saved=localStorage.getItem('hvac_discover_subnet');
+      if(saved)subnetInput.value=saved;
+    }
+  }
   if(tab==='users')renderUsersTab();
 }
 
@@ -2361,6 +2454,51 @@ function selectTempUnit(unit){
     const btn=document.getElementById(`gen-unit-${u}`);
     if(btn)btn.style.borderColor=unit===u?'var(--cool)':'var(--border2)';
   });
+}
+
+async function exportConfig(){
+  try{
+    const r=await fetch(`${API}/backup`);
+    if(!r.ok){addLog('Export failed','err');return;}
+    const data=await r.json();
+    const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download='hvac-config-'+new Date().toISOString().slice(0,10)+'.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    addLog('Config exported','ok');
+  }catch(e){addLog('Export failed: '+e.message,'err');}
+}
+
+async function importConfig(event){
+  const file=event.target.files[0];
+  if(!file)return;
+  try{
+    const text=await file.text();
+    const data=JSON.parse(text);
+    const summary=[];
+    if(data.devices)summary.push(data.devices.length+' device(s)');
+    if(data.schedules)summary.push(data.schedules.length+' schedule(s)');
+    if(data.settings)summary.push('settings');
+    if(!confirm('Import '+summary.join(', ')+'? This will merge with existing config.'))return;
+    const r=await fetch(`${API}/restore`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(data)});
+    if(r.ok){
+      addLog('Config imported: '+summary.join(', '),'ok');
+      await loadDevicesFromAPI();
+      await loadSchedulesFromAPI();
+      renderIPList();renderUnits();renderSchedules();
+    }else{
+      addLog('Import failed','err');
+    }
+  }catch(e){
+    addLog('Import failed: '+e.message,'err');
+  }
+  event.target.value='';
 }
 
 function selectVoltage(v){
