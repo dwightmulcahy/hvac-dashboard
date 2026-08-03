@@ -7,6 +7,7 @@ All automation runs 24/7 in the container regardless of browser state.
 import asyncio
 import datetime
 import hashlib
+import ipaddress
 import json
 import logging
 import os
@@ -1823,6 +1824,71 @@ async def get_me(authorization: Optional[str] = Header(None)):
     }
 
 
+@app.get("/discover")
+async def discover_devices(subnet: Optional[str] = None):
+    """Scan network for ESPHome devices running Midea climate control."""
+    if not subnet:
+        for d in _state["devices"]:
+            host = d["host"]
+            try:
+                ipaddress.ip_address(host)
+                parts = host.rsplit(".", 1)
+                subnet = parts[0] + ".0/24"
+                break
+            except ValueError:
+                pass
+    if not subnet:
+        return {"ok": False, "error": "Cannot determine subnet — provide ?subnet=192.168.27.0/24"}
+    try:
+        network = ipaddress.ip_network(subnet, strict=False)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid subnet: {subnet}")
+
+    _add_log(f"🔍 Scanning {subnet} for ESPHome devices…", "info")
+    found = []
+    existing_hosts = {d["host"] for d in _state["devices"]}
+
+    async def _probe(ip: str):
+        try:
+            async with httpx.AsyncClient(timeout=1.5) as client:
+                r = await client.get(f"http://{ip}/")
+                if r.status_code != 200:
+                    return
+                rc = await client.get(f"http://{ip}/climate/air_conditioner")
+                if rc.status_code == 200:
+                    data = rc.json()
+                    fw = None
+                    try:
+                        rv = await client.get(f"http://{ip}/text_sensor/air_conditioner_esphome_version")
+                        if rv.status_code == 200:
+                            fw = rv.json().get("value", "").split(" ")[0]
+                    except Exception:
+                        pass
+                    found.append({
+                        "ip": ip,
+                        "mode": data.get("mode"),
+                        "current_temperature": data.get("current_temperature"),
+                        "firmware": fw,
+                        "already_configured": ip in existing_hosts,
+                    })
+        except Exception:
+            pass
+
+    hosts = [str(ip) for ip in network.hosts()]
+    batch_size = 32
+    for i in range(0, len(hosts), batch_size):
+        await asyncio.gather(*[_probe(ip) for ip in hosts[i:i+batch_size]])
+
+    _add_log(f"🔍 Discovery complete — {len(found)} ESPHome device(s) found in {subnet}", "ok")
+    return {
+        "ok": True,
+        "subnet": subnet,
+        "scanned": len(hosts),
+        "found": found,
+        "new": [f for f in found if not f["already_configured"]],
+    }
+
+@app.get("/health")
 async def health():
     """Detailed health check — per-device status, worker health, system info."""
     now = datetime.datetime.utcnow()
