@@ -719,6 +719,9 @@ function updateAuthUI(){
     badge.style.border='1px solid';
     badge.style.display='inline';
   }
+  // force tile re-render to apply role-based disabling
+  document.querySelectorAll('[id^="tile-"]').forEach(t=>t.remove());
+  if(typeof renderUnits==='function')renderUnits();
 }
 
 async function checkAuth(){
@@ -854,7 +857,7 @@ async function addUser(){
     const data=await r.json();
     if(r.ok){
       addLog(`User '${name}' added`,'ok');
-      openUserManagement();
+      renderUsersTab();
     }else{
       if(errEl){errEl.textContent=data.detail||'Failed to add user';errEl.style.display='block';}
     }
@@ -1245,6 +1248,7 @@ async function pollAll(){
 }
 
 async function setMode(i,mode){
+  if(_authRole==='viewer'){addLog('Read-only access — cannot change mode','warn');return;}
   await withBusy(i,async d=>{
     try{await sendCmd(d.host,{mode});d.state.mode=mode;addLog(`${d.name}: mode → ${mode}`,'ok');}
     catch(e){addLog(`${d.name}: mode failed — ${e.message}`,'err');}
@@ -1256,6 +1260,7 @@ const tempTimers={};
 const pendingTemps={};
 
 async function adjustTemp(i,delta){
+  if(_authRole==='viewer'){addLog('Read-only access — cannot adjust temperature','warn');return;}
   const d=devices[i];
   if(!d.state)return;
   const step=safeFloat(d.state.step)||0.5;
@@ -1303,6 +1308,7 @@ async function adjustTemp(i,delta){
 }
 
 async function togglePower(i){
+  if(_authRole==='viewer'){addLog('Read-only access — cannot toggle power','warn');return;}
   await withBusy(i,async d=>{
     const on=d.state?.mode!=='OFF';
     const mode=on?'OFF':(d.state?._prev||'COOL');
@@ -1368,6 +1374,7 @@ async function toggleDisplay(i){
 }
 
 async function toggleBeeper(i){
+  if(_authRole==='viewer'){addLog('Read-only access — cannot toggle beeper','warn');return;}
   await withBusy(i,async d=>{
     const on=d.extras?.beeper?.value==='ON';
     const newState=on?'off':'on';
@@ -1675,15 +1682,18 @@ function buildTileHTML(d,i){
     if(s.current_temperature==null&&s.mode==='OFF'&&!d.pollTime)return`<div id="tile-${i}" data-state-key="${stateKey}" class="tile"><div class="uname"><span class="dot d-off"></span>${d.name}</div><div class="uhost">${d.host}</div><div style="font-size:11px;color:var(--text3);margin-top:6px">⏳ waiting for first poll…</div></div>`;
     const on=s.mode!=='OFF';
     const busy=d.busy;
-    const dis=!on||busy?'disabled':'';
+    const readOnly=_authRole==='viewer';
+    const dis=(!on||busy||readOnly)?'disabled':'';
+    const busyOrRO=(busy||readOnly)?'disabled':'';
     const x=d.extras||{};
     const fv=v=>{const n=safeFloat(v);return n!=null?n.toFixed(1):'—';};
-    return`<div id="tile-${i}" data-state-key="${stateKey}" class="tile ${on?'tile-on':''}" style="${d.stale?'border-color:var(--warn)':''}">
+    return`<div id="tile-${i}" data-state-key="${stateKey}" class="tile ${on?'tile-on':''}" style="${d.stale?'border-color:var(--warn)':''}${readOnly?';opacity:0.85':''}">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:8px">
         <div style="display:flex;align-items:center;gap:6px;min-width:0;flex:1">
           <span class="dot ${on?'d-on':'d-off'}" style="flex-shrink:0"></span>
           <span class="uname">${d.name}</span>
           ${busy?'<span class="spinner"></span>':''}
+          ${readOnly?'<span style="font-size:9px;color:var(--text3);border:1px solid var(--border);padding:1px 5px;border-radius:4px" title="Read-only access">👁 view only</span>':''}
           ${d.stale?'<span style="font-size:10px;color:var(--warn);font-family:\'DM Mono\',monospace" title="Device not responding">⚠ stale</span>':''}
           ${d.stale&&d.consecutive_failures>1?`<span style="font-size:10px;color:var(--err);font-family:'DM Mono',monospace" title="${d.consecutive_failures} consecutive poll failures">⚠${d.consecutive_failures}</span>`:''}
           ${d.retry_queue_depth?`<span style="font-size:10px;color:var(--warn);font-family:'DM Mono',monospace" title="${d.retry_queue_depth} command(s) queued for retry">↺${d.retry_queue_depth}</span>`:''}
@@ -1692,16 +1702,16 @@ function buildTileHTML(d,i){
           <button class="btn bico" onclick="adjustTemp(${i},-1)" ${dis} style="width:24px;height:24px">−</button>
           <div class="tdisp" style="line-height:1.2;text-align:center">${on&&s.target_temperature!=null?fmtTemp(s.target_temperature):'<span style="color:var(--text3);font-size:11px">off</span>'}</div>
           <button class="btn bico" onclick="adjustTemp(${i},1)" ${dis} style="width:24px;height:24px">+</button>
-          ${x.beeper!==undefined?`<button class="beeper ${x.beeper?.value==='ON'?'on':''}" onclick="toggleBeeper(${i})" ${busy?'disabled':''} style="font-size:11px;padding:0 7px;height:24px;border-radius:7px">🔔</button>`:''}
-          <button onclick="toggleLockTemp(${i})" title="${d.lock_temp?'Locked at '+d.locked_target_temp+'°C — click to unlock':'Click to lock temp at current setpoint'}"
-            style="width:24px;height:24px;border-radius:7px;border:1px solid ${d.lock_temp?'var(--warn)':'var(--border)'};background:transparent;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;color:${d.lock_temp?'var(--warn)':'var(--text3)'}">${d.lock_temp?'🔒':'🔓'}</button>
-          <button class="pbtn ${on?'on':'off'}" onclick="togglePower(${i})" ${busy?'disabled':''} style="width:24px;height:24px">
+          ${x.beeper!==undefined?`<button class="beeper ${x.beeper?.value==='ON'?'on':''}" onclick="toggleBeeper(${i})" ${busyOrRO} style="font-size:11px;padding:0 7px;height:24px;border-radius:7px">🔔</button>`:''}
+          <button onclick="toggleLockTemp(${i})" ${readOnly?'disabled':''} title="${d.lock_temp?'Locked at '+d.locked_target_temp+'°C — click to unlock':'Click to lock temp at current setpoint'}"
+            style="width:24px;height:24px;border-radius:7px;border:1px solid ${d.lock_temp?'var(--warn)':'var(--border)'};background:transparent;cursor:${readOnly?'default':'pointer'};font-size:12px;display:flex;align-items:center;justify-content:center;color:${d.lock_temp?'var(--warn)':'var(--text3)'};opacity:${readOnly?'0.5':'1'}">${d.lock_temp?'🔒':'🔓'}</button>
+          <button class="pbtn ${on?'on':'off'}" onclick="togglePower(${i})" ${busyOrRO} style="width:24px;height:24px">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18.36 6.64A9 9 0 1 1 5.64 6.64"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
           </button>
         </div>
       </div>
       <div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:8px">
-        ${MODES.map(m=>`<button onclick="setMode(${i},'${m}')" ${busy?'disabled':''} style="flex:1;padding:3px 0;font-size:10px;border:none;border-right:1px solid var(--border);cursor:pointer;transition:all .15s;background:${s.mode===m?`var(--${m==='COOL'?'cool':m==='HEAT'?'heat':m==='HEAT_COOL'?'auto':m==='FAN_ONLY'?'fan':'dry'}-bg)`:'transparent'};color:${s.mode===m?`var(--${m==='COOL'?'cool':m==='HEAT'?'heat':m==='HEAT_COOL'?'auto':m==='FAN_ONLY'?'fan':'dry'})`:'var(--text3)'};font-weight:${s.mode===m?'600':'400'}" ${busy||(!on&&m!==s.mode)?'disabled':''}">${MODE_LABEL[m]}</button>`).join('')}
+        ${MODES.map(m=>`<button onclick="setMode(${i},'${m}')" ${busyOrRO?'disabled':''} style="flex:1;padding:3px 0;font-size:10px;border:none;border-right:1px solid var(--border);cursor:pointer;transition:all .15s;background:${s.mode===m?`var(--${m==='COOL'?'cool':m==='HEAT'?'heat':m==='HEAT_COOL'?'auto':m==='FAN_ONLY'?'fan':'dry'}-bg)`:'transparent'};color:${s.mode===m?`var(--${m==='COOL'?'cool':m==='HEAT'?'heat':m==='HEAT_COOL'?'auto':m==='FAN_ONLY'?'fan':'dry'})`:'var(--text3)'};font-weight:${s.mode===m?'600':'400'}" ${busy||readOnly||(!on&&m!==s.mode)?'disabled':''}">${MODE_LABEL[m]}</button>`).join('')}
       </div>
       <div style="display:flex;gap:5px">
         <div class="stat" style="flex:1;text-align:center"><div class="slabel">In</div><div class="sval">${fmtCF(s.current_temperature)}</div></div>
@@ -1710,7 +1720,7 @@ function buildTileHTML(d,i){
       </div>
       <div style="margin-top:5px;font-size:10px;font-family:'DM Mono',monospace;color:var(--text3);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <span title="Total time AC has been on">on <span style="color:var(--text2)">${fmtOnTime(d._onTimeMinutes||0)}</span>
-          <button onclick="resetOnTime(${i})" title="Reset on-time counter" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:9px;padding:0 1px;line-height:1" onmouseover="this.style.color='var(--err)'" onmouseout="this.style.color='var(--text3)'">↺</button>
+          <button onclick="resetOnTime(${i})" ${readOnly?'disabled':''} title="Reset on-time counter" style="background:none;border:none;cursor:${readOnly?'default':'pointer'};color:var(--text3);font-size:9px;padding:0 1px;line-height:1;opacity:${readOnly?'0.4':'1'}" onmouseover="this.style.color='var(--err)'" onmouseout="this.style.color='var(--text3)'">↺</button>
         </span>
         ${(()=>{const sig=x.wifi_signal?.value??d.state?.wifi_signal;const w=fmtWifi(sig);return sig!=null?(w?`<span>·</span><span title="${w.label}" style="color:${w.color}">${w.bar}</span>`:`<span>·</span><span style="color:var(--text3);font-size:10px">${sig}dBm</span>`):'';})()}
         ${(()=>{const fv=d.firmware_version||(x.esphome_version?.value?.split(' ')[0]);return fv?`<span>·</span><span style="color:var(--text3)" title="ESPHome firmware version">fw ${fv}</span>`:'';})()}
