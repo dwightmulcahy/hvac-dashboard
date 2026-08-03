@@ -16,7 +16,7 @@ import signal
 from typing import Optional, List
 
 import httpx
-from fastapi import FastAPI, UploadFile, HTTPException, Header
+from fastapi import FastAPI, UploadFile, HTTPException, Header, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -185,6 +185,47 @@ SCHEDULE_DEFAULTS = {
 
 ROLES = ["admin", "operator", "viewer"]
 ROLE_WEIGHTS = {"viewer": 0, "operator": 1, "admin": 2}
+
+# login rate limiting: {key: {"failures": int, "locked_until": iso_str_or_None}}
+_login_attempts: dict = {}
+LOGIN_MAX_ATTEMPTS = 5
+LOGIN_LOCKOUT_MINUTES = 15
+LOGIN_ATTEMPT_WINDOW_MINUTES = 15
+
+def _login_key(username: str, ip: str) -> str:
+    return f"{username}:{ip}"
+
+def _check_login_lockout(username: str, ip: str) -> Optional[int]:
+    """Return remaining lockout seconds if locked, else None."""
+    key = _login_key(username, ip)
+    entry = _login_attempts.get(key)
+    if not entry or not entry.get("locked_until"):
+        return None
+    locked_until = datetime.datetime.fromisoformat(entry["locked_until"])
+    now = datetime.datetime.utcnow()
+    if now < locked_until:
+        return int((locked_until - now).total_seconds())
+    # lockout expired — reset
+    _login_attempts.pop(key, None)
+    return None
+
+def _record_login_failure(username: str, ip: str):
+    key = _login_key(username, ip)
+    now = datetime.datetime.utcnow()
+    entry = _login_attempts.get(key, {"failures": 0, "first_attempt": now.isoformat()})
+    first_attempt = datetime.datetime.fromisoformat(entry.get("first_attempt", now.isoformat()))
+    # reset window if too old
+    if (now - first_attempt).total_seconds() > LOGIN_ATTEMPT_WINDOW_MINUTES * 60:
+        entry = {"failures": 0, "first_attempt": now.isoformat()}
+    entry["failures"] = entry.get("failures", 0) + 1
+    if entry["failures"] >= LOGIN_MAX_ATTEMPTS:
+        locked_until = now + datetime.timedelta(minutes=LOGIN_LOCKOUT_MINUTES)
+        entry["locked_until"] = locked_until.isoformat()
+        _add_log(f"🔒 Login locked for '{username}' from {ip} — {LOGIN_MAX_ATTEMPTS} failed attempts", "err")
+    _login_attempts[key] = entry
+
+def _clear_login_failures(username: str, ip: str):
+    _login_attempts.pop(_login_key(username, ip), None)
 
 # in-memory token store: {token: {username, role, expires}}
 _tokens: dict = {}
@@ -1123,7 +1164,7 @@ async def _background_worker():
                 if days_limit > 0:
                     try:
                         started = datetime.datetime.fromisoformat(s["vacation_started_at"])
-                        elapsed_days = (datetime.datetime.now() - started).days
+                        elapsed_days = (datetime.datetime.utcnow() - started).days
                         if elapsed_days >= days_limit:
                             _add_log(f"🌴 Vacation mode auto-ended after {elapsed_days} days", "warn")
                             # inline vacation off logic
@@ -1692,12 +1733,26 @@ async def recover_password(data: dict):
     return {"ok": True, "message": "Admin password reset — please log in with new password"}
 
 @app.post("/auth/login")
-async def login(data: dict):
+async def login(data: dict, request: Request):
     username = data.get("username", "").strip().lower()
     password = data.get("password", "")
+    client_ip = request.client.host if request.client else "unknown"
+
+    remaining = _check_login_lockout(username, client_ip)
+    if remaining is not None:
+        mins = remaining // 60 + 1
+        raise HTTPException(status_code=429, detail=f"Too many failed attempts — try again in {mins} minute(s)")
+
     user = _state["users"].get(username)
     if not user or not _verify_password(password, user["hash"], user["salt"]):
-        raise HTTPException(status_code=401, detail="Invalid username or password")
+        _record_login_failure(username, client_ip)
+        attempts_left = max(0, LOGIN_MAX_ATTEMPTS - _login_attempts.get(_login_key(username, client_ip), {}).get("failures", 0))
+        detail = "Invalid username or password"
+        if attempts_left <= 2 and attempts_left > 0:
+            detail += f" ({attempts_left} attempt(s) remaining)"
+        raise HTTPException(status_code=401, detail=detail)
+
+    _clear_login_failures(username, client_ip)
     token = _create_token(username, user["role"])
     return {
         "ok": True,

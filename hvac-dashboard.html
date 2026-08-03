@@ -112,6 +112,7 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
 </style>
 </head>
 <body>
+<div id="toast-container" style="position:fixed;bottom:20px;right:20px;z-index:600;display:flex;flex-direction:column;gap:8px;pointer-events:none"></div>
 
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:8px">
   <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
@@ -1012,6 +1013,32 @@ let _unreadWarns=0;
 // ── Log — merge local + server logs ──────────────────────
 const logEntries=[];
 
+function showToast(msg,type='ok',duration=3000){
+  const container=document.getElementById('toast-container');
+  if(!container)return;
+  const colors={ok:'var(--ok)',err:'var(--err)',warn:'var(--warn)',info:'var(--cool)'};
+  const icons={ok:'✓',err:'✗',warn:'⚠',info:'ℹ'};
+  const toast=document.createElement('div');
+  toast.style.cssText='background:var(--bg2);border:1px solid '+(colors[type]||'var(--border)')+';color:var(--text1);'
+    +'padding:10px 16px;border-radius:8px;font-size:13px;box-shadow:0 4px 16px rgba(0,0,0,.4);'
+    +'pointer-events:auto;display:flex;align-items:center;gap:8px;max-width:320px;'
+    +'opacity:0;transform:translateX(20px);transition:opacity .25s,transform .25s';
+  const iconSpan=document.createElement('span');
+  iconSpan.style.color=colors[type]||'var(--text3)';
+  iconSpan.textContent=icons[type]||'';
+  const msgSpan=document.createElement('span');
+  msgSpan.textContent=msg;
+  toast.appendChild(iconSpan);toast.appendChild(msgSpan);
+  container.appendChild(toast);
+  requestAnimationFrame(function(){
+    toast.style.opacity='1';toast.style.transform='translateX(0)';
+  });
+  setTimeout(function(){
+    toast.style.opacity='0';toast.style.transform='translateX(20px)';
+    setTimeout(function(){toast.remove();},250);
+  },duration);
+}
+
 function addLog(msg,type='info'){
   const now=new Date();
   logEntries.unshift({msg,type,time:now.toTimeString().slice(0,8),iso:now.toISOString()});
@@ -1704,6 +1731,7 @@ async function saveDeviceRow(i){
   }catch(_){}
 
   addLog(`${d.name} saved`,'ok');
+  showToast(`${d.name} saved`,'ok');
   // reload from API and refresh all views
   await loadDevicesFromAPI();
   renderUnits();
@@ -2433,6 +2461,7 @@ function saveGeneralSettings(){
       vacation_max_temp:vacTemp,verbose_logging:_verbose_logging,temp_unit:_tempUnit,
       watchtower_webhook:watchtower,nightly_reboot_time:nightlyReboot})}).catch(_=>{});
   addLog(`General settings saved — watchdog ${watchdog}m, guard ${guardStart}:00–${guardEnd}:00, ${_voltage}V`,'ok');
+  showToast('Settings saved','ok');
   closeSettings();
 }
 
@@ -2459,7 +2488,7 @@ function selectTempUnit(unit){
 async function exportConfig(){
   try{
     const r=await fetch(`${API}/backup`);
-    if(!r.ok){addLog('Export failed','err');return;}
+    if(!r.ok){addLog('Export failed','err');showToast('Export failed','err');return;}
     const data=await r.json();
     const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
     const url=URL.createObjectURL(blob);
@@ -2470,8 +2499,23 @@ async function exportConfig(){
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    localStorage.setItem('hvac_last_export',new Date().toISOString());
     addLog('Config exported','ok');
-  }catch(e){addLog('Export failed: '+e.message,'err');}
+    showToast('Config exported','ok');
+  }catch(e){addLog('Export failed: '+e.message,'err');showToast('Export failed','err');}
+}
+
+function checkExportReminder(){
+  const last=localStorage.getItem('hvac_last_export');
+  const REMINDER_DAYS=14;
+  if(!last){
+    addLog('💾 No config backup found — export one from Settings → General','info');
+    return;
+  }
+  const days=Math.floor((Date.now()-new Date(last).getTime())/(1000*60*60*24));
+  if(days>=REMINDER_DAYS){
+    addLog(`💾 Last config backup was ${days} days ago — consider exporting a fresh one`,'warn');
+  }
 }
 
 async function importConfig(event){
@@ -2489,6 +2533,7 @@ async function importConfig(event){
       body:JSON.stringify(data)});
     if(r.ok){
       addLog('Config imported: '+summary.join(', '),'ok');
+      showToast('Config imported','ok');
       await loadDevicesFromAPI();
       await loadSchedulesFromAPI();
       renderIPList();renderUnits();renderSchedules();
@@ -2593,6 +2638,7 @@ function saveRateSettingsUI(){
   fetch(`${API}/settings`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(rateSettings)}).catch(_=>{});
   updatePeakCard();updateSummary();
   addLog(`Rates saved: $${effectiveRateUsd().toFixed(3)}/kWh · ${rateSettings.provider} · ${rateSettings.monthlyKwh} kWh/mo`,'ok');
+  showToast('Rates saved','ok');
   closeSettings();
 }
 
@@ -2715,6 +2761,7 @@ function saveSchedule(){
     .catch(e=>addLog(`Schedule save failed: ${e.message}`,'err'));
   closeSchModal();
   addLog(`Schedule saved: ${sch.device_name} @ ${sch.time} [${days.map(d=>DAY_NAMES[d]).join(',')}]`,'ok');
+  showToast('Schedule saved','ok');
 }
 
 function deleteSchedule(idx){
@@ -2948,6 +2995,7 @@ async function init(){
   initMonthSelector();
   initRateSettingsFromAPI();
   updatePeakCard();
+  checkExportReminder();
   // ready — no log
   pollAll();
 }
