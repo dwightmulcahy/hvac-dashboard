@@ -2180,7 +2180,7 @@ async function openSection(name){
     refreshUsageView();
   }else if(name==='schedules'){
     title.textContent='Schedules';
-    toolbar.innerHTML=`<button class="btn" style="font-size:11px;padding:2px 8px" onclick="event.stopPropagation();openScheduleModal()">+ Schedule</button>`;
+    toolbar.innerHTML=_authRole==='viewer'?'':`<button class="btn" style="font-size:11px;padding:2px 8px" onclick="event.stopPropagation();openScheduleModal()">+ Schedule</button>`;
     body.innerHTML='<div id="schedule-list"><div class="empty">Loading…</div></div>';
     await loadSchedulesFromAPI();
     await loadDevicesFromAPI();
@@ -2639,6 +2639,7 @@ function fmtNext(s){
 
 function renderSchedules(){
   const el=document.getElementById('schedule-list');
+  const readOnly=_authRole==='viewer';
   if(!schedules.length){el.innerHTML='<div class="empty">No schedules yet.</div>';return;}
   const sorted=[...schedules.map((s,i)=>({s,i}))].sort((a,b)=>{
     if(!a.s.enabled&&b.s.enabled)return 1;
@@ -2654,12 +2655,13 @@ function renderSchedules(){
         ${(s.last_run||s.lastRun)?`<div class="sch-last">last ran ${(s.last_run||s.lastRun).split(' ').pop()}</div>`:''}
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+        ${readOnly?`<span style="font-size:10px;color:${s.enabled?'var(--ok)':'var(--text3)'};font-family:'DM Mono',monospace">${s.enabled?'● on':'○ off'}</span>`:`
         <label class="tog">
           <input type="checkbox" ${s.enabled?'checked':''} onchange="toggleScheduleEnabled(${i})">
           <span class="tog-sl"></span>
         </label>
         <button class="btn bico" onclick="openScheduleModal(${i})" title="Edit">✎</button>
-        <button class="btn bico" onclick="deleteSchedule(${i})" style="color:#ef4444" title="Delete">✕</button>
+        <button class="btn bico" onclick="deleteSchedule(${i})" style="color:#ef4444" title="Delete">✕</button>`}
       </div>
     </div>
   `).join('');
