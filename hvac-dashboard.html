@@ -1583,32 +1583,36 @@ function setDeviceDirty(i){
 
 async function saveDeviceRow(i){
   const d=devices[i];
-  // get the original host from the row's data attribute
   const row=document.querySelectorAll('.irow')[i];
   const origHost=row?.dataset?.origHost||d.host;
+  const hostChanged=origHost&&origHost!==d.host;
 
-  // if hostname changed, delete old entry first
-  if(origHost&&origHost!==d.host){
-    try{await fetch(`${API}/devices/${encodeURIComponent(origHost)}`,{method:'DELETE'});}catch(_){}
-  }
+  const payload={host:d.host,name:d.name,btu:d.btu||24000,
+    seer:d.seer||20,max_temp:d.maxTemp||null,
+    beeper:d.beeper||'OFF',watchdog_minutes:d.watchdog_minutes||5};
 
-  // save with POST (create or update by new host)
   try{
-    await fetch(`${API}/devices`,{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({host:d.host,name:d.name,btu:d.btu||24000,
-        seer:d.seer||20,max_temp:d.maxTemp||null,
-        beeper:d.beeper||'OFF',watchdog_minutes:d.watchdog_minutes||5})
-    });
+    if(hostChanged){
+      // host changed — update via PUT on original host
+      await fetch(`${API}/devices/${encodeURIComponent(origHost)}`,{
+        method:'PUT',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(payload)
+      });
+    }else{
+      // normal update via PUT
+      await fetch(`${API}/devices/${encodeURIComponent(d.host)}`,{
+        method:'PUT',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(payload)
+      });
+    }
   }catch(_){}
 
-  // reload and poll
-  await loadDevicesFromAPI();
-  renderIPList();
-  await pollDevice(i);
-  updateSummary();
-  renderUnits();
   addLog(`${d.name} saved`,'ok');
+  // reload from API and refresh all views
+  await loadDevicesFromAPI();
+  renderUnits();
+  renderIPList();
+  updateSummary();
 }
 
 function renderUnits(){
