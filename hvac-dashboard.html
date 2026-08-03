@@ -386,7 +386,8 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
       <div id="stab-content-devices" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
           <span style="font-size:12px;color:var(--text2)">Drag ⠿ to reorder</span>
-          <div style="display:flex;gap:6px">
+          <div style="display:flex;gap:6px;align-items:center">
+            <input type="text" id="discover-subnet" class="inp" style="width:140px;font-size:11px" placeholder="192.168.27.0/24">
             <button class="btn" onclick="discoverDevices()" style="font-size:11px">🔍 Discover</button>
             <button class="btn bico" onclick="addDevice()" title="Add device" style="font-size:14px">+</button>
           </div>
@@ -1416,11 +1417,14 @@ function closeDeviceMenusAll(){closeDeviceMenus();}
 
 async function discoverDevices(){
   const resultsEl=document.getElementById('discover-results');
+  const subnetInput=document.getElementById('discover-subnet');
   if(!resultsEl)return;
   resultsEl.style.display='block';
   resultsEl.textContent='🔍 Scanning network…';
+  const subnet=subnetInput?.value.trim()||'';
+  const url=subnet?`${API}/discover?subnet=${encodeURIComponent(subnet)}`:`${API}/discover`;
   try{
-    const r=await fetch(`${API}/discover`);
+    const r=await fetch(url);
     const data=await r.json();
     if(!data.ok){
       resultsEl.textContent='Error: '+(data.error||'Discovery failed');

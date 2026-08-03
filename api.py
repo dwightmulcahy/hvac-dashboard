@@ -1847,6 +1847,21 @@ async def discover_devices(subnet: Optional[str] = None):
     _add_log(f"🔍 Scanning {subnet} for ESPHome devices…", "info")
     found = []
     existing_hosts = {d["host"] for d in _state["devices"]}
+    # also resolve existing hostnames to IPs for comparison
+    existing_ips = set()
+    for d in _state["devices"]:
+        host = d["host"]
+        try:
+            ipaddress.ip_address(host)
+            existing_ips.add(host)
+        except ValueError:
+            # it's a hostname — try to resolve it
+            try:
+                import socket
+                ip = socket.gethostbyname(host)
+                existing_ips.add(ip)
+            except Exception:
+                pass
 
     async def _probe(ip: str):
         try:
@@ -1869,7 +1884,7 @@ async def discover_devices(subnet: Optional[str] = None):
                         "mode": data.get("mode"),
                         "current_temperature": data.get("current_temperature"),
                         "firmware": fw,
-                        "already_configured": ip in existing_hosts,
+                        "already_configured": ip in existing_hosts or ip in existing_ips,
                     })
         except Exception:
             pass
