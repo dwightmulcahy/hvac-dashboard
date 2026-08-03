@@ -2132,7 +2132,13 @@ async function runMaxTempMonitor(){
 // ── Section modals ────────────────────────────────────────
 let _activeSection=null;
 
+function closeSchModal(){
+  document.getElementById('sch-modal').style.display='none';
+}
+
 async function openSection(name){
+  // close any open sub-modals
+  document.getElementById('sch-modal').style.display='none';
   _activeSection=name;
   const modal=document.getElementById('section-modal');
   const title=document.getElementById('section-modal-title');
@@ -2160,7 +2166,7 @@ async function openSection(name){
   }else if(name==='schedules'){
     title.textContent='Schedules';
     toolbar.innerHTML=`<button class="btn" style="font-size:11px;padding:2px 8px" onclick="openScheduleModal()">+ Schedule</button>`;
-    body.innerHTML='<div id="schedule-list"><div class="empty">No schedules yet.</div></div>';
+    body.innerHTML='<div id="schedule-list"><div class="empty">Loading…</div></div>';
     await loadSchedulesFromAPI();
     await loadDevicesFromAPI();
     renderSchedules();
@@ -2208,6 +2214,7 @@ function closeMenuOutside(e){if(!document.getElementById('menu-btn').contains(e.
 let _activeTab='rates';
 
 function openSettings(tab){
+  document.getElementById('sch-modal').style.display='none';
   _activeTab=tab||'general';
   const modal=document.getElementById('settings-modal');
   modal.style.display='flex';
@@ -2516,10 +2523,6 @@ function selectDays(preset){
   const map={all:[0,1,2,3,4,5,6],weekdays:[1,2,3,4,5],weekends:[0,6]};
   const days=map[preset]||[];
   document.querySelectorAll('.dbtn').forEach(b=>b.classList.toggle('on',days.includes(+b.dataset.d)));
-}
-
-function closeSchModal(){
-  document.getElementById('sch-modal').style.display='none';
 }
 
 function saveSchedule(){
