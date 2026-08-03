@@ -475,6 +475,9 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
           </div>
         </div>
       </div>
+    </div>
+  </div>
+</div>
 
 <!-- Schedule modal -->
 <div id="sch-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;align-items:center;justify-content:center">
@@ -1699,15 +1702,17 @@ function buildTileHTML(d,i){
           ${d.retry_queue_depth?`<span style="font-size:10px;color:var(--warn);font-family:'DM Mono',monospace" title="${d.retry_queue_depth} command(s) queued for retry">↺${d.retry_queue_depth}</span>`:''}
         </div>
         <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
-          <button class="btn bico" onclick="adjustTemp(${i},-1)" ${dis} style="width:24px;height:24px">−</button>
+          ${readOnly?'':`<button class="btn bico" onclick="adjustTemp(${i},-1)" ${dis} style="width:24px;height:24px">−</button>`}
           <div class="tdisp" style="line-height:1.2;text-align:center">${on&&s.target_temperature!=null?fmtTemp(s.target_temperature):'<span style="color:var(--text3);font-size:11px">off</span>'}</div>
-          <button class="btn bico" onclick="adjustTemp(${i},1)" ${dis} style="width:24px;height:24px">+</button>
-          ${x.beeper!==undefined?`<button class="beeper ${x.beeper?.value==='ON'?'on':''}" onclick="toggleBeeper(${i})" ${busyOrRO} style="font-size:11px;padding:0 7px;height:24px;border-radius:7px">🔔</button>`:''}
-          <button onclick="toggleLockTemp(${i})" ${readOnly?'disabled':''} title="${d.lock_temp?'Locked at '+d.locked_target_temp+'°C — click to unlock':'Click to lock temp at current setpoint'}"
-            style="width:24px;height:24px;border-radius:7px;border:1px solid ${d.lock_temp?'var(--warn)':'var(--border)'};background:transparent;cursor:${readOnly?'default':'pointer'};font-size:12px;display:flex;align-items:center;justify-content:center;color:${d.lock_temp?'var(--warn)':'var(--text3)'};opacity:${readOnly?'0.5':'1'}">${d.lock_temp?'🔒':'🔓'}</button>
-          <button class="pbtn ${on?'on':'off'}" onclick="togglePower(${i})" ${busyOrRO} style="width:24px;height:24px">
+          ${readOnly?'':`<button class="btn bico" onclick="adjustTemp(${i},1)" ${dis} style="width:24px;height:24px">+</button>`}
+          ${readOnly?(x.beeper!==undefined?`<span style="font-size:11px;opacity:0.5">${x.beeper?.value==='ON'?'🔔':'🔕'}</span>`:''):(x.beeper!==undefined?`<button class="beeper ${x.beeper?.value==='ON'?'on':''}" onclick="toggleBeeper(${i})" ${busyOrRO} style="font-size:11px;padding:0 7px;height:24px;border-radius:7px">🔔</button>`:'')}
+          ${readOnly?`<span style="font-size:12px;opacity:0.5">${d.lock_temp?'🔒':'🔓'}</span>`:`<button onclick="toggleLockTemp(${i})" title="${d.lock_temp?'Locked at '+d.locked_target_temp+'°C — click to unlock':'Click to lock temp at current setpoint'}"
+            style="width:24px;height:24px;border-radius:7px;border:1px solid ${d.lock_temp?'var(--warn)':'var(--border)'};background:transparent;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;color:${d.lock_temp?'var(--warn)':'var(--text3)'}">${d.lock_temp?'🔒':'🔓'}</button>`}
+          ${readOnly?`<span class="pbtn ${on?'on':'off'}" style="width:24px;height:24px;opacity:0.6;display:flex;align-items:center;justify-content:center">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18.36 6.64A9 9 0 1 1 5.64 6.64"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
-          </button>
+          </span>`:`<button class="pbtn ${on?'on':'off'}" onclick="togglePower(${i})" ${busy?'disabled':''} style="width:24px;height:24px">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18.36 6.64A9 9 0 1 1 5.64 6.64"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+          </button>`}
         </div>
       </div>
       <div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:8px">
@@ -2175,7 +2180,7 @@ async function openSection(name){
     refreshUsageView();
   }else if(name==='schedules'){
     title.textContent='Schedules';
-    toolbar.innerHTML=`<button class="btn" style="font-size:11px;padding:2px 8px" onclick="openScheduleModal()">+ Schedule</button>`;
+    toolbar.innerHTML=`<button class="btn" style="font-size:11px;padding:2px 8px" onclick="event.stopPropagation();openScheduleModal()">+ Schedule</button>`;
     body.innerHTML='<div id="schedule-list"><div class="empty">Loading…</div></div>';
     await loadSchedulesFromAPI();
     await loadDevicesFromAPI();
