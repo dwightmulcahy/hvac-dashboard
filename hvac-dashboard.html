@@ -1529,21 +1529,25 @@ async function testAllDevices(){
   renderIPList();
 }
 
+let _discovering=false;
 async function discoverDevices(){
+  if(_discovering)return;
+  _discovering=true;
+  const btn=document.querySelector('button[onclick="discoverDevices()"]');
+  if(btn)btn.disabled=true;
   const resultsEl=document.getElementById('discover-results');
   const subnetInput=document.getElementById('discover-subnet');
-  if(!resultsEl)return;
-  // restore last-used subnet if input is empty
-  if(subnetInput&&!subnetInput.value){
-    const saved=localStorage.getItem('hvac_discover_subnet');
-    if(saved)subnetInput.value=saved;
-  }
-  resultsEl.style.display='block';
-  resultsEl.textContent='🔍 Scanning network…';
-  const subnet=subnetInput?.value.trim()||'';
-  if(subnet)localStorage.setItem('hvac_discover_subnet',subnet);
-  const url=subnet?`${API}/discover?subnet=${encodeURIComponent(subnet)}`:`${API}/discover`;
   try{
+    if(!resultsEl)return;
+    if(subnetInput&&!subnetInput.value){
+      const saved=localStorage.getItem('hvac_discover_subnet');
+      if(saved)subnetInput.value=saved;
+    }
+    resultsEl.style.display='block';
+    resultsEl.textContent='🔍 Scanning network…';
+    const subnet=subnetInput?.value.trim()||'';
+    if(subnet)localStorage.setItem('hvac_discover_subnet',subnet);
+    const url=subnet?`${API}/discover?subnet=${encodeURIComponent(subnet)}`:`${API}/discover`;
     const r=await fetch(url);
     const data=await r.json();
     if(!data.ok){
@@ -1579,12 +1583,12 @@ async function discoverDevices(){
         status.style.color='var(--text3)';
         status.textContent='✓ configured';
       }else{
-        const btn=document.createElement('button');
-        btn.className='btn';
-        btn.style.cssText='font-size:10px;padding:2px 8px;border-color:var(--ok);color:var(--ok)';
-        btn.textContent='+ Add';
-        btn.onclick=function(){addDeviceFromDiscovery(d.ip,d.suggested_name);};
-        status.appendChild(btn);
+        const addBtn=document.createElement('button');
+        addBtn.className='btn';
+        addBtn.style.cssText='font-size:10px;padding:2px 8px;border-color:var(--ok);color:var(--ok)';
+        addBtn.textContent='+ Add';
+        addBtn.onclick=function(){addDeviceFromDiscovery(d.ip,d.suggested_name);};
+        status.appendChild(addBtn);
       }
       row.appendChild(nameEl);row.appendChild(ip);row.appendChild(temp);row.appendChild(fw);row.appendChild(status);
       resultsEl.appendChild(row);
@@ -1596,7 +1600,10 @@ async function discoverDevices(){
       resultsEl.appendChild(note);
     }
   }catch(e){
-    resultsEl.textContent='Discovery failed: '+e.message;
+    if(resultsEl)resultsEl.textContent='Discovery failed: '+e.message;
+  }finally{
+    _discovering=false;
+    if(btn)btn.disabled=false;
   }
 }
 

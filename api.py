@@ -560,6 +560,12 @@ async def _send_cmd(host: str, params: dict) -> bool:
             async with httpx.AsyncClient(timeout=5) as client:
                 r = await client.post(url)
                 if r.status_code < 300:
+                    # update _last_mode immediately so the next poll doesn't
+                    # re-log this as a separate "detected externally"/"turned off" event
+                    if "mode" in params:
+                        device = next((d for d in _state["devices"] if d["host"] == host), None)
+                        if device is not None:
+                            device["_last_mode"] = params["mode"]
                     return True
                 elif r.status_code == 404:
                     continue
@@ -1236,12 +1242,13 @@ async def add_device(cfg: DeviceConfig):
     existing = next((d for d in _state["devices"] if d["host"] == cfg.host), None)
     if existing:
         existing.update(cfg.dict())
+        was_new = False
     else:
-        # check for duplicates before adding
         _state["devices"].append({**DEVICE_DEFAULTS, **cfg.dict()})
+        was_new = True
     async with _lock:
         _save_raw(_state)
-    return {"ok": True}
+    return {"ok": True, "new": was_new}
 
 @app.put("/devices/{host:path}")
 async def update_device(host: str, cfg: DeviceConfig):
