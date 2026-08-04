@@ -912,16 +912,23 @@ async def _check_max_temp(device: dict):
 
 async def _check_schedules():
     now = datetime.datetime.now()
-    hhmm = now.strftime("%H:%M")
     today = now.strftime("%Y-%m-%d")
     js_day = now.isoweekday() % 7  # Sun=0, Mon=1 ... Sat=6
 
     for sch in _state["schedules"]:
         if not sch.get("enabled", True):
             continue
-        if sch.get("time") != hhmm:
-            continue
         if js_day not in sch.get("days", []):
+            continue
+        try:
+            sch_hh, sch_mm = map(int, sch["time"].split(":"))
+        except Exception:
+            continue
+        sch_dt = now.replace(hour=sch_hh, minute=sch_mm, second=0, microsecond=0)
+        if now < sch_dt:
+            continue  # hasn't happened yet today
+        # within a reasonable catch-up window so we don't fire hours-old triggers
+        if (now - sch_dt).total_seconds() > 10 * 60:
             continue
         last_run = sch.get("last_run", "")
         if last_run and last_run.startswith(today):
@@ -934,7 +941,7 @@ async def _check_schedules():
             continue
 
         name = device["name"]
-        _add_log(f"Schedule firing: {name} @ {hhmm}", "info")
+        _add_log(f"Schedule firing: {name} @ {sch['time']}", "info")
 
         power = sch.get("power")
         mode = sch.get("mode")
@@ -975,7 +982,7 @@ async def _check_schedules():
                 _add_log(f"{name}: schedule command failed — queued for retry: {cmd}", "warn")
 
         if not all_ok:
-            _add_log(f"{name}: schedule @ {hhmm} partially failed — {len(device['_retry_queue'])} cmd(s) queued", "warn")
+            _add_log(f"{name}: schedule @ {sch['time']} partially failed — {len(device['_retry_queue'])} cmd(s) queued", "warn")
 
         sch["last_run"] = f"{today} {_ts()}"
 
@@ -984,7 +991,9 @@ async def _check_schedules():
         end_time = sch.get("end_time")
         if not end_time or not sch.get("enabled", True):
             continue
-        if end_time != hhmm:
+        try:
+            end_hh, end_mm = map(int, end_time.split(":"))
+        except Exception:
             continue
         # for end times, check if yesterday's day is in the schedule
         # (handles overnight schedules like 20:45–06:45)
@@ -996,6 +1005,11 @@ async def _check_schedules():
             check_day = js_day
         if check_day not in sch.get("days", []):
             continue
+        end_dt = now.replace(hour=end_hh, minute=end_mm, second=0, microsecond=0)
+        if now < end_dt:
+            continue  # hasn't happened yet
+        if (now - end_dt).total_seconds() > 10 * 60:
+            continue  # catch-up window exceeded
         last_end_run = sch.get("_last_end_run", "")
         if last_end_run and last_end_run.startswith(today):
             continue
@@ -1006,12 +1020,12 @@ async def _check_schedules():
         name = device["name"]
         ok = await _send_cmd(host, {"mode": "OFF"})
         if ok:
-            _add_log(f"Schedule end: {name} @ {hhmm} — auto off", "ok")
+            _add_log(f"Schedule end: {name} @ {end_time} — auto off", "ok")
         else:
             if "_retry_queue" not in device:
                 device["_retry_queue"] = []
             device["_retry_queue"].append({"mode": "OFF"})
-            _add_log(f"Schedule end: {name} @ {hhmm} — failed, queued for retry", "warn")
+            _add_log(f"Schedule end: {name} @ {end_time} — failed, queued for retry", "warn")
         sch["_last_end_run"] = f"{today} {_ts()}"
 
 async def _check_missed_schedules():
@@ -1078,6 +1092,49 @@ async def _check_missed_schedules():
                 device["_retry_queue"].append(cmd)
 
         sch["last_run"] = f"{today} {_ts()}"
+
+    # ── Check for missed schedule END times (e.g. overnight shutoff) ──
+    for sch in _state["schedules"]:
+        end_time = sch.get("end_time")
+        if not end_time or not sch.get("enabled", True):
+            continue
+
+        try:
+            end_hh, end_mm = map(int, end_time.split(":"))
+        except Exception:
+            continue
+
+        start_time = sch.get("time", "00:00")
+        is_overnight = end_time < start_time
+        check_day = (js_day - 1) % 7 if is_overnight else js_day
+        if check_day not in sch.get("days", []):
+            continue
+
+        end_dt = now.replace(hour=end_hh, minute=end_mm, second=0, microsecond=0)
+        if end_dt > now:
+            continue  # hasn't happened yet
+
+        last_end_run = sch.get("_last_end_run", "")
+        if last_end_run and last_end_run.startswith(today):
+            continue  # already ran today
+
+        missed_mins = (now - end_dt).total_seconds() / 60
+        if missed_mins > MISSED_WINDOW_MINUTES:
+            continue
+
+        host = sch.get("device_host", "")
+        device = next((d for d in _state["devices"] if d["host"] == host), None)
+        if not device:
+            continue
+
+        name = device["name"]
+        _add_log(f"⚡ Missed schedule end recovered: {name} @ {end_time} ({int(missed_mins)}m late) — auto off", "warn")
+        ok = await _send_cmd(host, {"mode": "OFF"})
+        if not ok:
+            if "_retry_queue" not in device:
+                device["_retry_queue"] = []
+            device["_retry_queue"].append({"mode": "OFF"})
+        sch["_last_end_run"] = f"{today} {_ts()}"
 
     async with _lock:
         _save_raw(_state)
