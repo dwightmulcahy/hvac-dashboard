@@ -52,7 +52,16 @@ async def lifespan(app: FastAPI):
         _add_log("HVAC API stopping (SIGTERM)", "warn")
         _save_raw(_state)
 
-    signal.signal(signal.SIGTERM, _on_sigterm)
+    try:
+        signal.signal(signal.SIGTERM, _on_sigterm)
+    except ValueError:
+        # signal.signal only works in the main thread of the main
+        # interpreter — this happens under test runners (FastAPI's
+        # TestClient runs the app in a worker thread) or other
+        # non-standard hosting contexts. Not fatal: we simply lose the
+        # "graceful shutdown log line" in those environments, everything
+        # else still works.
+        log.info("Skipping SIGTERM handler registration — not running in main thread")
     global _worker_task
     _worker_task = asyncio.create_task(_background_worker())
     _add_log("HVAC API started", "info")
@@ -1304,10 +1313,10 @@ async def get_devices():
 async def add_device(cfg: DeviceConfig):
     existing = next((d for d in _state["devices"] if d["host"] == cfg.host), None)
     if existing:
-        existing.update(cfg.dict())
+        existing.update(cfg.model_dump())
         was_new = False
     else:
-        _state["devices"].append({**DEVICE_DEFAULTS, **cfg.dict()})
+        _state["devices"].append({**DEVICE_DEFAULTS, **cfg.model_dump()})
         was_new = True
     async with _lock:
         _save_raw(_state)
@@ -1318,10 +1327,10 @@ async def update_device(host: str, cfg: DeviceConfig):
     device = next((d for d in _state["devices"] if d["host"] == host), None)
     if not device:
         if not any(d["host"] == cfg.host for d in _state["devices"]):
-            _state["devices"].append({**DEVICE_DEFAULTS, **cfg.dict()})
+            _state["devices"].append({**DEVICE_DEFAULTS, **cfg.model_dump()})
     else:
         host_changed = cfg.host and cfg.host != host
-        device.update(cfg.dict())
+        device.update(cfg.model_dump())
         if host_changed:
             # clear stale state and retry queue when host changes
             device["_retry_queue"] = []
@@ -1499,7 +1508,7 @@ async def get_schedules():
 @app.post("/schedules")
 async def add_schedule(cfg: ScheduleConfig):
     import uuid
-    sch = {**SCHEDULE_DEFAULTS, **cfg.dict()}
+    sch = {**SCHEDULE_DEFAULTS, **cfg.model_dump()}
     sch["id"] = cfg.id or str(uuid.uuid4())[:8]
     conflicts = _detect_schedule_conflicts(sch)
     if conflicts:
@@ -1515,7 +1524,7 @@ async def update_schedule(sch_id: str, cfg: ScheduleConfig):
     sch = next((s for s in _state["schedules"] if s["id"] == sch_id), None)
     if not sch:
         return {"ok": False, "error": "not found"}
-    sch.update(cfg.dict())
+    sch.update(cfg.model_dump())
     sch["id"] = sch_id
     conflicts = _detect_schedule_conflicts(sch, exclude_id=sch_id)
     if conflicts:
