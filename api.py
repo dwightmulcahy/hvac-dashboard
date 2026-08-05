@@ -190,6 +190,7 @@ SCHEDULE_DEFAULTS = {
 
 ROLES = ["admin", "operator", "viewer"]
 ROLE_WEIGHTS = {"viewer": 0, "operator": 1, "admin": 2}
+USER_NOT_FOUND = "User not found"
 
 # login rate limiting: {key: {"failures": int, "locked_until": iso_str_or_None}}
 _login_attempts: dict = {}
@@ -307,8 +308,8 @@ def _load_raw() -> dict:
             if k not in data:
                 data[k] = json.loads(json.dumps(v))
         return data
-    except Exception as e:
-        log.error(f"Failed to load state: {e} — falling back to defaults")
+    except Exception:
+        log.exception("Failed to load state — falling back to defaults")
         # save corrupt file for inspection
         try:
             import shutil
@@ -413,8 +414,8 @@ def _append_log_file(entry: dict):
             f.write(json.dumps(entry) + "\n")
         # rotate: keep last _LOG_MAX_LINES lines
         _rotate_log_file()
-    except Exception as e:
-        log.warning(f"Log file write failed: {e}")
+    except Exception:
+        log.exception("Log file write failed")
 
 def _rotate_log_file():
     """Keep log file under _LOG_MAX_LINES by trimming oldest entries."""
@@ -443,8 +444,8 @@ def _load_log_file() -> list:
             except Exception:
                 pass
         return entries
-    except Exception as e:
-        log.warning(f"Log file load failed: {e}")
+    except Exception:
+        log.exception("Log file load failed")
         return []
 
 def _clear_log_file():
@@ -826,10 +827,10 @@ def _record_usage(device: dict, ds: dict, interval_mins: float):
         bucket["peak_watts"] = watts
     if ds.get("current_temperature") is not None:
         try: bucket["avg_indoor"].append(float(ds["current_temperature"]))
-        except: pass
+        except Exception: pass
     if ds.get("outdoor_temp") is not None:
         try: bucket["avg_outdoor"].append(float(ds["outdoor_temp"]))
-        except: pass
+        except Exception: pass
     bucket["snapshots"] += 1
 
 # ── Watchdog ──────────────────────────────────────────────
@@ -921,6 +922,24 @@ async def _check_max_temp(device: dict):
 
 # ── Scheduler ─────────────────────────────────────────────
 
+def _build_schedule_commands(sch: dict) -> list:
+    """Build the list of command dicts a schedule should send, given its
+    power/mode/temp fields. Shared by _check_schedules and
+    _check_missed_schedules to avoid the two copies drifting apart."""
+    power = sch.get("power")
+    mode = sch.get("mode")
+    temp = sch.get("temp")
+    commands = []
+    if power == "off":
+        commands.append({"mode": "OFF"})
+    else:
+        if mode:
+            commands.append({"mode": mode})
+        if temp:
+            commands.append({"target_temperature": temp})
+    return commands
+
+
 async def _check_schedules():
     now = datetime.datetime.now()
     today = now.strftime("%Y-%m-%d")
@@ -955,20 +974,7 @@ async def _check_schedules():
         _add_log(f"Schedule firing: {name} @ {sch['time']}", "info")
 
         power = sch.get("power")
-        mode = sch.get("mode")
-        temp = sch.get("temp")
-
-        # build list of commands to send
-        commands = []
-        if power == "off":
-            commands.append({"mode": "OFF"})
-        else:
-            if power == "on" and mode:
-                commands.append({"mode": mode})
-            elif mode:
-                commands.append({"mode": mode})
-            if temp:
-                commands.append({"target_temperature": temp})
+        commands = _build_schedule_commands(sch)
 
         # send commands — queue any that fail for retry on next poll
         all_ok = True
@@ -1081,19 +1087,7 @@ async def _check_missed_schedules():
         name = device["name"]
         _add_log(f"⚡ Missed schedule recovered: {name} @ {sch['time']} ({int(missed_mins)}m late)", "warn")
 
-        power = sch.get("power")
-        mode = sch.get("mode")
-        temp = sch.get("temp")
-        commands = []
-        if power == "off":
-            commands.append({"mode": "OFF"})
-        else:
-            if power == "on" and mode:
-                commands.append({"mode": mode})
-            elif mode:
-                commands.append({"mode": mode})
-            if temp:
-                commands.append({"target_temperature": temp})
+        commands = _build_schedule_commands(sch)
 
         for cmd in commands:
             ok = await _send_cmd(host, cmd)
@@ -1898,7 +1892,7 @@ async def delete_user(username: str, authorization: Optional[str] = Header(None)
     if username == info["username"]:
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
     if username not in _state["users"]:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail=USER_NOT_FOUND)
     del _state["users"][username]
     # revoke any active tokens for this user
     to_revoke = [t for t, v in _tokens.items() if v["username"] == username]
@@ -1914,7 +1908,7 @@ async def force_password_reset(username: str, authorization: Optional[str] = Hea
     _require_role("admin", authorization)
     user = _state["users"].get(username)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail=USER_NOT_FOUND)
     user["must_change_password"] = True
     async with _lock:
         _save_raw(_state)
@@ -1928,7 +1922,7 @@ async def set_user_role(username: str, data: dict, authorization: Optional[str] 
         raise HTTPException(status_code=400, detail="Cannot change your own role")
     user = _state["users"].get(username)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail=USER_NOT_FOUND)
     role = data.get("role")
     if role not in ROLES:
         raise HTTPException(status_code=400, detail=f"Role must be one of {ROLES}")
