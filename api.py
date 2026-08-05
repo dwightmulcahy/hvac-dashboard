@@ -26,6 +26,10 @@ log = logging.getLogger("hvac")
 
 from contextlib import asynccontextmanager
 
+# holds a strong reference to the background worker task so it isn't
+# garbage-collected mid-run (asyncio only keeps a weak reference otherwise)
+_worker_task = None
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # load persisted logs from disk
@@ -49,7 +53,8 @@ async def lifespan(app: FastAPI):
         _save_raw(_state)
 
     signal.signal(signal.SIGTERM, _on_sigterm)
-    asyncio.create_task(_background_worker())
+    global _worker_task
+    _worker_task = asyncio.create_task(_background_worker())
     _add_log("HVAC API started", "info")
     yield
     # shutdown
@@ -202,7 +207,7 @@ def _check_login_lockout(username: str, ip: str) -> Optional[int]:
     if not entry or not entry.get("locked_until"):
         return None
     locked_until = datetime.datetime.fromisoformat(entry["locked_until"])
-    now = datetime.datetime.utcnow()
+    now = _utcnow()
     if now < locked_until:
         return int((locked_until - now).total_seconds())
     # lockout expired — reset
@@ -211,7 +216,7 @@ def _check_login_lockout(username: str, ip: str) -> Optional[int]:
 
 def _record_login_failure(username: str, ip: str):
     key = _login_key(username, ip)
-    now = datetime.datetime.utcnow()
+    now = _utcnow()
     entry = _login_attempts.get(key, {"failures": 0, "first_attempt": now.isoformat()})
     first_attempt = datetime.datetime.fromisoformat(entry.get("first_attempt", now.isoformat()))
     # reset window if too old
@@ -244,10 +249,10 @@ def _verify_password(password: str, stored_hash: str, salt: str) -> bool:
 
 def _create_token(username: str, role: str) -> str:
     token = secrets.token_urlsafe(32)
-    expires = datetime.datetime.utcnow() + datetime.timedelta(hours=TOKEN_TTL_HOURS)
+    expires = _utcnow() + datetime.timedelta(hours=TOKEN_TTL_HOURS)
     _tokens[token] = {"username": username, "role": role, "expires": expires.isoformat()}
     # clean expired tokens
-    now = datetime.datetime.utcnow().isoformat()
+    now = _utcnow().isoformat()
     expired = [t for t, v in _tokens.items() if v["expires"] < now]
     for t in expired:
         del _tokens[t]
@@ -260,7 +265,7 @@ def _get_token_info(authorization: str = None) -> Optional[dict]:
     info = _tokens.get(token)
     if not info:
         return None
-    if info["expires"] < datetime.datetime.utcnow().isoformat():
+    if info["expires"] < _utcnow().isoformat():
         del _tokens[token]
         return None
     return info
@@ -344,8 +349,14 @@ _state: dict = _load_raw()
 
 # ── Helpers ───────────────────────────────────────────────
 
+def _utcnow() -> datetime.datetime:
+    """Naive UTC datetime — behaves identically to the deprecated
+    datetime.datetime.utcnow(), safe drop-in replacement everywhere
+    we already store/compare naive-UTC ISO strings."""
+    return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+
 def _now_iso() -> str:
-    return datetime.datetime.utcnow().isoformat()
+    return _utcnow().isoformat()
 
 def _today() -> str:
     return datetime.date.today().isoformat()
@@ -382,7 +393,7 @@ def _est_watts(device_state: dict, btu: int, seer: int) -> Optional[float]:
         return None
     try:
         indoor = float(indoor); target = float(target)
-    except:
+    except Exception:
         return None
     eer = (seer or 20) * 0.875
     max_w = btu / eer
@@ -531,7 +542,7 @@ async def _fetch_sensors(host: str) -> dict:
                     if r.status_code == 200:
                         out[key] = r.json()
                         break
-                except:
+                except Exception:
                     pass
         for wp in wifi_paths:
             try:
@@ -539,7 +550,7 @@ async def _fetch_sensors(host: str) -> dict:
                 if r.status_code == 200:
                     out["wifi_signal"] = r.json()
                     break
-            except:
+            except Exception:
                 pass
         for vp in esphome_version_paths:
             try:
@@ -547,7 +558,7 @@ async def _fetch_sensors(host: str) -> dict:
                 if r.status_code == 200:
                     out["esphome_version"] = r.json()
                     break
-            except:
+            except Exception:
                 pass
     return out
 
@@ -590,14 +601,14 @@ async def _send_switch(host: str, path: str) -> bool:
                         return True
                     elif r.status_code == 404:
                         continue
-            except:
+            except Exception:
                 pass
         return False
     try:
         async with httpx.AsyncClient(timeout=3) as client:
             r = await client.post(f"http://{host}/{path}")
             return r.status_code < 300
-    except:
+    except Exception:
         return False
 
 # ── Poll a single device ──────────────────────────────────
@@ -653,7 +664,7 @@ async def _poll_device(device: dict):
                 if float(new_uptime) < float(prev_uptime) - 0.001:
                     _add_log(f"{name}: ⚠ dongle rebooted (uptime reset)", "warn")
                     _record_health_event(device, "reboot")
-            except:
+            except Exception:
                 pass
         ds["uptime_days"] = new_uptime
     if "wifi_signal" in sensors:
@@ -678,7 +689,7 @@ async def _poll_device(device: dict):
             try:
                 pw = float(str(raw_power).split()[0])
                 ds["actual_power_watts"] = pw if pw > 0 else None
-            except:
+            except Exception:
                 ds["actual_power_watts"] = None
 
     # beeper sync — read device state as source of truth, update saved if different
@@ -692,7 +703,7 @@ async def _poll_device(device: dict):
                 _verbose(f"{name}: beeper state updated → {device_beeper.lower()}", "info")
 
     # on-time tracking
-    now_epoch = datetime.datetime.utcnow().timestamp()
+    now_epoch = _utcnow().timestamp()
     last_epoch = device.get("_last_poll_epoch")
     last_mode = device.get("_last_mode")
     if last_epoch and last_mode and last_mode != "OFF":
@@ -831,7 +842,7 @@ def _check_watchdog(device: dict):
     threshold = device.get("watchdog_minutes", 5)
     try:
         last_dt = datetime.datetime.fromisoformat(last_seen)
-        elapsed = (datetime.datetime.utcnow() - last_dt).total_seconds() / 60
+        elapsed = (_utcnow() - last_dt).total_seconds() / 60
         was_stale = device.get("_stale", False)
         if elapsed > threshold and not was_stale:
             device["_stale"] = True
@@ -855,7 +866,7 @@ async def _check_max_temp(device: dict):
         return
     try:
         indoor = float(ds.get("current_temperature", 0))
-    except:
+    except Exception:
         return
     cur_mode = ds.get("mode", "OFF")
     # consider unit "cooling" only if it's in COOL or AUTO mode
@@ -875,7 +886,7 @@ async def _check_max_temp(device: dict):
         # target temp: 2°C below max, clamped to device min
         try:
             target = max(float(ds.get("min_temp", 17)), max_temp - 2)
-        except:
+        except Exception:
             target = max_temp - 2
         _add_log(f"{name}: 🌡 {indoor}°C ≥ max {max_temp}°C — auto cool to {target}°C (was {cur_mode})", "warn")
         ok1 = await _send_cmd(host, {"mode": "COOL"})
@@ -1169,6 +1180,7 @@ async def _background_worker():
     await _check_missed_schedules()
 
     while True:
+        interval = 120  # safe default in case settings lookup fails below
         try:
             interval = _state["settings"].get("poll_interval", 60)
 
@@ -1227,7 +1239,7 @@ async def _background_worker():
                 if days_limit > 0:
                     try:
                         started = datetime.datetime.fromisoformat(s["vacation_started_at"])
-                        elapsed_days = (datetime.datetime.utcnow() - started).days
+                        elapsed_days = (_utcnow() - started).days
                         if elapsed_days >= days_limit:
                             _add_log(f"🌴 Vacation mode auto-ended after {elapsed_days} days", "warn")
                             # inline vacation off logic
@@ -1420,7 +1432,7 @@ async def display_toggle(host: str):
                 if r.status_code < 300:
                     _add_log(f"{name}: display toggled", "info")
                     return {"ok": True}
-        except:
+        except Exception:
             pass
     return {"ok": False, "error": "display toggle not supported"}
 
@@ -1716,7 +1728,7 @@ async def health_push():
     Add to Uptime Kuma as HTTP(s) monitor pointing to /api/health/push
     """
     from fastapi.responses import JSONResponse
-    now = datetime.datetime.utcnow()
+    now = _utcnow()
     device_health = []
     any_stale = False
     for d in _state["devices"]:
@@ -2051,7 +2063,7 @@ async def discover_devices(subnet: Optional[str] = None):
 @app.get("/health")
 async def health():
     """Detailed health check — per-device status, worker health, system info."""
-    now = datetime.datetime.utcnow()
+    now = _utcnow()
     device_health = []
     for d in _state["devices"]:
         last_seen = d.get("_last_seen")
