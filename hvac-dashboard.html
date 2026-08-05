@@ -34,7 +34,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
 .sub{font-size:13px;color:var(--text2);margin-bottom:20px}
 .notice{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:9px 13px;font-size:12px;color:var(--text2);margin-bottom:20px;line-height:1.5}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:20px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px;margin-bottom:16px}
 .card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:8px 10px}
 .card[onclick]:hover{background:var(--bg3);border-color:var(--border2)}
@@ -583,7 +582,6 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
 </div>
 
 <script>
-const ENTITY='air_conditioner';
 const MODES=['COOL','HEAT','HEAT_COOL','FAN_ONLY','DRY'];
 const MODE_LABEL={COOL:'cool',HEAT:'heat',HEAT_COOL:'auto',FAN_ONLY:'fan',DRY:'dry'};
 // ── API base ──────────────────────────────────────────────
@@ -838,11 +836,6 @@ async function forcePasswordReset(username){
 }
 const ROLE_OPTIONS=['viewer','operator','admin'];
 
-async function openScheduleModalFromMenu(){
-  // ensure schedules are loaded before opening modal
-  await loadSchedulesFromAPI();
-  openScheduleModal();
-}
 function showAddUserForm(){
   const f=document.getElementById('add-user-form');
   if(f)f.style.display=f.style.display==='none'?'block':'none';
@@ -948,8 +941,6 @@ async function saveDeviceToAPI(d){
   }catch(_){}
 }
 
-function saveDevices(){devices.forEach(d=>saveDeviceToAPI(d));}
-
 const ts=()=>new Date().toTimeString().slice(0,8);
 
 // ── Theme ─────────────────────────────────────────────────
@@ -960,11 +951,9 @@ function applyTheme(t){
   localStorage.setItem('hvac_theme',t);
   updateThemeBtns();
 }
-function toggleTheme(){applyTheme(_theme==='dark'?'light':'dark');}
 
 // ── Vacation mode ─────────────────────────────────────────
 let vacationMode=localStorage.getItem('hvac_vacation')==='true';
-const VACATION_MAX_TEMP=32;
 
 async function applyVacationMode(enabled, silent=false){
   const wasOn=vacationMode;
@@ -1116,6 +1105,15 @@ function clearLog(){
 }
 
 // ── AC commands — go through API ──────────────────────────
+async function fetchState(host){
+  const r=await fetch(`${API}/devices/${encodeURIComponent(host)}/poll`,{
+    method:'POST',signal:AbortSignal.timeout(8000)
+  });
+  if(!r.ok)throw new Error(`HTTP ${r.status}`);
+  const data=await r.json();
+  return data.state||{};
+}
+
 async function sendCmd(host,payload){
   try{
     const r=await fetch(`${API}/devices/${encodeURIComponent(host)}/cmd`,{
@@ -1137,21 +1135,6 @@ async function sendCmd(host,payload){
 }
 
 // kept for direct polling fallback
-async function fetchWithRetry(url,opts={},retries=3,delayMs=800){
-  let lastErr;
-  for(let i=0;i<retries;i++){
-    try{
-      const r=await fetch(url,{signal:AbortSignal.timeout(5000),...opts});
-      if(!r.ok)throw new Error(`HTTP ${r.status}`);
-      return r;
-    }catch(e){
-      lastErr=e;
-      if(i<retries-1)await new Promise(res=>setTimeout(res,delayMs*(i+1)));
-    }
-  }
-  throw lastErr;
-}
-
 // ── Electricity rate settings ────────────────────────────
 const RATE_SETTINGS_KEY='hvac_rate_settings';
 const RATE_DEFAULTS={
@@ -1191,22 +1174,12 @@ function effectiveRateUsd(){
   return rateSettings.tiers[rateSettings.tiers.length-1].colonesPerKwh/xr;
 }
 
-function currentRate(){
-  const rate=effectiveRateUsd();
-  return{rate,label:rateSettings.provider||'Custom'};
-}
-
 function estCostDay(watts){
   if(!watts||watts===0)return 0;
   return(watts/1000)*rateSettings.dailyHrs*effectiveRateUsd();
 }
 
 function estCostMonth(watts){return estCostDay(watts)*30;}
-
-function fmtCost(usd){
-  if(usd==null||usd===0)return'—';
-  return'$'+usd.toFixed(2);
-}
 
 function updatePeakCard(){
   const rate=effectiveRateUsd();
@@ -1243,22 +1216,7 @@ function fmtTemp(c){
   if(_tempUnit==='C')return`${n.toFixed(1)}°C`;
   return`${n.toFixed(1)}°C<br><span style="color:var(--text3);font-size:10px;font-weight:400">${toF(n)}°F</span>`;
 }
-function fmtTempInline(c){
-  const n=safeFloat(c);if(n==null)return'—';
-  if(_tempUnit==='F')return`${toF(n)}°F`;
-  if(_tempUnit==='C')return`${n.toFixed(1)}°C`;
-  return`${n.toFixed(1)}°C / ${toF(n)}°F`;
-}
 function fmtCF(c){return`<span>${fmtTemp(c)}</span>`;}
-
-function fmtUptime(days){
-  if(days==null)return'—';
-  const total=Math.round(days*24*60);
-  const d=Math.floor(total/1440);
-  const h=Math.floor((total%1440)/60);
-  const m=total%60;
-  return[d?d+'d':'',h?h+'h':'',m?m+'m':''].filter(Boolean).join(' ')||'0m';
-}
 
 async function withBusy(i,fn){
   const d=devices[i];
@@ -1401,16 +1359,6 @@ async function toggleLockTemp(i){
       renderUnits();
     }
   }catch(e){addLog(`${d.name}: lock failed — ${e.message}`,'err');}
-}
-
-async function toggleDisplay(i){
-  const d=devices[i];
-  try{
-    const r=await fetch(`${API}/devices/${encodeURIComponent(d.host)}/display-toggle`,{method:'POST'});
-    const data=await r.json();
-    if(data.ok)addLog(`${d.name}: display toggled`,'info');
-    else addLog(`${d.name}: display toggle not supported`,'warn');
-  }catch(e){addLog(`${d.name}: display toggle failed — ${e.message}`,'err');}
 }
 
 async function toggleBeeper(i){
@@ -2029,20 +1977,6 @@ function exportCSV(){
   window.location.href=`${API}/usage/export-csv?month=${month}`;
 }
 
-function toggleSection(bodyId,arrowId){
-  const el=document.getElementById(bodyId);
-  const arrow=document.getElementById(arrowId);
-  const open=el.style.display==='none';
-  el.style.display=open?'block':'none';
-  if(arrow)arrow.textContent=open?'▼':'▶';
-  if(bodyId==='usage-body'&&open){
-    // show spinner immediately, fetch in background
-    const content=document.getElementById('usage-content');
-    if(content)content.innerHTML='<div style="color:var(--text3);padding:8px 0;font-size:12px">⏳ Loading usage data…</div>';
-    refreshUsageView();
-  }
-}
-
 function renderAll(){renderIPList();renderUnits();updateSummary();}
 
 function resetOnTime(i){
@@ -2056,19 +1990,6 @@ function resetOnTime(i){
   }).catch(_=>{});
   addLog(`${d.name}: on-time reset`,'info');
   renderUnits();
-}
-
-function copyHost(i){
-  const host=devices[i].host;
-  navigator.clipboard.writeText(host).then(()=>{
-    addLog(`Copied: ${host}`,'info');
-  }).catch(()=>{
-    // fallback for non-https
-    const el=document.createElement('textarea');
-    el.value=host;document.body.appendChild(el);
-    el.select();document.execCommand('copy');document.body.removeChild(el);
-    addLog(`Copied: ${host}`,'info');
-  });
 }
 
 async function otaDevice(i){
