@@ -1283,7 +1283,6 @@ async function pollAll(){
   renderAll();
   updateSummary();
   document.getElementById('s-time').textContent=ts();
-  runMaxTempMonitor();
   recordUsage();
   refreshUsageView();
 }
@@ -2239,31 +2238,8 @@ function fmtAgo(isoStr){
 
 
 
-// ── Max temp monitor ──────────────────────────────────────
-async function runMaxTempMonitor(){
-
-  for(let i=0;i<devices.length;i++){
-    const d=devices[i];
-    if(d.maxTemp==null||!d.state||d.state.error)continue;
-    const indoor=safeFloat(d.state.current_temperature);
-    if(indoor==null)continue;
-    const on=d.state.mode!=='OFF';
-
-    if(indoor>=d.maxTemp&&!on&&!d._maxTempActive){
-      d._maxTempActive=true;
-      addLog(`${d.name}: 🌡 ${indoor}°C ≥ max ${d.maxTemp}°C — auto on`,'warn');
-      try{await sendCmd(d.host,{mode:'COOL'});d.state.mode='COOL';renderUnits();}
-      catch(e){addLog(`${d.name}: auto-on failed — ${e.message}`,'err');d._maxTempActive=false;}
-    }
-
-    if(indoor<d.maxTemp&&d._maxTempActive){
-      d._maxTempActive=false;
-      addLog(`${d.name}: 🌡 ${indoor}°C < max ${d.maxTemp}°C — auto off`,'ok');
-      try{await sendCmd(d.host,{mode:'OFF'});d.state.mode='OFF';renderUnits();}
-      catch(e){addLog(`${d.name}: auto-off failed — ${e.message}`,'err');}
-    }
-  }
-}
+// Max temp guard is handled entirely server-side in api.py — see _check_max_temp().
+// The client only displays the max_temp value; it never triggers commands based on it.
 
 // ── Section modals ────────────────────────────────────────
 let _activeSection=null;
@@ -3083,7 +3059,7 @@ function hideUpdateBanner(){
 init();
 setInterval(checkApiStatus, 30000);
 setInterval(pollAll,120000);
-setInterval(()=>{updatePeakCard();runMaxTempMonitor();fetchServerLogs();},30000);
+setInterval(()=>{updatePeakCard();fetchServerLogs();},30000);
 updatePeakCard();
 
 // ── Refresh on browser focus / tab visible ────────────────
