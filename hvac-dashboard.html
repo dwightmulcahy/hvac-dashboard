@@ -1182,9 +1182,6 @@ function estCostDay(watts){
 function estCostMonth(watts){return estCostDay(watts)*30;}
 
 function updatePeakCard(){
-  const rate=effectiveRateUsd();
-  
-
   // hide peak card — not applicable
   document.getElementById('peak-card').style.display='none';
 }
@@ -1757,7 +1754,6 @@ function buildTileHTML(d,i){
     const dis=(!on||busy||readOnly)?'disabled':'';
     const busyOrRO=(busy||readOnly)?'disabled':'';
     const x=d.extras||{};
-    const fv=v=>{const n=safeFloat(v);return n!=null?n.toFixed(1):'—';};
     return`<div id="tile-${i}" data-state-key="${stateKey}" class="tile ${on?'tile-on':''}" style="${d.stale?'border-color:var(--warn)':''}${readOnly?';opacity:0.85':''}">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:8px">
         <div style="display:flex;align-items:center;gap:6px;min-width:0;flex:1">
@@ -1841,7 +1837,7 @@ async function renderSparkline(i){
       const delta=recent[recent.length-1]-recent[0];
       if(delta>0.5){trendIcon='▲';trendColor='var(--heat)';}
       else if(delta<-0.5){trendIcon='▼';trendColor='var(--cool)';}
-      else{trendIcon='→';trendColor='var(--text3)';}
+      else{trendIcon='→';}
     }
     // store trend on device for tile footer
     d._outTrend=trendIcon;d._outTrendColor=trendColor;
@@ -1877,12 +1873,10 @@ function updateSummary(){
     }else{subEl.textContent=`${activeUnits} units on`;}
   }
   const dayTotal=live.reduce((sum,d)=>{const w=estWatts(d.state,d.extras,d.btu,d.seer);return sum+estCostDay(w);},0);
-  const moTotal=live.reduce((sum,d)=>{const w=estWatts(d.state,d.extras,d.btu,d.seer);return sum+estCostMonth(w);},0);
   const projLbl=document.getElementById('s-proj-label');
   if(projLbl){
     if(dayTotal>0){
       const now=new Date();
-      const dom=now.getDate();
       const dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
       const proj=dayTotal*dim;
       projLbl.textContent=`proj. $${proj.toFixed(2)} · $${dayTotal.toFixed(2)}/day`;
@@ -2673,7 +2667,7 @@ function deleteSchedule(idx){
   fetch(`${API}/schedules/${s.id}`,{method:'DELETE'})
     .then(()=>loadSchedulesFromAPI().then(renderSchedules))
     .catch(_=>{});
-  addLog(`Schedule removed for ${s.device_name||s.device_name||s.deviceName}`,'warn');
+  addLog(`Schedule removed for ${s.device_name||s.deviceName}`,'warn');
 }
 
 function toggleScheduleEnabled(idx){
