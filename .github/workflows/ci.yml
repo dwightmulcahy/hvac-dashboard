@@ -19,6 +19,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -29,6 +35,8 @@ jobs:
           push: false
           load: true
           tags: hvac-dashboard:ci-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Test container starts
         run: |

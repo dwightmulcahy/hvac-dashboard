@@ -25,7 +25,7 @@ jobs:
         run: pip install -r requirements-dev.txt
 
       - name: Run pyflakes (fast syntax/unused-var check)
-        run: pip install pyflakes && pyflakes api.py state.py models.py
+        run: pip install pyflakes && pyflakes api.py auth.py state.py models.py worker.py routers/*.py
 
       - name: Run pytest
         run: pytest tests/ -v --tb=short
