@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: Run pytest
+    name: Run pytest + JS unit tests
     runs-on: ubuntu-latest
 
     steps:
@@ -44,3 +44,6 @@ jobs:
               exit(1)
           print('Dashboard JS syntax: CLEAN')
           "
+
+      - name: Run dashboard JS unit tests
+        run: node --test tests-js/*.test.js

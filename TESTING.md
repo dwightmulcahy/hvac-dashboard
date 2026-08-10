@@ -36,6 +36,7 @@ pytest --cov=api --cov=state --cov=models --cov-report=term-missing
 | `tests/test_schedules.py` | Schedule command building, conflict detection |
 | `tests/test_max_temp.py` | Max-temp guard trigger, hysteresis, guard-hours behavior (including the two production bugs this project hit and fixed) |
 | `tests/test_endpoints.py` | Full HTTP integration tests via FastAPI's `TestClient` — auth flow, role enforcement, device/schedule CRUD |
+| `tests/test_backup_restore.py` | Backup export shape (no internal fields, no users), restore merge strategies (devices merge, schedules replace, settings merge), full round-trip |
 
 ## How isolation works
 
@@ -55,8 +56,55 @@ hysteresis not firing, etc.). When you fix one, add a test that would
 have caught it — `test_max_temp.py` has good examples of this pattern
 (each test's docstring explains which real bug it guards against).
 
+---
+
+## JavaScript tests
+
+`hvac-dashboard.html` is a single-file frontend with no build step, so
+its tests don't use npm/jest/vitest — they use Node's **built-in**
+test runner (`node:test`), which needs zero installation on any
+machine that already has Node.
+
+```bash
+node --test tests-js/*.test.js
+```
+
+### How it works
+
+`tests-js/extract.js` pulls specific pure utility functions (`safeFloat`,
+`fmtTemp`, `estWatts`, `fmtDays`, `effectiveRateUsd`, etc.) directly out
+of `hvac-dashboard.html`'s `<script>` tag at test-run time, using exact
+string boundaries — not brace-counting. (An earlier bug in this project
+came from a brace-counter getting confused by `${...}` inside a
+template literal; the extractor deliberately avoids that entire class
+of bug.) If `hvac-dashboard.html` changes shape — a function gets
+renamed or reordered — extraction throws a clear error telling you
+which marker in `extract.js` needs updating, rather than silently
+testing stale code.
+
+Only pure, DOM-independent functions are covered this way — things
+like temperature/cost/day formatting and watt estimation. Functions
+that touch `document`, `fetch`, or `localStorage` directly (rendering,
+event handlers, API calls) aren't unit tested; those are covered by
+the syntax check step and by manual testing against a running
+instance.
+
+### Adding a new function to test
+
+1. Find (or extend) a `region` in `extract.js` whose start/end markers
+   already bracket your function, or add a new `extractBetween(...)`
+   call with a unique start marker (your function's signature) and a
+   unique end marker (whatever comes right after it in the file).
+2. If your function reads a module-level `const`/`let` that isn't
+   already bridged, add it to the `__bridge` object near the bottom
+   of `loadDashboardFunctions()`.
+3. Add `test(...)` blocks to `dashboard-functions.test.js` using
+   `node:assert/strict`.
+
+---
+
 ## CI
 
-`.github/workflows/tests.yml` runs the full suite plus `pyflakes` and
-a dashboard JS syntax check on every push/PR to `main`, `develop`, and
-`release`.
+`.github/workflows/tests.yml` runs the full pytest suite, `pyflakes`,
+the dashboard JS syntax check, and the JS unit test suite on every
+push/PR to `main`, `develop`, and `release`.
