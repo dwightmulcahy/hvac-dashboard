@@ -40,6 +40,54 @@ jobs:
             type=semver,pattern={{major}}
             type=raw,value=latest
 
+      # Buildx can't `load:true` a multi-platform image locally, so
+      # this release gate builds a single-platform (amd64) image
+      # first purely to scan and gate on. The layer cache is shared
+      # with the real multi-arch build below, so this doesn't roughly
+      # double the total build time — most layers are reused.
+      - name: Build image for security scan (amd64 only)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: hvac-dashboard:release-scan
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.version }}
+            BUILD_DATE=${{ steps.version.outputs.date }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan release image for vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: hvac-dashboard:release-scan
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+
+      - name: Upload Trivy scan results to Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        continue-on-error: true
+        with:
+          sarif_file: trivy-results.sarif
+
+      # This is the actual release gate — CRITICAL or HIGH severity
+      # findings block the push to Docker Hub. Unlike ci.yml (which
+      # only gates on CRITICAL to avoid flaky/noisy CI on every push),
+      # this workflow only runs on version tags, i.e. real releases,
+      # so it's held to a stricter bar.
+      - name: Fail release on CRITICAL or HIGH vulnerabilities
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: hvac-dashboard:release-scan
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
