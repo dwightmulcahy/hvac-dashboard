@@ -2,6 +2,8 @@
 
 Self-hosted dashboard for controlling and monitoring **Innovair mini-split AC units** via [SMLIGHT SLWF-01pro](https://smartlight.me) ESPHome dongles using the Midea serial protocol. Runs 24/7 in Docker on a QNAP NAS. All automation (scheduling, temperature guards, watchdog) executes server-side regardless of whether a browser is open.
 
+See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for how the backend is structured (module split, dependency graph, why it's organized this way) and [`TESTING.md`](./TESTING.md) for running the test suite.
+
 ---
 
 ## Features
@@ -24,13 +26,14 @@ Self-hosted dashboard for controlling and monitoring **Innovair mini-split AC un
 - 📡 overdue indicator (only shown when outside watchdog window)
 
 ### Automation (server-side, 24/7)
-- **Schedules** — time + day-of-week per device, evaluated every minute server-side
-- **Max temp guard** — auto-turns on AC when room exceeds configurable threshold, off when cooled
-- **Vacation mode** — turns off all units, sets high temp guard (configurable), pauses all schedules
-- **Beeper sync** — saved beeper state pushed to device on every poll
+- **Schedules** — time + day-of-week per device, evaluated every minute server-side, resilient to poll-timing drift and missed-while-down recovery
+- **Max temp guard** — auto-turns on AC when room exceeds configurable threshold, off when cooled (with hysteresis to prevent rapid cycling; guard hours only block the trigger, never the auto-off recovery)
+- **Vacation mode** — turns off all units, sets high temp guard (configurable), pauses all schedules, optional auto-end after N days
+- **Beeper sync** — saved beeper state read from device, not pushed to it
 - **Reboot detection** — logs when dongle uptime resets
-- **Retry queue** — failed commands queued and retried on recovery
-- **Watchdog** — per-device configurable alert timeout; logs online/offline transitions
+- **Nightly dongle reboot** — configurable time-of-day reboot of all dongles
+- **Retry queue** — failed commands queued (capped at 10) and retried on recovery
+- **Watchdog** — per-device configurable alert timeout; logs online/offline transitions with consecutive-failure counts
 
 ### Monitoring
 - API status badge in header (⬤ green/red, checked every 30s)
@@ -126,6 +129,19 @@ services:
 
 ## API Reference
 
+### Auth
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/api/auth/login` | Log in, returns bearer token (rate-limited: 5 failed attempts locks out for 15 min) |
+| POST | `/api/auth/logout` | Invalidate current token |
+| POST | `/api/auth/change-password` | Change own password |
+| POST | `/api/auth/recover` | Reset admin password using the one-time recovery key from Docker logs |
+| GET | `/api/auth/me` | Current user info |
+| GET/POST | `/api/auth/users` | List or add users (admin only) |
+| DELETE | `/api/auth/users/{username}` | Delete user (admin only) |
+| PUT | `/api/auth/users/{username}/role` | Change a user's role (admin only) |
+| POST | `/api/auth/users/{username}/force-reset` | Force password change on next login (admin only) |
+
 ### Devices
 | Method | Endpoint | Description |
 |---|---|---|
@@ -133,18 +149,30 @@ services:
 | POST | `/api/devices` | Add device |
 | PUT | `/api/devices/{host}` | Update device config |
 | DELETE | `/api/devices/{host}` | Remove device |
+| POST | `/api/devices/reorder` | Persist drag-to-reorder |
+| POST | `/api/devices/{host}/poll` | Poll a single device immediately |
 | POST | `/api/devices/{host}/cmd` | Send command (queued on failure) |
 | POST | `/api/devices/{host}/beeper/{on\|off}` | Set beeper |
-| POST | `/api/devices/{host}/beeper/test` | Test connection |
+| POST | `/api/devices/{host}/beeper/test` | Beep without changing saved state |
 | POST | `/api/devices/{host}/lock` | Lock/unlock temp override |
+| POST | `/api/devices/{host}/display-toggle` | Toggle unit display (requires IR LED hardware) |
+| POST | `/api/devices/{host}/ota-upload` | Flash `.bin` firmware via ESPHome HTTP OTA |
 | GET | `/api/devices/{host}/temp-history` | 48h hourly temp readings |
+| GET | `/api/devices/{host}/health-history` | Last 50 online/offline/reboot events |
+| GET | `/api/discover?subnet=192.168.x.0/24` | Scan network for ESPHome devices |
 
 ### Schedules
 | Method | Endpoint | Description |
 |---|---|---|
-| GET/POST | `/api/schedules` | List or create |
+| GET/POST | `/api/schedules` | List or create (conflict-checked against overlapping device/time/day) |
 | PUT/DELETE | `/api/schedules/{id}` | Update or delete |
 | POST | `/api/schedules/{id}/toggle` | Enable/disable |
+
+### Vacation mode
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/vacation` | Current vacation mode status |
+| POST | `/api/vacation/{on\|off}` | Enable/disable — turns off all units, pauses schedules |
 
 ### Usage
 | Method | Endpoint | Description |
@@ -157,13 +185,14 @@ services:
 | Method | Endpoint | Description |
 |---|---|---|
 | GET | `/api/` | Status, version, build date |
-| GET | `/api/health` | Per-device watchdog status |
+| GET | `/api/health` | Per-device watchdog status, worker staleness |
 | GET | `/api/health/push` | Uptime Kuma endpoint (200/503) |
-| GET/PUT | `/api/settings` | Rate and poll settings |
+| GET/PUT | `/api/settings` | Rate, poll, and automation settings |
 | GET | `/api/exchange-rate` | Current USD/CRC rate (cached daily) |
-| GET | `/api/logs?level=warn+&limit=100` | Automation log |
-| GET | `/api/backup` | Export config JSON |
-| POST | `/api/restore` | Restore from backup |
+| GET/DELETE | `/api/logs?level=warn+&limit=100` | Automation log |
+| GET | `/api/backup` | Export config JSON (devices, schedules, settings — never users) |
+| POST | `/api/restore` | Restore from backup (merges devices/settings, replaces schedules) |
+| POST | `/api/watchtower-notify` | Watchtower webhook receiver — logs and forwards image updates |
 | DELETE | `/api/reset` | Clear usage data |
 
 ---
@@ -214,6 +243,8 @@ The dashboard uses token-based authentication with three role levels:
 | **operator** | Send commands (on/off/mode/temp), view all |
 | **admin** | Full access — settings, devices, schedules, users |
 
+Login is rate-limited: 5 failed attempts for the same username+IP within 15 minutes locks that combination out for 15 minutes (HTTP 429).
+
 ### First Login
 
 Default credentials on first run: **`admin` / `admin`**
@@ -250,6 +281,24 @@ curl -X POST http://homenas.local:8080/api/auth/recover \
 ```
 
 The recovery key is generated fresh on every container start, is single-use, and is never written to disk — it only exists in memory and in the Docker logs.
+
+---
+
+## Development & Testing
+
+Backend is split across `api.py`, `auth.py`, `state.py`, `models.py`, `worker.py`, and `routers/*.py` — see [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the module map and why it's organized this way.
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+90 tests covering state persistence, auth, the max-temp guard (including regression tests for real bugs hit during development), schedule logic, full HTTP integration, and backup/restore. See [`TESTING.md`](./TESTING.md) for details on running specific tests, coverage, and the isolation pattern the fixtures rely on.
+
+Three GitHub Actions workflows run on push/PR:
+- **`tests.yml`** — pytest suite + pyflakes + dashboard JS syntax check
+- **`ci.yml`** — builds the real Docker image, boots the container, curls live endpoints, validates nginx config, lints all Python files
+- **`docker-release.yml`** — builds and pushes multi-arch images to Docker Hub, triggered only on version tags
 
 ---
 
