@@ -3,26 +3,42 @@
  * Extracts specific pure utility functions from hvac-dashboard.html so
  * they can be unit tested in Node without a browser or a build step.
  *
- * Deliberately does NOT use brace-counting to find function boundaries
- * — this codebase hit a real bug earlier from exactly that approach
- * (a naive brace-counter got confused by `${...}` inside a template
- * literal and silently extracted the wrong span). Instead this uses
- * exact substring boundaries: a unique "start marker" (the target
- * function's own signature) and a unique "end marker" (the next
- * function's signature, verified to exist immediately after it in the
- * current file). If hvac-dashboard.html changes shape — a function
- * gets renamed, reordered, or the next function after it changes —
- * extraction throws loudly instead of silently testing stale or wrong
- * code. That's intentional: a loud failure here means "go update this
- * extractor," not "the test is now meaningless but still green."
+ * Extraction uses sentinel comments placed directly in the dashboard
+ * source, not brace-counting and not adjacent-function-name matching:
  *
- * Each REGION below bundles several logically-related functions
- * together (rather than one marker pair per function) specifically to
- * keep the total number of fragile boundary strings small.
+ *   // ── TESTABLE:region-name:start ──
+ *   ...code...
+ *   // ── TESTABLE:region-name:end ──
+ *
+ * Why sentinels instead of the alternatives:
+ *
+ *   - Brace-counting: this codebase hit a real bug from exactly this
+ *     approach — a naive brace-counter got confused by `${...}` inside
+ *     a template literal and silently extracted the wrong span.
+ *
+ *   - Adjacent-function-name boundaries (the first version of this
+ *     file): worked, but coupled a region's extraction to whatever
+ *     function happened to be defined next in the file. Renaming that
+ *     *unrelated* neighboring function broke extraction for code that
+ *     never changed. Sentinels are owned by whoever writes the region
+ *     they wrap, so they only need to move when the region itself is
+ *     restructured — not whenever anything nearby changes.
+ *
+ * Sentinels don't fully solve "new code accidentally lands inside an
+ * existing region and gets bundled in untested" — that's still
+ * possible if someone pastes a new function between an existing
+ * start/end pair. What they do fix is boundary fragility, and the
+ * `checkAllSentinelsConsumed()` export below at least catches the
+ * inverse mistake: a new sentinel-wrapped region added to the
+ * dashboard that nobody wired up here yet.
  */
 
 const fs = require("fs");
 const path = require("path");
+
+const START_RE = /\/\/ ── TESTABLE:([\w-]+):start ──/g;
+const END_RE = (name) => `// ── TESTABLE:${name}:end ──`;
+const START_MARKER = (name) => `// ── TESTABLE:${name}:start ──`;
 
 function readDashboardScript() {
   const htmlPath = path.join(__dirname, "..", "hvac-dashboard.html");
@@ -35,24 +51,72 @@ function readDashboardScript() {
   return html.slice(start, end);
 }
 
-function extractBetween(source, startMarker, endMarker, label) {
+/** Extract the code between a named sentinel pair, sentinels excluded. */
+function extractRegion(source, name) {
+  const startMarker = START_MARKER(name);
+  const endMarker = END_RE(name);
   const startIdx = source.indexOf(startMarker);
   if (startIdx === -1) {
     throw new Error(
-      `extract.js: start marker not found for "${label}".\n` +
-      `Looked for: ${JSON.stringify(startMarker)}\n` +
-      `hvac-dashboard.html has likely changed — update the marker in extract.js.`
+      `extract.js: sentinel "${startMarker}" not found in hvac-dashboard.html.\n` +
+      `Either the region was renamed/removed from the dashboard, or a typo ` +
+      `crept into REGIONS in extract.js — they must match exactly.`
     );
   }
-  const endIdx = source.indexOf(endMarker, startIdx + startMarker.length);
+  const contentStart = startIdx + startMarker.length;
+  const endIdx = source.indexOf(endMarker, contentStart);
   if (endIdx === -1) {
     throw new Error(
-      `extract.js: end marker not found for "${label}" after its start marker.\n` +
-      `Looked for: ${JSON.stringify(endMarker)}\n` +
-      `hvac-dashboard.html has likely changed — update the marker in extract.js.`
+      `extract.js: found start sentinel for "${name}" but no matching ` +
+      `"${endMarker}". Every TESTABLE:${name}:start needs a TESTABLE:${name}:end.`
     );
   }
-  return source.slice(startIdx, endIdx);
+  return source.slice(contentStart, endIdx);
+}
+
+/** List every region name that has a start sentinel in the dashboard source. */
+function listAllSentinelRegions(source) {
+  const names = new Set();
+  let m;
+  START_RE.lastIndex = 0;
+  while ((m = START_RE.exec(source)) !== null) {
+    names.add(m[1]);
+  }
+  return names;
+}
+
+// The regions actually loaded for testing. If you add a new
+// TESTABLE:...:start/:end pair to hvac-dashboard.html, add its name
+// here too — checkAllSentinelsConsumed() will fail the test run if
+// you forget, rather than the new region just silently going
+// untested forever.
+const REGIONS = [
+  "log-filter",
+  "rates",
+  "watts-temp",
+  "wifi-ontime",
+  "day-names",
+  "schedule-fmt",
+  "fmt-hours",
+];
+
+/**
+ * Fails loudly if hvac-dashboard.html has a TESTABLE region that
+ * REGIONS above doesn't know about — the "someone added a new
+ * sentinel block and forgot to wire it into extract.js" case.
+ */
+function checkAllSentinelsConsumed(source) {
+  const present = listAllSentinelRegions(source);
+  const known = new Set(REGIONS);
+  const unconsumed = [...present].filter((name) => !known.has(name));
+  if (unconsumed.length > 0) {
+    throw new Error(
+      `extract.js: hvac-dashboard.html has TESTABLE region(s) not listed ` +
+      `in REGIONS: ${unconsumed.join(", ")}. Add them to REGIONS in ` +
+      `extract.js (and write tests for them) or remove the sentinels ` +
+      `if they're no longer meant to be tested.`
+    );
+  }
 }
 
 /**
@@ -65,23 +129,9 @@ function loadDashboardFunctions() {
   const vm = require("vm");
   const src = readDashboardScript();
 
-  const regions = [
-    // seerToEer, maxWatts, safeFloat, estWatts, toF, fmtTemp, fmtCF
-    extractBetween(src, "function seerToEer(seer)", "async function withBusy", "watts/temp helpers"),
-    // fmtWifi, fmtOnTime
-    extractBetween(src, "function fmtWifi(dbm)", "async function toggleLockTemp", "fmtWifi/fmtOnTime"),
-    // LOG_LEVELS, matchesFilter
-    extractBetween(src, "const LOG_LEVELS=", "function renderLog()", "LOG_LEVELS/matchesFilter"),
-    // RATE_DEFAULTS, loadRateSettings, saveRateSettings, rateSettings,
-    // effectiveRateUsd, estCostDay, estCostMonth
-    extractBetween(src, "const RATE_DEFAULTS=", "function updatePeakCard()", "rate settings + cost helpers"),
-    // DAY_NAMES, fmtDays, fmtActions, nextFireMs, fmtNext
-    extractBetween(src, "const DAY_NAMES=", "function renderSchedules()", "DAY_NAMES/schedule formatters"),
-    // fmtHours
-    extractBetween(src, "function fmtHours(h)", "function renderUsageTable(", "fmtHours"),
-  ];
+  checkAllSentinelsConsumed(src);
 
-  const combined = regions.join("\n\n");
+  const combined = REGIONS.map((name) => extractRegion(src, name)).join("\n\n");
 
   // minimal browser-global stubs — loadRateSettings() calls
   // localStorage.getItem() at module-eval time via
@@ -117,4 +167,11 @@ function loadDashboardFunctions() {
   return sandbox;
 }
 
-module.exports = { loadDashboardFunctions, readDashboardScript, extractBetween };
+module.exports = {
+  loadDashboardFunctions,
+  readDashboardScript,
+  extractRegion,
+  listAllSentinelRegions,
+  checkAllSentinelsConsumed,
+  REGIONS,
+};

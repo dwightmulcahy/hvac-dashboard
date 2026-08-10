@@ -1073,6 +1073,7 @@ async function fetchServerLogs(){
   }catch(_){}
 }
 
+// ── TESTABLE:log-filter:start ──
 const LOG_LEVELS={err:3,warn:2,ok:1,info:0};
 
 function matchesFilter(entry,filter){
@@ -1083,6 +1084,7 @@ function matchesFilter(entry,filter){
   }
   return entry.type===filter;
 }
+// ── TESTABLE:log-filter:end ──
 
 function renderLog(){
   const box=document.getElementById('log-box');
@@ -1137,6 +1139,7 @@ async function sendCmd(host,payload){
 // kept for direct polling fallback
 // ── Electricity rate settings ────────────────────────────
 const RATE_SETTINGS_KEY='hvac_rate_settings';
+// ── TESTABLE:rates:start ──
 const RATE_DEFAULTS={
   provider:'Coopeguanacaste',
   exchangeRate:455,        // CRC per USD — updated July 2026 (was 530)
@@ -1180,6 +1183,7 @@ function estCostDay(watts){
 }
 
 function estCostMonth(watts){return estCostDay(watts)*30;}
+// ── TESTABLE:rates:end ──
 
 function updatePeakCard(){
   // hide peak card — not applicable
@@ -1188,6 +1192,7 @@ function updatePeakCard(){
 
 const BTU_OPTIONS=[12000,18000,24000];
 const SEER_OPTIONS=[14,16,18,20,22,24];
+// ── TESTABLE:watts-temp:start ──
 function seerToEer(seer){return(seer||20)*0.875;}
 function maxWatts(btu,seer){return Math.round(btu/seerToEer(seer));}
 
@@ -1214,6 +1219,7 @@ function fmtTemp(c){
   return`${n.toFixed(1)}°C<br><span style="color:var(--text3);font-size:10px;font-weight:400">${toF(n)}°F</span>`;
 }
 function fmtCF(c){return`<span>${fmtTemp(c)}</span>`;}
+// ── TESTABLE:watts-temp:end ──
 
 async function withBusy(i,fn){
   const d=devices[i];
@@ -1317,6 +1323,7 @@ async function togglePower(i){
   });
 }
 
+// ── TESTABLE:wifi-ontime:start ──
 function fmtWifi(dbm){
   if(dbm==null||dbm===undefined||dbm==='')return null;
   const v=parseFloat(String(dbm));
@@ -1335,6 +1342,7 @@ function fmtOnTime(mins){
   const rh=h%24;
   return[d?d+'d':'',rh?rh+'h':'',m?m+'m':''].filter(Boolean).join(' ')||'0m';
 }
+// ── TESTABLE:wifi-ontime:end ──
 
 async function toggleLockTemp(i){
   const d=devices[i];
@@ -2540,7 +2548,9 @@ function saveRateSettingsUI(){
   closeSettings();
 }
 
+// ── TESTABLE:day-names:start ──
 const DAY_NAMES=['Su','Mo','Tu','We','Th','Fr','Sa'];
+// ── TESTABLE:day-names:end ──
 let schedules=[];
 let editSchIdx=null;
 
@@ -2678,6 +2688,7 @@ function toggleScheduleEnabled(idx){
     .catch(_=>{s.enabled=!s.enabled;renderSchedules();});
 }
 
+// ── TESTABLE:schedule-fmt:start ──
 function fmtDays(days){
   const s=days.slice().sort((a,b)=>a-b);
   if(s.length===7)return'every day';
@@ -2719,6 +2730,7 @@ function fmtNext(s){
   if(mins<1440)return`in ${Math.floor(mins/60)}h ${mins%60}m`;
   return`in ${Math.floor(mins/1440)}d ${Math.floor((mins%1440)/60)}h`;
 }
+// ── TESTABLE:schedule-fmt:end ──
 
 function renderSchedules(){
   const el=document.getElementById('schedule-list');
@@ -2787,6 +2799,7 @@ function initMonthSelector(){
   sel.innerHTML=months.map((m,i)=>`<option value="${m.key}" ${i===0?'selected':''}>${m.label}</option>`).join('');
 }
 
+// ── TESTABLE:fmt-hours:start ──
 function fmtHours(h){
   if(h==null||h===0)return'0h';
   const d=Math.floor(h/24);
@@ -2794,6 +2807,7 @@ function fmtHours(h){
   const m=Math.round((h%1)*60);
   return[d?d+'d':'',hh?hh+'h':'',(!d&&m)?m+'m':''].filter(Boolean).join(' ')||'0h';
 }
+// ── TESTABLE:fmt-hours:end ──
 
 function renderUsageTable(devices,title,showDaily){
   if(!devices||!devices.length)return`<div style="color:var(--text3);padding:8px 0">No data for this period yet.</div>`;

@@ -15,9 +15,32 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { loadDashboardFunctions } = require("./extract.js");
+const { loadDashboardFunctions, readDashboardScript, listAllSentinelRegions, checkAllSentinelsConsumed, REGIONS } = require("./extract.js");
 
 const fns = loadDashboardFunctions();
+
+// ── Extractor self-check ─────────────────────────────────────
+// These test the extraction machinery itself, not dashboard logic —
+// they exist to catch "someone added a new TESTABLE region and forgot
+// to wire it into REGIONS" before it becomes a silent coverage gap.
+
+test("every TESTABLE sentinel region in the dashboard is covered by REGIONS", () => {
+  const src = readDashboardScript();
+  const present = listAllSentinelRegions(src);
+  for (const name of present) {
+    assert.ok(REGIONS.includes(name), `TESTABLE:${name} exists in hvac-dashboard.html but isn't in extract.js's REGIONS list`);
+  }
+});
+
+test("checkAllSentinelsConsumed throws for an unknown region", () => {
+  const fakeSource = "// ── TESTABLE:totally-new-region:start ──\ncode\n// ── TESTABLE:totally-new-region:end ──";
+  assert.throws(() => checkAllSentinelsConsumed(fakeSource), /totally-new-region/);
+});
+
+test("checkAllSentinelsConsumed does not throw when all regions are known", () => {
+  const src = readDashboardScript();
+  assert.doesNotThrow(() => checkAllSentinelsConsumed(src));
+});
 
 // ── seerToEer / maxWatts ─────────────────────────────────────
 
