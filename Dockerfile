@@ -24,7 +24,8 @@ RUN mkdir -p /var/www/html /app /data
 
 # Copy app files
 COPY hvac-dashboard.html /var/www/html/index.html
-COPY api.py /app/api.py
+COPY api.py auth.py state.py models.py worker.py /app/
+COPY routers/ /app/routers/
 
 # Inject build version into dashboard
 RUN sed -i "s/DASHBOARD_VERSION_PLACEHOLDER/${APP_VERSION}/g" /var/www/html/index.html

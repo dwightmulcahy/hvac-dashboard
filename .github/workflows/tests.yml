@@ -1,0 +1,46 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, develop, release]
+  pull_request:
+    branches: [main, develop, release]
+
+jobs:
+  test:
+    name: Run pytest
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run pyflakes (fast syntax/unused-var check)
+        run: pip install pyflakes && pyflakes api.py state.py models.py
+
+      - name: Run pytest
+        run: pytest tests/ -v --tb=short
+
+      - name: Check hvac-dashboard.html JS syntax
+        run: |
+          python3 -c "
+          import subprocess
+          html = open('hvac-dashboard.html').read()
+          start = html.index('<script>') + 8
+          end = html.rindex('</script>')
+          open('/tmp/check_script.js', 'w').write(html[start:end])
+          r = subprocess.run(['node', '--check', '/tmp/check_script.js'], capture_output=True, text=True)
+          if r.returncode != 0:
+              print(r.stderr)
+              exit(1)
+          print('Dashboard JS syntax: CLEAN')
+          "
