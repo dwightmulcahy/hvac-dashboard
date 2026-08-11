@@ -60,7 +60,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Scan release image for vulnerabilities (Trivy)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: hvac-dashboard:release-scan
           format: sarif
@@ -81,7 +81,7 @@ jobs:
       # this workflow only runs on version tags, i.e. real releases,
       # so it's held to a stricter bar.
       - name: Fail release on CRITICAL or HIGH vulnerabilities
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: hvac-dashboard:release-scan
           format: table
