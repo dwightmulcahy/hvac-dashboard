@@ -235,7 +235,12 @@ def _est_watts(device_state: dict, btu: int, seer: int) -> Optional[float]:
     eer = (seer or 20) * 0.875
     max_w = btu / eer
     delta = abs(indoor - target)
-    penalty = max(0, (float(outdoor) - 25) / 20) if outdoor and mode != "HEAT" else 0
+    try:
+        penalty = max(0, (float(outdoor) - 25) / 20) if outdoor and mode != "HEAT" else 0
+    except Exception:
+        # malformed outdoor reading — treat the same as if it were
+        # missing, rather than crashing the whole watts estimate
+        penalty = 0
     load = min(1.0, 0.2 + (delta / 8) * 0.8 + penalty * 0.3)
     return round(max_w * load)
 

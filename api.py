@@ -33,6 +33,17 @@ from routers import schedules, settings, usage, system
 _worker_task = None
 
 
+def _on_sigterm(*_):
+    """Log a clean-shutdown message and persist state. Extracted as a
+    standalone function (rather than an inline closure in lifespan)
+    specifically so it can be unit tested directly — registering it
+    via signal.signal() only works in the main thread, which test
+    runners like FastAPI's TestClient don't use, so there's no
+    reliable way to actually trigger it end-to-end in tests."""
+    _add_log("HVAC API stopping (SIGTERM)", "warn")
+    _save_raw(_state)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # load persisted logs from disk
@@ -51,10 +62,6 @@ async def lifespan(app: FastAPI):
     log.warning("=== Use POST /api/auth/recover with this key to reset admin password ===")
 
     # register SIGTERM handler to log clean shutdown
-    def _on_sigterm(*_):
-        _add_log("HVAC API stopping (SIGTERM)", "warn")
-        _save_raw(_state)
-
     try:
         signal.signal(signal.SIGTERM, _on_sigterm)
     except ValueError:

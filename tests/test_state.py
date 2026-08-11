@@ -108,6 +108,19 @@ def test_est_watts_cooling_returns_positive(state_module):
     assert watts > 0
 
 
+def test_est_watts_tolerates_unparseable_outdoor_temp(state_module):
+    """Regression test: indoor/target parsing was already protected by
+    try/except, but outdoor's penalty calculation wasn't — a malformed
+    outdoor_temp reading crashed the whole estimate instead of
+    gracefully falling back the same way a missing outdoor_temp does."""
+    watts = state_module._est_watts(
+        {"mode": "COOL", "current_temperature": 28, "target_temperature": 22, "outdoor_temp": "not-a-number"},
+        24000, 20,
+    )
+    assert watts is not None  # didn't raise, didn't return None
+    assert watts > 0
+
+
 def test_now_iso_is_naive_utc(state_module):
     iso = state_module._now_iso()
     # naive datetimes parse back with no tzinfo

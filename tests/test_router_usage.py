@@ -149,13 +149,23 @@ def test_get_logs_filters_by_exact_level(client, auth_headers, api_module):
 
 
 def test_get_logs_filters_by_level_plus_severity(client, auth_headers, api_module):
+    """Regression test for a real bug found while pushing coverage to
+    100%: a raw '?level=warn+' query string decodes '+' as a literal
+    space per application/x-www-form-urlencoded rules, so the server
+    never saw 'warn+' — it saw 'warn ' — and the whole severity-filter
+    branch silently never ran, always returning an empty result. The
+    original version of this test built the URL string by hand, and
+    the assertion was weak enough (`levels <= {...}`, true even for an
+    empty set) to pass anyway, so the bug went undetected. Fixed by
+    using `params=` so httpx percent-encodes '+' as '%2B' correctly,
+    and by asserting the filtered result is non-empty and exact."""
     api_module._add_log("info msg", "info")
     api_module._add_log("warn msg", "warn")
     api_module._add_log("err msg", "err")
-    r = client.get("/logs?level=warn+", headers=auth_headers)
+    r = client.get("/logs", headers=auth_headers, params={"level": "warn+"})
     logs = r.json()["logs"]
     levels = {l["level"] for l in logs}
-    assert levels <= {"warn", "err"}
+    assert levels == {"warn", "err"}  # exact match, not just "a subset of"
     assert "info" not in levels
 
 
