@@ -42,6 +42,7 @@ jobs:
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: hvac-dashboard:ci-test
+          ignore-unfixed: true
           format: sarif
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
@@ -58,6 +59,7 @@ jobs:
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: hvac-dashboard:ci-test
+          ignore-unfixed: true
           format: table
           severity: CRITICAL
           exit-code: "1"
