@@ -83,6 +83,13 @@ async def _fetch_sensors(host: str) -> dict:
             "sensor/Air%20Conditioner%20Power%20Usage",
             "sensor/air_conditioner_power_usage",
         ],
+        # ESPHome exposes a switch's current state via GET on its base
+        # path (POST .../turn_on and .../turn_off are actions, not
+        # reads) — same base paths BEEPER_PATHS uses for writes.
+        "beeper": [
+            "switch/Air%20Conditioner%20Beeper",
+            "switch/air_conditioner_beeper",
+        ],
     }
     wifi_paths = [
         "sensor/Air%20Conditioner%20Wi-Fi%20Signal",

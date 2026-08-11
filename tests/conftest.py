@@ -15,7 +15,6 @@ and never make real HTTP calls to physical AC dongles — all device
 network calls go through a mocked httpx client (see mock_httpx below).
 """
 
-import importlib
 import sys
 import pytest
 
