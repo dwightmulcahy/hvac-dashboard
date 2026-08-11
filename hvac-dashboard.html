@@ -468,7 +468,12 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
               </div>
             </div>
             <div style="grid-column:1/-1">
-              <div class="clabel" style="margin-bottom:4px">WATCHTOWER WEBHOOK URL</div>
+              <div class="clabel" style="margin-bottom:4px;display:flex;align-items:center;gap:5px">
+                WATCHTOWER WEBHOOK URL
+                <a href="https://watchtower.nickfedor.com/" target="_blank" rel="noopener"
+                   title="When Watchtower updates this container, it calls this dashboard's own /api/watchtower-notify endpoint. This dashboard then forwards a short summary message to whatever URL you enter here (e.g. a ntfy.sh topic, a Slack/Discord webhook, etc). Click for Watchtower's own setup docs."
+                   style="color:var(--text3);text-decoration:none;font-size:12px;cursor:help">ⓘ</a>
+              </div>
               <input type="text" id="gen-watchtower" class="inp" style="width:100%" placeholder="https://ntfy.sh/topic">
             </div>
             <div style="grid-column:1/-1;border-top:1px solid var(--border);padding-top:14px;margin-top:4px">
@@ -479,9 +484,10 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
                 <input type="file" id="import-file-input" accept=".json" style="display:none" onchange="importConfig(event)">
               </div>
               <div style="font-size:10px;color:var(--text3);margin-top:4px">Exports devices, schedules, and settings. Users and passwords are never included.</div>
+              <div id="gen-last-backup" style="font-size:10px;color:var(--text3);margin-top:4px"></div>
             </div>
           </div>
-          <div style="display:flex;justify-content:flex-end">
+          <div style="display:flex;justify-content:flex-end;position:sticky;bottom:-16px;background:var(--bg2);padding:12px 0 4px;margin-top:4px;border-top:1px solid var(--border)">
             <button class="btn" onclick="saveGeneralSettings()" style="border-color:var(--ok);color:var(--ok)">Save</button>
           </div>
         </div>
@@ -1801,7 +1807,7 @@ function buildTileHTML(d,i){
         </span>
         ${(()=>{const sig=x.wifi_signal?.value??d.state?.wifi_signal;const w=fmtWifi(sig);return sig!=null?(w?`<span>·</span><span title="${w.label}" style="color:${w.color}">${w.bar}</span>`:`<span>·</span><span style="color:var(--text3);font-size:10px">${sig}dBm</span>`):'';})()}
         ${(()=>{const fv=d.firmware_version||(x.esphome_version?.value?.split(' ')[0]);return fv?`<span>·</span><span style="color:var(--text3)" title="ESPHome firmware version">fw ${fv}</span>`:'';})()}
-        ${d.maxTemp!=null?`<span>·</span><span>max <span style="color:${safeFloat(s.current_temperature)>=d.maxTemp?'var(--err)':'var(--text2)'}">${d.maxTemp}°C/${toF(d.maxTemp)}°F</span>${d._maxTempActive?' <span style="color:var(--err)">●</span>':''}</span>`:''}
+        ${d.maxTemp!=null?`<span>·</span><span>max <span style="color:${safeFloat(s.current_temperature)>=d.maxTemp?'var(--err)':'var(--text2)'}">${fmtTemp(d.maxTemp)}</span>${d._maxTempActive?' <span style="color:var(--err)">●</span>':''}</span>`:''}
         ${(()=>{
           if(!d.last_seen)return'';
           const secs=Math.floor((Date.now()-new Date(d.last_seen+'Z').getTime())/1000);
@@ -2271,6 +2277,7 @@ function openSettings(tab){
   selectVoltage(_voltage);
   selectVerbose(gen.verbose||false);
   selectTempUnit(_tempUnit);
+  updateLastBackupDisplay();
   const wtEl=document.getElementById('gen-watchtower');
   if(wtEl)wtEl.value=gen.watchtower||'';
   const nrEl=document.getElementById('gen-nightly-reboot');
@@ -2387,8 +2394,29 @@ function selectTempUnit(unit){
   _tempUnit=unit;
   ['c','f','both'].forEach(u=>{
     const btn=document.getElementById(`gen-unit-${u}`);
-    if(btn)btn.style.borderColor=unit===u?'var(--cool)':'var(--border2)';
+    if(!btn)return;
+    const on=unit===u;
+    btn.style.borderColor=on?'var(--cool)':'var(--border2)';
+    btn.style.background=on?'var(--cool-bg)':'transparent';
+    btn.style.color=on?'var(--cool)':'var(--text)';
   });
+  renderUnits();
+}
+
+function updateLastBackupDisplay(){
+  const el=document.getElementById('gen-last-backup');
+  if(!el)return;
+  const last=localStorage.getItem('hvac_last_export');
+  if(!last){el.textContent='No backup exported yet';return;}
+  const d=new Date(last);
+  const days=Math.floor((Date.now()-d.getTime())/(1000*60*60*24));
+  const dateStr=d.toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});
+  let rel;
+  if(days<=0)rel='today';
+  else if(days===1)rel='1 day ago';
+  else rel=`${days} days ago`;
+  el.textContent=`Last backup: ${dateStr} (${rel})`;
+  el.style.color=days>=14?'var(--warn)':'var(--text3)';
 }
 
 async function exportConfig(){
@@ -2406,6 +2434,7 @@ async function exportConfig(){
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     localStorage.setItem('hvac_last_export',new Date().toISOString());
+    updateLastBackupDisplay();
     addLog('Config exported','ok');
     showToast('Config exported','ok');
   }catch(e){addLog('Export failed: '+e.message,'err');showToast('Export failed','err');}
@@ -2454,8 +2483,18 @@ async function importConfig(event){
 
 function selectVoltage(v){
   _voltage=v;
-  document.getElementById('gen-v120').style.borderColor=v===120?'var(--cool)':'var(--border2)';
-  document.getElementById('gen-v240').style.borderColor=v===240?'var(--cool)':'var(--border2)';
+  const b120=document.getElementById('gen-v120');
+  const b240=document.getElementById('gen-v240');
+  if(b120){
+    b120.style.borderColor=v===120?'var(--cool)':'var(--border2)';
+    b120.style.background=v===120?'var(--cool-bg)':'transparent';
+    b120.style.color=v===120?'var(--cool)':'var(--text)';
+  }
+  if(b240){
+    b240.style.borderColor=v===240?'var(--cool)':'var(--border2)';
+    b240.style.background=v===240?'var(--cool-bg)':'transparent';
+    b240.style.color=v===240?'var(--cool)':'var(--text)';
+  }
 }
 
 let _voltage=(()=>{try{return JSON.parse(localStorage.getItem('hvac_general')||'{}').voltage||120;}catch(_){return 120;}})();
@@ -2463,8 +2502,16 @@ let _voltage=(()=>{try{return JSON.parse(localStorage.getItem('hvac_general')||'
 function updateThemeBtns(){
   const dark=document.getElementById('gen-theme-dark');
   const light=document.getElementById('gen-theme-light');
-  if(dark)dark.style.borderColor=_theme==='dark'?'var(--cool)':'var(--border2)';
-  if(light)light.style.borderColor=_theme==='light'?'var(--cool)':'var(--border2)';
+  if(dark){
+    dark.style.borderColor=_theme==='dark'?'var(--cool)':'var(--border2)';
+    dark.style.background=_theme==='dark'?'var(--cool-bg)':'transparent';
+    dark.style.color=_theme==='dark'?'var(--cool)':'var(--text)';
+  }
+  if(light){
+    light.style.borderColor=_theme==='light'?'var(--cool)':'var(--border2)';
+    light.style.background=_theme==='light'?'var(--cool-bg)':'transparent';
+    light.style.color=_theme==='light'?'var(--cool)':'var(--text)';
+  }
 }
 
 // general settings storage
