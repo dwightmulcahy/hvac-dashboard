@@ -59,14 +59,19 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # ignore-unfixed: don't fail on CVEs Debian hasn't shipped a
+      # patch for yet — most base-image OS-package vulnerabilities
+      # fall in this bucket, and there's nothing we can do about them
+      # until upstream releases a fix. Failing on unfixable CVEs just
+      # blocks every release indefinitely for no actionable reason.
       - name: Scan release image for vulnerabilities (Trivy)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: hvac-dashboard:release-scan
-          ignore-unfixed: true
           format: sarif
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
+          ignore-unfixed: true
           exit-code: "0"
 
       - name: Upload Trivy scan results to Security tab
@@ -85,9 +90,9 @@ jobs:
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: hvac-dashboard:release-scan
-          ignore-unfixed: true
           format: table
           severity: CRITICAL,HIGH
+          ignore-unfixed: true
           exit-code: "1"
 
       - name: Build and push Docker image
