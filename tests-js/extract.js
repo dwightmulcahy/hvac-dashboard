@@ -98,6 +98,8 @@ const REGIONS = [
   "day-names",
   "schedule-fmt",
   "fmt-hours",
+  "fmt-ago",
+  "select-temp-unit",
 ];
 
 /**
@@ -147,6 +149,22 @@ function loadDashboardFunctions() {
   // expose _tempUnit as a mutable sandbox property so tests can flip
   // between 'C'/'F'/'both' the same way the dashboard's own toggle does
   sandbox._tempUnit = "both";
+
+  // minimal DOM stub: selectTempUnit() reads/writes button styles via
+  // document.getElementById(...).style.*, and calls renderUnits() as
+  // a side effect (a big function with its own device-state/DOM
+  // dependencies we don't want to drag in here — it's stubbed out
+  // since it isn't what this test file is verifying). _buttons is
+  // exposed on the returned object so tests can inspect what
+  // selectTempUnit actually set on each button.
+  sandbox._buttons = {};
+  sandbox.document = {
+    getElementById(id) {
+      if (!sandbox._buttons[id]) sandbox._buttons[id] = { style: {} };
+      return sandbox._buttons[id];
+    },
+  };
+  sandbox.renderUnits = () => {};
 
   vm.createContext(sandbox);
   vm.runInContext(combined, sandbox, { filename: "hvac-dashboard.html (extracted)" });
