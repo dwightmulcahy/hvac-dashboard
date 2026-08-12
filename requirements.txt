@@ -1,5 +1,14 @@
 fastapi>=0.110.0
-pydantic>=2.13.4
-uvicorn>=0.52.1
+pydantic>=2.6.0
+uvicorn>=0.29.0
 httpx>=0.27.0
-python-multipart>=0.0.32
+python-multipart>=0.0.9
+
+# Not used directly — pulled in transitively by the packages above.
+# Pinned explicitly to force pip's resolver to a safe floor,
+# regardless of the loose lower bound any transitive dependency
+# declares, closing known CVEs flagged by the Trivy scan in CI:
+#   msgpack    < 1.2.1  — GHSA-6v7p-g79w-8964 (out-of-bounds read/crash)
+#   setuptools < 78.1.1 — CVE-2025-47273 (path traversal in PackageIndex)
+msgpack>=1.2.1
+setuptools>=78.1.1

@@ -45,6 +45,22 @@ jobs:
       # first purely to scan and gate on. The layer cache is shared
       # with the real multi-arch build below, so this doesn't roughly
       # double the total build time — most layers are reused.
+      #
+      # provenance/sbom are explicitly disabled here (and ONLY here —
+      # the real published build below keeps them, since attestations
+      # are a genuine supply-chain security feature worth having on
+      # what actually ships). Docker's docs say attestations aren't
+      # added when load:true is used, but buildx's actual behavior
+      # around this has been inconsistent across versions in practice
+      # (see docker/buildx#1608, docker/build-push-action#795) — we
+      # hit exactly this symptom: Trivy warned "Third-party SBOM may
+      # lead to inaccurate vulnerability detection" and then reported
+      # stale package versions (msgpack 1.1.2, setuptools 70.3.0) even
+      # though the actual installed files in the image were already
+      # correctly upgraded (msgpack 1.2.1, setuptools 84.0.0, verified
+      # in Trivy's own per-file breakdown of the same scan). Disabling
+      # both explicitly removes whatever buildx was attaching that
+      # Trivy was preferring over its own filesystem scan.
       - name: Build image for security scan (amd64 only)
         uses: docker/build-push-action@v5
         with:
@@ -52,6 +68,8 @@ jobs:
           platforms: linux/amd64
           push: false
           load: true
+          provenance: false
+          sbom: false
           tags: hvac-dashboard:release-scan
           build-args: |
             APP_VERSION=${{ steps.version.outputs.version }}

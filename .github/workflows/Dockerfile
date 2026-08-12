@@ -23,41 +23,14 @@ COPY requirements.txt /tmp/requirements.txt
 # part of the base image's Python install, not via requirements.txt,
 # so pinning a safe version there alone isn't enough on its own
 RUN pip install --upgrade pip setuptools wheel --no-cache-dir && \
-    pip install -r /tmp/requirements.txt --no-cache-dir && \
-    # The diagnostic step below (run once already) confirmed two
-    # specific stale copies Trivy keeps flagging, neither reachable
-    # through a normal pip/apt upgrade:
-    #
-    # 1. /usr/lib/python3/dist-packages/setuptools — a separate,
-    #    apt-managed Debian copy at the OLD vulnerable version,
-    #    distinct from the clean pip-managed one above.
-    #    --no-install-recommends didn't remove it, which means
-    #    whatever apt package needs setuptools declares it as a hard
-    #    Depends (not a Recommends) — so `apt purge` would risk
-    #    cascade-removing that package too. A direct filesystem
-    #    delete is safe here: nothing at container runtime imports
-    #    from apt's dist-packages tree, only from pip's site-packages.
-    #
-    # 2. .../pip/_vendor/msgpack — pip vendors its own internal copy
-    #    of msgpack for pip's own use, completely separate from (and
-    #    invisible to) the msgpack we install via requirements.txt.
-    #    `pip install --upgrade msgpack` can never touch this, since
-    #    it's bundled inside pip's own package rather than a normal
-    #    top-level dependency. pip itself is a build-time tool only —
-    #    nothing at runtime calls it — so instead of trying to patch
-    #    pip's internals (risky: pip's own code depends on that
-    #    vendored copy), we remove pip entirely once it's done its
-    #    job. A raw file delete is used rather than `pip uninstall
-    #    pip`, which has known self-referential edge cases.
-    rm -rf /usr/lib/python3/dist-packages/setuptools \
-           /usr/local/lib/python3.12/site-packages/pip \
-           /usr/local/lib/python3.12/site-packages/pip-*.dist-info \
-           /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.12
+    pip install -r /tmp/requirements.txt --no-cache-dir
 
 # Diagnostic (temporary): print every remaining copy of setuptools/
-# msgpack found anywhere in the image, to confirm the fix above
-# actually cleared both stale copies found in the previous build.
-# Safe to remove once the Trivy scan is confirmed clean.
+# msgpack found anywhere in the image. If a vulnerable copy is still
+# present after the --no-install-recommends fix above, this tells us
+# exactly where it lives in the next CI build log, instead of another
+# guess-and-check round trip. Safe to remove once the Trivy scan is
+# confirmed clean.
 RUN echo "=== setuptools/msgpack locations in final image ===" && \
     find / -xdev \( -iname "*setuptools*" -o -iname "*msgpack*" \) 2>/dev/null | grep -v '^/proc' || true
 

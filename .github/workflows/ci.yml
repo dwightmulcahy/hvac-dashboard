@@ -17,23 +17,31 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@v3
 
+      # provenance/sbom disabled — this build is scan-only (never
+      # pushed), and buildx's attestation behavior with load:true has
+      # proven inconsistent across versions in practice, causing Trivy
+      # to sometimes prefer a stale attached SBOM over its own direct
+      # filesystem scan. See docker-release.yml's equivalent step for
+      # the full writeup of the exact symptom this fixes.
       - name: Test Docker build
         uses: docker/build-push-action@v5
         with:
           context: .
           push: false
           load: true
+          provenance: false
+          sbom: false
           tags: hvac-dashboard:ci-test
           cache-from: type=gha
           cache-to: type=gha,mode=max
