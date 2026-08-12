@@ -26,7 +26,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Header, Request
 from fastapi.responses import JSONResponse
 
-from state import _state, _lock, _save_raw, _add_log, _utcnow
+from state import _state, _lock, _save_raw, _add_log, _utcnow, _now_iso
 
 # ── Roles ─────────────────────────────────────────────────
 
@@ -249,6 +249,9 @@ async def login(data: dict, request: Request):
         raise HTTPException(status_code=401, detail=detail)
 
     _clear_login_failures(username, client_ip)
+    user["last_login"] = _now_iso()
+    async with _lock:
+        _save_raw(_state)
     token = _create_token(username, user["role"])
     return {
         "ok": True,
@@ -292,7 +295,11 @@ async def change_password(data: dict, authorization: Optional[str] = Header(None
 async def list_users(authorization: Optional[str] = Header(None)):
     _require_role("admin", authorization)
     return {"users": [
-        {"username": u, "role": v["role"], "must_change_password": v.get("must_change_password", False)}
+        {
+            "username": u, "role": v["role"],
+            "must_change_password": v.get("must_change_password", False),
+            "last_login": v.get("last_login"),
+        }
         for u, v in _state["users"].items()
     ]}
 

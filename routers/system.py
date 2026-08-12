@@ -182,9 +182,11 @@ async def watchtower_notify(data: dict):
 
 @router.get("/")
 async def root():
+    git_sha = os.environ.get("GIT_SHA", "unknown")
     return {"status": "ok", "service": "HVAC Automation API",
             "version": os.environ.get("APP_VERSION", "dev"),
             "build": os.environ.get("BUILD_DATE", ""),
+            "git_sha": git_sha[:7] if git_sha != "unknown" else git_sha,
             "devices": len(_state["devices"]), "schedules": len(_state["schedules"])}
 
 

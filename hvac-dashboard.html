@@ -157,7 +157,7 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
       </div>
       <div style="margin-bottom:12px">
         <span style="color:var(--text3)">Developer</span><br>
-        dWiGhT Mulcahy
+        dWiGhT Mulcahy · <a href="mailto:dWiGhT.Codes@gmail.com" style="color:var(--cool);text-decoration:none">dWiGhT.Codes@gmail.com</a>
       </div>
       <div style="margin-bottom:12px">
         <span style="color:var(--text3)">Hardware</span><br>
@@ -801,6 +801,7 @@ async function renderUsersTab(){
   const thead=document.createElement('thead');
   thead.innerHTML='<tr><th style="text-align:left;padding:6px 0;border-bottom:1px solid var(--border)">Username</th>'
     +'<th style="text-align:left;padding:6px 0;border-bottom:1px solid var(--border)">Role</th>'
+    +'<th style="text-align:left;padding:6px 0;border-bottom:1px solid var(--border)">Last Login</th>'
     +'<th style="padding:6px 0;border-bottom:1px solid var(--border)"></th></tr>';
   table.appendChild(thead);
   const tbody=document.createElement('tbody');
@@ -818,6 +819,10 @@ async function renderUsersTab(){
     ROLE_OPTIONS.forEach(function(ro){const opt=document.createElement('option');opt.value=ro;opt.textContent=ro;if(ro===u.role)opt.selected=true;sel.appendChild(opt);});
     sel.onchange=function(){changeUserRole(u.username,this.value);};
     td2.appendChild(sel);tr.appendChild(td2);
+    // last login cell
+    const td4=document.createElement('td');td4.style.cssText='padding:8px 0;color:var(--text3);font-size:11px';
+    td4.textContent=u.last_login?fmtAgo(u.last_login):'Never';
+    tr.appendChild(td4);
     // actions cell
     const td3=document.createElement('td');td3.style.cssText='padding:8px 0;text-align:right;display:flex;gap:4px;justify-content:flex-end';
     const resetBtn=document.createElement('button');resetBtn.className='btn';
@@ -2155,15 +2160,19 @@ async function rebootDongle(){
   if(rebootBtn)rebootBtn.disabled=false;
 }
 
+// ── TESTABLE:fmt-ago:start ──
 function fmtAgo(isoStr){
   if(!isoStr)return'—';
   try{
     const secs=Math.floor((Date.now()-new Date(isoStr+'Z').getTime())/1000);
+    if(Number.isNaN(secs))return'—';
     if(secs<60)return`${secs}s ago`;
     if(secs<3600)return`${Math.floor(secs/60)}m ago`;
-    return`${Math.floor(secs/3600)}h ago`;
+    if(secs<86400)return`${Math.floor(secs/3600)}h ago`;
+    return`${Math.floor(secs/86400)}d ago`;
   }catch(_){return'—';}
 }
+// ── TESTABLE:fmt-ago:end ──
 
 
 
@@ -2390,18 +2399,24 @@ function selectVerbose(on){
 
 let _tempUnit=(()=>{try{return JSON.parse(localStorage.getItem('hvac_general')||'{}').tempUnit||'both';}catch(_){return'both';}})();
 
+// ── TESTABLE:select-temp-unit:start ──
 function selectTempUnit(unit){
   _tempUnit=unit;
+  // button id suffixes are lowercase ('gen-unit-c'/'gen-unit-f'/'gen-unit-both')
+  // but _tempUnit's actual values are 'C'/'F'/'both' — compare case-insensitively
+  // so C and F highlight correctly, not just 'both' (which happened to already
+  // be lowercase and match by coincidence).
   ['c','f','both'].forEach(u=>{
     const btn=document.getElementById(`gen-unit-${u}`);
     if(!btn)return;
-    const on=unit===u;
+    const on=unit.toLowerCase()===u;
     btn.style.borderColor=on?'var(--cool)':'var(--border2)';
     btn.style.background=on?'var(--cool-bg)':'transparent';
     btn.style.color=on?'var(--cool)':'var(--text)';
   });
   renderUnits();
 }
+// ── TESTABLE:select-temp-unit:end ──
 
 function updateLastBackupDisplay(){
   const el=document.getElementById('gen-last-backup');
@@ -2548,7 +2563,7 @@ function renderTierInputs(){
       <span style="color:var(--text3)">≤</span>
       <input type="number" class="inp" id="rt-upto-${i}" value="${t.upTo===999999?'':t.upTo}" ${t.upTo===999999?'disabled placeholder="∞"':''} style="width:60px">
       <span style="color:var(--text3)">kWh @</span>
-      <input type="number" class="inp" id="rt-rate-${i}" value="${t.colonesPerKwh}" style="width:60px">
+      <input type="number" class="inp" id="rt-rate-${i}" value="${t.colonesPerKwh}" style="width:78px">
       <span style="color:var(--text3)">₡/kWh</span>
     </div>
   `).join('');
@@ -2997,7 +3012,8 @@ async function checkApiStatus(){
       const el=document.getElementById('about-version');
       if(el){
         const build=d.build?` (build ${d.build})`:'';
-        el.textContent=`${d.version||''}${build}`;
+        const sha=d.git_sha&&d.git_sha!=='unknown'?` · ${d.git_sha}`:'';
+        el.textContent=`${d.version||''}${build}${sha}`;
       }
       // check if dashboard is out of date with API version
       const apiVer=d.version||'';

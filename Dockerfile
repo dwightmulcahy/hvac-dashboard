@@ -3,6 +3,7 @@ FROM python:3.14-slim
 # Build args — injected by GitHub Actions from git tag
 ARG APP_VERSION=dev
 ARG BUILD_DATE=unknown
+ARG GIT_SHA=unknown
 
 # Install nginx, supervisor, curl
 RUN apt-get update && apt-get install -y nginx supervisor curl && \
@@ -36,6 +37,7 @@ RUN chown -R www-data:www-data /var/www/html && chmod -R 755 /var/www/html
 # Expose version at runtime
 ENV APP_VERSION=${APP_VERSION}
 ENV BUILD_DATE=${BUILD_DATE}
+ENV GIT_SHA=${GIT_SHA}
 
 EXPOSE 80
 
