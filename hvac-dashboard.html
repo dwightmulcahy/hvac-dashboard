@@ -282,8 +282,9 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
     <p style="font-size:12px;color:var(--text2);margin:0 0 14px">All units will be turned off and schedules paused.</p>
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
       <div class="clabel" style="margin:0;white-space:nowrap">MAX TEMP</div>
-      <input type="number" id="vac-max-temp" class="inp" style="width:70px" min="25" max="40" value="32">
-      <span style="font-size:11px;color:var(--text3)">°C</span>
+      <input type="number" id="vac-max-temp" class="inp" style="width:70px" min="25" max="40" value="32"
+        oninput="this.dataset.celsius=tempFromDisplayUnit(this.value)">
+      <span id="vac-max-temp-unit" style="font-size:11px;color:var(--text3)">°C</span>
     </div>
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:18px">
       <div class="clabel" style="margin:0;white-space:nowrap">AUTO-END</div>
@@ -448,8 +449,9 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
             <div>
               <div class="clabel" style="margin-bottom:4px">VACATION MAX TEMP</div>
               <div style="display:flex;align-items:center;gap:6px">
-                <input type="number" id="gen-vacation-temp" class="inp" style="width:70px" min="25" max="40" value="32">
-                <span style="color:var(--text3);font-size:11px">°C</span>
+                <input type="number" id="gen-vacation-temp" class="inp" style="width:70px" min="25" max="40" value="32"
+                  oninput="this.dataset.celsius=tempFromDisplayUnit(this.value)">
+                <span id="gen-vacation-temp-unit" style="color:var(--text3);font-size:11px">°C</span>
               </div>
             </div>
             <div style="grid-column:1/-1">
@@ -576,7 +578,8 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
       <div style="display:flex;align-items:center;gap:8px;font-size:13px">
         <input type="checkbox" id="sch-temp-en">
         <label for="sch-temp-en">Temp</label>
-        <input type="number" id="sch-temp" class="inp" min="17" max="30" value="24" style="width:66px;margin-left:4px"> °C
+        <input type="number" id="sch-temp" class="inp" min="17" max="30" value="24" style="width:66px;margin-left:4px"
+          oninput="this.dataset.celsius=tempFromDisplayUnit(this.value)"> <span id="sch-temp-unit">°C</span>
       </div>
     </div>
 
@@ -987,9 +990,8 @@ function toggleVacationMode(){
   if(!vacationMode){
     // show confirmation dialog with options
     const gen=JSON.parse(localStorage.getItem('hvac_general')||'{}');
-    const vacTempEl=document.getElementById('vac-max-temp');
+    populateTempInput('vac-max-temp','vac-max-temp-unit',gen.vacTemp||32,25,40);
     const vacDaysEl=document.getElementById('vac-days');
-    if(vacTempEl)vacTempEl.value=gen.vacTemp||32;
     if(vacDaysEl)vacDaysEl.value=gen.vacDays||14;
     document.getElementById('vacation-modal').style.display='flex';
   }else{
@@ -999,7 +1001,7 @@ function toggleVacationMode(){
 
 async function confirmVacationOn(){
   document.getElementById('vacation-modal').style.display='none';
-  const maxTemp=+document.getElementById('vac-max-temp').value||32;
+  const maxTemp=tempFromDisplayUnit(document.getElementById('vac-max-temp').value)||32;
   const days=+document.getElementById('vac-days').value||0;
   // update settings first
   await fetch(`${API}/settings`,{method:'PUT',headers:{'Content-Type':'application/json'},
@@ -1223,6 +1225,7 @@ function estWatts(state,extras,btu,seer){
 }
 
 function toF(c){const n=safeFloat(c);return n!=null?Math.round(n*9/5+32):null;}
+function toC(f){const n=safeFloat(f);return n!=null?Math.round((n-32)*5/9):null;}
 function fmtTemp(c){
   const n=safeFloat(c);if(n==null)return'—';
   if(_tempUnit==='F')return`${toF(n)}°F`;
@@ -1230,6 +1233,26 @@ function fmtTemp(c){
   return`${n.toFixed(1)}°C<br><span style="color:var(--text3);font-size:10px;font-weight:400">${toF(n)}°F</span>`;
 }
 function fmtCF(c){return`<span>${fmtTemp(c)}</span>`;}
+
+// ── Editable temp input helpers ──
+// Unlike fmtTemp() (read-only display), these back editable number
+// inputs (vacation max temp, schedule temp, device max temp) that
+// need to show/accept values in whatever unit is currently selected,
+// while always storing/sending the canonical Celsius value. 'both'
+// mode shows Celsius for these — a single editable number field can't
+// show two units at once, so Celsius (the canonical storage unit) is
+// the least-surprising default.
+function tempUnitLabel(){return _tempUnit==='F'?'°F':'°C';}
+function tempToDisplayUnit(celsius){
+  const n=safeFloat(celsius);
+  if(n==null)return'';
+  return _tempUnit==='F'?toF(n):n;
+}
+function tempFromDisplayUnit(raw){
+  const n=safeFloat(raw);
+  if(n==null)return null;
+  return _tempUnit==='F'?toC(n):n;
+}
 // ── TESTABLE:watts-temp:end ──
 
 async function withBusy(i,fn){
@@ -1596,7 +1619,7 @@ function renderIPList(){
     <div>Host / IP</div>
     <div>BTU</div>
     <div>SEER</div>
-    <div>Max°C</div>
+    <div>Max${tempUnitLabel()}</div>
   </div>`;
   document.getElementById('ip-list').innerHTML=header+devices.map((d,i)=>`
     <div class="irow" data-orig-host="${d.host}" data-idx="${i}" draggable="true"
@@ -1615,9 +1638,9 @@ function renderIPList(){
       <select class="inp" onchange="devices[${i}].seer=+this.value;saveDeviceToAPI(devices[${i}])" style="width:100%;font-size:12px">
         ${SEER_OPTIONS.map(s=>`<option value="${s}" ${(d.seer||20)===s?'selected':''}>${s}</option>`).join('')}
       </select>
-      <input type="number" class="inp" value="${d.maxTemp||''}" placeholder="—" min="17" max="35"
-        title="Auto-on if room exceeds this °C while off"
-        onchange="devices[${i}].maxTemp=this.value?+this.value:null;saveDeviceToAPI(devices[${i}])"
+      <input type="number" class="inp" value="${d.maxTemp!=null?tempToDisplayUnit(d.maxTemp):''}" placeholder="—" min="${tempToDisplayUnit(17)}" max="${tempToDisplayUnit(35)}"
+        title="Auto-on if room exceeds this ${tempUnitLabel()} while off"
+        onchange="devices[${i}].maxTemp=this.value?tempFromDisplayUnit(this.value):null;saveDeviceToAPI(devices[${i}])"
         style="width:100%;font-size:12px">
       <div style="display:flex;gap:3px;flex-shrink:0">
         <button class="btn bico" id="save-btn-${i}" onclick="saveDeviceRow(${i})" title="Save"
@@ -2278,7 +2301,7 @@ function openSettings(tab){
   const watchdogEl=document.getElementById('gen-watchdog');
   if(watchdogEl)watchdogEl.value=gen.watchdog||5;
   const vacEl=document.getElementById('gen-vacation-temp');
-  if(vacEl)vacEl.value=gen.vacTemp||32;
+  if(vacEl)populateTempInput('gen-vacation-temp','gen-vacation-temp-unit',gen.vacTemp||32,25,40);
   const gsEl=document.getElementById('gen-guard-start');
   if(gsEl)gsEl.value=`${String(gen.guardStart||8).padStart(2,'0')}:00`;
   const geEl=document.getElementById('gen-guard-end');
@@ -2368,7 +2391,7 @@ function saveGeneralSettings(){
   const poll=+document.getElementById('gen-poll').value||60;
   const seer=+document.getElementById('gen-seer').value||20;
   const watchdog=+document.getElementById('gen-watchdog').value||5;
-  const vacTemp=+document.getElementById('gen-vacation-temp').value||32;
+  const vacTemp=tempFromDisplayUnit(document.getElementById('gen-vacation-temp').value)||32;
   const guardStartVal=document.getElementById('gen-guard-start')?.value||'08:00';
   const guardEndVal=document.getElementById('gen-guard-end')?.value||'22:00';
   const guardStart=parseInt(guardStartVal.split(':')[0])||8;
@@ -2415,8 +2438,58 @@ function selectTempUnit(unit){
     btn.style.color=on?'var(--cool)':'var(--text)';
   });
   renderUnits();
+  refreshVisibleTempInputs();
 }
 // ── TESTABLE:select-temp-unit:end ──
+
+// Populates one of the editable temp input fields from a known
+// canonical Celsius value — used when a modal first opens, before
+// the user has typed anything. Sets data-celsius (the source of
+// truth refreshVisibleTempInputs reads from later), the displayed
+// value, min/max, and the unit label, all in the currently selected
+// display unit.
+function populateTempInput(inputId, labelId, celsius, minC, maxC){
+  const input=document.getElementById(inputId);
+  if(!input)return;
+  input.dataset.celsius=celsius!=null?celsius:'';
+  input.value=celsius!=null?tempToDisplayUnit(celsius):'';
+  if(minC!=null)input.min=tempToDisplayUnit(minC);
+  if(maxC!=null)input.max=tempToDisplayUnit(maxC);
+  const label=document.getElementById(labelId);
+  if(label)label.textContent=tempUnitLabel();
+}
+
+// Re-renders every editable temp input field (vacation max temp in
+// both the confirm modal and Settings General, and the schedule
+// modal's target temp) from its stored canonical Celsius value
+// whenever the display unit changes — so switching C/F/Both live-
+// updates any of these fields if they happen to be open at the time,
+// not just on next open. Reads from each field's data-celsius
+// attribute (kept in sync on every keystroke via oninput handlers)
+// rather than re-deriving Celsius from whatever's currently
+// displayed, which would compound rounding error across repeated
+// unit switches. Not part of the TESTABLE region above — like
+// renderUnits() and updateLastBackupDisplay(), this is DOM
+// orchestration rather than logic worth isolating for unit tests.
+function refreshVisibleTempInputs(){
+  [
+    ['vac-max-temp', 'vac-max-temp-unit', 25, 40],
+    ['gen-vacation-temp', 'gen-vacation-temp-unit', 25, 40],
+    ['sch-temp', 'sch-temp-unit', 17, 30],
+  ].forEach(([inputId, labelId, minC, maxC])=>{
+    const input=document.getElementById(inputId);
+    if(!input)return;
+    const celsius=input.dataset.celsius!==undefined&&input.dataset.celsius!==''
+      ?safeFloat(input.dataset.celsius):safeFloat(input.value);
+    if(celsius==null)return;
+    input.dataset.celsius=celsius;
+    input.value=tempToDisplayUnit(celsius);
+    input.min=tempToDisplayUnit(minC);
+    input.max=tempToDisplayUnit(maxC);
+    const label=document.getElementById(labelId);
+    if(label)label.textContent=tempUnitLabel();
+  });
+}
 
 function updateLastBackupDisplay(){
   const el=document.getElementById('gen-last-backup');
@@ -2677,12 +2750,13 @@ function openScheduleModal(idx=null){
     const endEn=document.getElementById('sch-end-en');if(endEn)endEn.checked=hasEnd;
     const endRow=document.getElementById('sch-end-row');if(endRow)endRow.style.display=hasEnd?'flex':'none';
     const endTime=document.getElementById('sch-end-time');if(endTime&&hasEnd)endTime.value=s.end_time;
-    const tp=document.getElementById('sch-temp');if(tp)tp.value=s.temp||24;
+    const tp=document.getElementById('sch-temp');if(tp)populateTempInput('sch-temp','sch-temp-unit',s.temp||24,17,30);
   }else{
     setTimePicker('07:00');
     ['sch-power-en','sch-mode-en','sch-temp-en','sch-end-en'].forEach(id=>{
       const el=document.getElementById(id);if(el)el.checked=false;
     });
+    populateTempInput('sch-temp','sch-temp-unit',24,17,30);
     const endRow=document.getElementById('sch-end-row');if(endRow)endRow.style.display='none';
   }
   modal.style.display='flex';
@@ -2714,7 +2788,7 @@ function saveSchedule(){
     end_time:endTime||null,
     power:powerEn?document.getElementById('sch-power').value:null,
     mode:modeEn?document.getElementById('sch-mode').value:null,
-    temp:tempEn?+document.getElementById('sch-temp').value:null,
+    temp:tempEn?tempFromDisplayUnit(document.getElementById('sch-temp').value):null,
     enabled:editSchIdx!==null?schedules[editSchIdx].enabled:true,
   };
   // send to API
