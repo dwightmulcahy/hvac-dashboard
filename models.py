@@ -18,6 +18,7 @@ class DeviceConfig(BaseModel):
     watchdog_minutes: int = 5
     lock_temp: bool = False
     locked_target_temp: Optional[float] = None
+    has_ir_emitter: bool = False
 
 
 class CommandPayload(BaseModel):

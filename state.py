@@ -80,6 +80,7 @@ DEVICE_DEFAULTS = {
     "watchdog_minutes": 5,
     "lock_temp": False,
     "locked_target_temp": None,
+    "has_ir_emitter": False,  # gates IR-dependent features (display toggle, etc.) — most units don't have one soldered on
     "_max_temp_active": False,
     "_pre_autocool_mode": None,
     "_pre_autocool_temp": None,

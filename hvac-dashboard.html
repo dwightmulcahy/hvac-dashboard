@@ -950,7 +950,8 @@ async function saveDeviceToAPI(d){
       method:'PUT',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({host:d.host,name:d.name,btu:d.btu||24000,seer:d.seer||20,
         max_temp:d.maxTemp||null,beeper:d.beeper||'OFF',watchdog_minutes:d.watchdog_minutes||5,
-        lock_temp:d.lock_temp||false,locked_target_temp:d.locked_target_temp||null})
+        lock_temp:d.lock_temp||false,locked_target_temp:d.locked_target_temp||null,
+        has_ir_emitter:d.has_ir_emitter||false})
     });
   }catch(_){}
 }
@@ -1613,18 +1614,19 @@ function removeDevice(i){
 }
 
 function renderIPList(){
-  const header=`<div style="display:grid;grid-template-columns:20px 95px minmax(160px,1fr) 58px 58px 70px;gap:6px;align-items:center;padding:0 0 6px 0;border-bottom:1px solid var(--border);margin-bottom:2px;font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;font-weight:500;letter-spacing:.04em">
+  const header=`<div style="display:grid;grid-template-columns:20px 95px minmax(160px,1fr) 58px 58px 70px 34px auto;gap:6px;align-items:center;padding:0 0 6px 0;border-bottom:1px solid var(--border);margin-bottom:2px;font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;font-weight:500;letter-spacing:.04em">
     <div></div>
     <div>Name</div>
     <div>Host / IP</div>
     <div>BTU</div>
     <div>SEER</div>
     <div>Max${tempUnitLabel()}</div>
+    <div title="Has IR emitter — unlocks display toggle and swing step on the tile">IR</div>
   </div>`;
   document.getElementById('ip-list').innerHTML=header+devices.map((d,i)=>`
     <div class="irow" data-orig-host="${d.host}" data-idx="${i}" draggable="true"
       ondragstart="dragStart(event,${i})" ondragover="dragOver(event)" ondrop="dragDrop(event,${i})" ondragend="dragEnd(event)"
-      style="display:grid;grid-template-columns:20px 95px minmax(160px,1fr) 58px 58px 70px auto;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);position:relative">
+      style="display:grid;grid-template-columns:20px 95px minmax(160px,1fr) 58px 58px 70px 34px auto;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);position:relative">
       <span title="Drag to reorder" style="cursor:grab;color:var(--text3);font-size:14px;user-select:none;text-align:center">⠿</span>
       <input class="inp" value="${d.name==='New unit'?'':d.name}" placeholder="Name"
         oninput="devices[${i}].name=this.value;setDeviceDirty(${i})"
@@ -1642,6 +1644,9 @@ function renderIPList(){
         title="Auto-on if room exceeds this ${tempUnitLabel()} while off"
         onchange="devices[${i}].maxTemp=this.value?tempFromDisplayUnit(this.value):null;saveDeviceToAPI(devices[${i}])"
         style="width:100%;font-size:12px">
+      <input type="checkbox" ${d.has_ir_emitter?'checked':''} onchange="toggleHasIrEmitter(${i})"
+        title="Has IR emitter — unlocks display toggle and swing step on the tile"
+        style="width:16px;height:16px;cursor:pointer;justify-self:center">
       <div style="display:flex;gap:3px;flex-shrink:0">
         <button class="btn bico" id="save-btn-${i}" onclick="saveDeviceRow(${i})" title="Save"
           style="color:var(--text3);cursor:not-allowed" disabled>✓</button>
@@ -1705,7 +1710,9 @@ async function saveDeviceRow(i){
 
   const payload={host:d.host,name:d.name,btu:d.btu||24000,
     seer:d.seer||20,max_temp:d.maxTemp||null,
-    beeper:d.beeper||'OFF',watchdog_minutes:d.watchdog_minutes||5};
+    beeper:d.beeper||'OFF',watchdog_minutes:d.watchdog_minutes||5,
+    lock_temp:d.lock_temp||false,locked_target_temp:d.locked_target_temp||null,
+    has_ir_emitter:d.has_ir_emitter||false};
 
   try{
     if(hostChanged){
@@ -1814,6 +1821,8 @@ function buildTileHTML(d,i){
           ${readOnly?(x.beeper!==undefined?`<span style="font-size:11px;opacity:0.5">${x.beeper?.value==='ON'?'🔔':'🔕'}</span>`:''):(x.beeper!==undefined?`<button class="beeper ${x.beeper?.value==='ON'?'on':''}" onclick="toggleBeeper(${i})" ${busyOrRO} style="font-size:11px;padding:0 7px;height:24px;border-radius:7px">🔔</button>`:'')}
           ${readOnly?`<span style="font-size:12px;opacity:0.5">${d.lock_temp?'🔒':'🔓'}</span>`:`<button onclick="toggleLockTemp(${i})" title="${d.lock_temp?'Locked at '+d.locked_target_temp+'°C — click to unlock':'Click to lock temp at current setpoint'}"
             style="width:24px;height:24px;border-radius:7px;border:1px solid ${d.lock_temp?'var(--warn)':'var(--border)'};background:transparent;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;color:${d.lock_temp?'var(--warn)':'var(--text3)'}">${d.lock_temp?'🔒':'🔓'}</button>`}
+          ${d.has_ir_emitter?(readOnly?`<span style="font-size:11px;opacity:0.5" title="Toggle display">🖥</span>`:`<button class="btn bico" onclick="triggerDisplayToggle(${i})" title="Toggle display" style="width:24px;height:24px;font-size:11px">🖥</button>`):''}
+          ${d.has_ir_emitter?(readOnly?`<span style="font-size:11px;opacity:0.5" title="Swing step">↕</span>`:`<button class="btn bico" onclick="triggerSwingStep(${i})" title="Swing step" style="width:24px;height:24px;font-size:11px">↕</button>`):''}
           ${readOnly?`<span class="pbtn ${on?'on':'off'}" style="width:24px;height:24px;opacity:0.6;display:flex;align-items:center;justify-content:center">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18.36 6.64A9 9 0 1 1 5.64 6.64"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
           </span>`:`<button class="pbtn ${on?'on':'off'}" onclick="togglePower(${i})" ${busy?'disabled':''} style="width:24px;height:24px">
@@ -2022,7 +2031,9 @@ function resetOnTime(i){
   fetch(`${API}/devices/${encodeURIComponent(d.host)}`,{
     method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({host:d.host,name:d.name,btu:d.btu||24000,seer:d.seer||20,
-      max_temp:d.maxTemp||null,beeper:d.beeper||'OFF',watchdog_minutes:d.watchdog_minutes||5})
+      max_temp:d.maxTemp||null,beeper:d.beeper||'OFF',watchdog_minutes:d.watchdog_minutes||5,
+      lock_temp:d.lock_temp||false,locked_target_temp:d.locked_target_temp||null,
+      has_ir_emitter:d.has_ir_emitter||false})
   }).catch(_=>{});
   addLog(`${d.name}: on-time reset`,'info');
   renderUnits();
@@ -2061,6 +2072,34 @@ async function otaDevice(i){
     body.innerHTML+=`<div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn" onclick="document.getElementById('test-modal').style.display='none'">Close</button></div>`;
   };
   input.click();
+}
+
+function toggleHasIrEmitter(i){
+  const d=devices[i];
+  d.has_ir_emitter=!d.has_ir_emitter;
+  saveDeviceToAPI(d);
+  addLog(`${d.name}: IR emitter ${d.has_ir_emitter?'enabled':'disabled'}`,'info');
+  renderIPList();
+}
+
+async function triggerDisplayToggle(i){
+  const d=devices[i];
+  try{
+    const r=await fetch(`${API}/devices/${encodeURIComponent(d.host)}/display-toggle`,{method:'POST'});
+    const data=await r.json();
+    if(data.ok)addLog(`${d.name}: display toggled`,'ok');
+    else addLog(`${d.name}: display toggle failed — ${data.error||'unknown error'}`,'err');
+  }catch(e){addLog(`${d.name}: display toggle failed — ${e.message}`,'err');}
+}
+
+async function triggerSwingStep(i){
+  const d=devices[i];
+  try{
+    const r=await fetch(`${API}/devices/${encodeURIComponent(d.host)}/swing-step`,{method:'POST'});
+    const data=await r.json();
+    if(data.ok)addLog(`${d.name}: swing step`,'ok');
+    else addLog(`${d.name}: swing step failed — ${data.error||'unknown error'}`,'err');
+  }catch(e){addLog(`${d.name}: swing step failed — ${e.message}`,'err');}
 }
 
 async function testDevice(i){

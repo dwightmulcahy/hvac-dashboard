@@ -82,25 +82,54 @@ async def set_lock_temp(host: str, data: dict):
     return {"ok": True, "lock_temp": device["lock_temp"], "locked_target_temp": device.get("locked_target_temp")}
 
 
-@router.post("/devices/{host:path}/display-toggle")
-async def display_toggle(host: str):
-    """Toggle the AC unit display on/off."""
-    device = next((d for d in _state["devices"] if d["host"] == host), None)
-    name = device["name"] if device else host
-    paths = [
-        "button/Air%20Conditioner%20Display%20Toggle/press",
-        "button/air_conditioner_display_toggle/press",
-    ]
-    for path in paths:
+async def _press_ir_button(host: str, device: dict, name: str, friendly_path: str, underscore_path: str, action_label: str):
+    """Shared logic for IR-emitter-dependent button presses (display
+    toggle, swing step). Both are defined identically in the device
+    firmware (slwf-base.yaml) as template buttons calling a
+    midea_ac.XXX: action via the remote_transmitter hardware on
+    GPIO13 — so both need the same has_ir_emitter gate and the same
+    space-encoded/underscore path fallback used everywhere else in
+    this codebase for old-vs-new firmware naming."""
+    if device is not None and not device.get("has_ir_emitter"):
+        return {"ok": False, "error": "This device is not configured with an IR emitter"}
+    for path in (friendly_path, underscore_path):
         try:
             async with httpx.AsyncClient(timeout=5) as client:
                 r = await client.post(f"http://{host}/{path}")
                 if r.status_code < 300:
-                    _add_log(f"{name}: display toggled", "info")
+                    _add_log(f"{name}: {action_label}", "info")
                     return {"ok": True}
         except Exception:
             pass
-    return {"ok": False, "error": "display toggle not supported"}
+    return {"ok": False, "error": f"{action_label} not supported"}
+
+
+@router.post("/devices/{host:path}/display-toggle")
+async def display_toggle(host: str):
+    """Toggle the AC unit display on/off. Only meaningful on units with
+    an IR emitter wired up — see has_ir_emitter on the device config."""
+    device = next((d for d in _state["devices"] if d["host"] == host), None)
+    name = device["name"] if device else host
+    return await _press_ir_button(
+        host, device, name,
+        "button/Air%20Conditioner%20Display%20Toggle/press",
+        "button/air_conditioner_display_toggle/press",
+        "display toggled",
+    )
+
+
+@router.post("/devices/{host:path}/swing-step")
+async def swing_step(host: str):
+    """Step the AC unit's swing position. Requires an IR emitter, same
+    as display-toggle — see has_ir_emitter on the device config."""
+    device = next((d for d in _state["devices"] if d["host"] == host), None)
+    name = device["name"] if device else host
+    return await _press_ir_button(
+        host, device, name,
+        "button/Air%20Conditioner%20Swing%20Step/press",
+        "button/air_conditioner_swing_step/press",
+        "swing step",
+    )
 
 
 @router.post("/devices/{host:path}/beeper/test")
