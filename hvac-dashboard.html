@@ -48,8 +48,11 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
 .btn{background:transparent;border:1px solid var(--border2);border-radius:var(--r);padding:5px 12px;font-size:12px;cursor:pointer;color:var(--text);font-family:'DM Sans',sans-serif;transition:background .15s}
 .btn:hover{background:var(--bg3)}.btn:active{transform:scale(.97)}
 .bico{width:28px;height:28px;display:flex;align-items:center;justify-content:center;padding:0;border-radius:8px}
-.irow{padding:6px 0;border-bottom:1px solid var(--border)}
-.inp{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:5px 9px;font-size:12px;color:var(--text);font-family:'DM Mono',monospace;outline:none}
+.irow{display:contents}
+.inp{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:5px 9px;font-size:12px;color:var(--text);font-family:'DM Mono',monospace;outline:none;min-width:0}
+.dev-hcell{padding-bottom:6px;border-bottom:1px solid var(--border);margin-bottom:2px;font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;font-weight:500;letter-spacing:.04em}
+.dev-cell{padding:6px 0;border-bottom:1px solid var(--border)}
+.irow.dragging>*{opacity:0.4}
 .inp:focus{border-color:var(--border2)}
 .ucard{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rl);padding:0 16px;margin-bottom:20px}
 .urow{padding:16px 0;border-bottom:1px solid var(--border)}
@@ -396,7 +399,7 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
         </div>
         <div id="test-all-results" style="display:none;background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px"></div>
         <div id="discover-results" style="display:none;background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px"></div>
-        <div id="ip-list"></div>
+        <div id="ip-list" style="display:grid;grid-template-columns:20px 95px minmax(160px,1fr) 58px 58px 70px 34px auto;gap:6px 6px;align-items:center"></div>
       </div>
       <!-- General tab -->
       <div id="stab-content-general" style="display:none">
@@ -1614,49 +1617,50 @@ function removeDevice(i){
 }
 
 function renderIPList(){
-  const header=`<div style="display:grid;grid-template-columns:20px 95px minmax(160px,1fr) 58px 58px 70px 34px auto;gap:6px;align-items:center;padding:0 0 6px 0;border-bottom:1px solid var(--border);margin-bottom:2px;font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;font-weight:500;letter-spacing:.04em">
-    <div></div>
-    <div>Name</div>
-    <div>Host / IP</div>
-    <div>BTU</div>
-    <div>SEER</div>
-    <div>Max${tempUnitLabel()}</div>
-    <div title="Has IR emitter — unlocks display toggle and swing step on the tile">IR</div>
-  </div>`;
+  const header=`
+    <div class="dev-hcell"></div>
+    <div class="dev-hcell">Name</div>
+    <div class="dev-hcell">Host / IP</div>
+    <div class="dev-hcell">BTU</div>
+    <div class="dev-hcell">SEER</div>
+    <div class="dev-hcell">Max${tempUnitLabel()}</div>
+    <div class="dev-hcell" title="Has IR emitter — unlocks display toggle and swing step on the tile">IR</div>
+    <div class="dev-hcell"></div>`;
   document.getElementById('ip-list').innerHTML=header+devices.map((d,i)=>`
     <div class="irow" data-orig-host="${d.host}" data-idx="${i}" draggable="true"
-      ondragstart="dragStart(event,${i})" ondragover="dragOver(event)" ondrop="dragDrop(event,${i})" ondragend="dragEnd(event)"
-      style="display:grid;grid-template-columns:20px 95px minmax(160px,1fr) 58px 58px 70px 34px auto;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);position:relative">
-      <span title="Drag to reorder" style="cursor:grab;color:var(--text3);font-size:14px;user-select:none;text-align:center">⠿</span>
-      <input class="inp" value="${d.name==='New unit'?'':d.name}" placeholder="Name"
+      ondragstart="dragStart(event,${i})" ondragover="dragOver(event)" ondrop="dragDrop(event,${i})" ondragend="dragEnd(event)">
+      <span class="dev-cell" title="Drag to reorder" style="cursor:grab;color:var(--text3);font-size:14px;user-select:none;text-align:center">⠿</span>
+      <input class="inp dev-cell" value="${d.name==='New unit'?'':d.name}" placeholder="Name"
         oninput="devices[${i}].name=this.value;setDeviceDirty(${i})"
         style="width:100%;font-size:12px">
-      <input class="inp" value="${d.host==='esphome-device.lan'?'':d.host}" placeholder="hostname or IP"
+      <input class="inp dev-cell" value="${d.host==='esphome-device.lan'?'':d.host}" placeholder="hostname or IP"
         oninput="devices[${i}].host=this.value;setDeviceDirty(${i})"
         style="width:100%;font-size:12px">
-      <select class="inp" onchange="devices[${i}].btu=+this.value;saveDeviceToAPI(devices[${i}])" style="width:100%;font-size:12px">
+      <select class="inp dev-cell" onchange="devices[${i}].btu=+this.value;saveDeviceToAPI(devices[${i}])" style="width:100%;font-size:12px">
         ${BTU_OPTIONS.map(b=>`<option value="${b}" ${d.btu===b?'selected':''}>${b/1000}K</option>`).join('')}
       </select>
-      <select class="inp" onchange="devices[${i}].seer=+this.value;saveDeviceToAPI(devices[${i}])" style="width:100%;font-size:12px">
+      <select class="inp dev-cell" onchange="devices[${i}].seer=+this.value;saveDeviceToAPI(devices[${i}])" style="width:100%;font-size:12px">
         ${SEER_OPTIONS.map(s=>`<option value="${s}" ${(d.seer||20)===s?'selected':''}>${s}</option>`).join('')}
       </select>
-      <input type="number" class="inp" value="${d.maxTemp!=null?tempToDisplayUnit(d.maxTemp):''}" placeholder="—" min="${tempToDisplayUnit(17)}" max="${tempToDisplayUnit(35)}"
+      <input type="number" class="inp dev-cell" value="${d.maxTemp!=null?tempToDisplayUnit(d.maxTemp):''}" placeholder="—" min="${tempToDisplayUnit(17)}" max="${tempToDisplayUnit(35)}"
         title="Auto-on if room exceeds this ${tempUnitLabel()} while off"
         onchange="devices[${i}].maxTemp=this.value?tempFromDisplayUnit(this.value):null;saveDeviceToAPI(devices[${i}])"
         style="width:100%;font-size:12px">
-      <input type="checkbox" ${d.has_ir_emitter?'checked':''} onchange="toggleHasIrEmitter(${i})"
-        title="Has IR emitter — unlocks display toggle and swing step on the tile"
-        style="width:16px;height:16px;cursor:pointer;justify-self:center">
-      <div style="display:flex;gap:3px;flex-shrink:0">
+      <div class="dev-cell" style="display:flex;justify-content:center">
+        <input type="checkbox" ${d.has_ir_emitter?'checked':''} onchange="toggleHasIrEmitter(${i})"
+          title="Has IR emitter — unlocks display toggle and swing step on the tile"
+          style="width:16px;height:16px;cursor:pointer">
+      </div>
+      <div class="dev-cell" style="display:flex;gap:3px;flex-shrink:0;position:relative">
         <button class="btn bico" id="save-btn-${i}" onclick="saveDeviceRow(${i})" title="Save"
           style="color:var(--text3);cursor:not-allowed" disabled>✓</button>
         <button class="btn bico" onclick="toggleDeviceMenu(${i})" id="dev-menu-btn-${i}" title="More">···</button>
         <button class="btn bico" onclick="removeDevice(${i})" style="color:#ef4444" title="Remove">✕</button>
-      </div>
-      <div id="dev-menu-${i}" style="display:none;position:absolute;right:0;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;z-index:50;box-shadow:0 4px 12px rgba(0,0,0,.3);overflow:hidden;white-space:nowrap">
-        <div class="menu-item" onclick="testDevice(${i});closeDeviceMenus()">⚡ Test connection</div>
-        <div class="menu-item" onclick="otaDevice(${i});closeDeviceMenus()">⬆ Flash firmware</div>
-        <div class="menu-item" onclick="pollDevice(${i}).then(updateSummary);closeDeviceMenus()">↺ Poll now</div>
+        <div id="dev-menu-${i}" style="display:none;position:absolute;top:100%;right:0;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;z-index:50;box-shadow:0 4px 12px rgba(0,0,0,.3);overflow:hidden;white-space:nowrap">
+          <div class="menu-item" onclick="testDevice(${i});closeDeviceMenus()">⚡ Test connection</div>
+          <div class="menu-item" onclick="otaDevice(${i});closeDeviceMenus()">⬆ Flash firmware</div>
+          <div class="menu-item" onclick="pollDevice(${i}).then(updateSummary);closeDeviceMenus()">↺ Poll now</div>
+        </div>
       </div>
     </div>
   `).join('');
@@ -1668,7 +1672,7 @@ let _dragIdx=null;
 function dragStart(e,i){
   _dragIdx=i;
   e.dataTransfer.effectAllowed='move';
-  e.currentTarget.style.opacity='0.4';
+  e.currentTarget.classList.add('dragging');
 }
 
 function dragOver(e){
@@ -1693,7 +1697,7 @@ function dragDrop(e,targetIdx){
 }
 
 function dragEnd(e){
-  e.currentTarget.style.opacity='1';
+  e.currentTarget.classList.remove('dragging');
   _dragIdx=null;
 }
 

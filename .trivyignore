@@ -24,6 +24,7 @@
 # fetching packages. There is no reachable path from this container's
 # actual behavior to the vulnerable function.
 #
+
 # Revisit if: Debian ships a patched python3-setuptools release, or
 # if supervisor's own dependency on pkg_resources changes in a future
 # Debian package version.
