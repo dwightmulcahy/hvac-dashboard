@@ -1,0 +1,30 @@
+# CVE-2025-47273 — setuptools: Path Traversal Vulnerability in
+# setuptools PackageIndex
+#
+# Flagged in the apt-managed setuptools copy at
+# /usr/lib/python3/dist-packages/setuptools (Debian's supervisor
+# package depends on setuptools' pkg_resources module at runtime —
+# see supervisor/options.py's `import pkg_resources`). This is a
+# separate, older copy from the clean pip-managed setuptools used for
+# everything else in this image.
+#
+# Risk accepted, not fixed, for a documented reason: an earlier
+# attempt to delete this copy broke the container outright —
+# supervisord failed to start with
+# "ModuleNotFoundError: No module named 'packaging'" because
+# supervisor's own startup code imports pkg_resources at runtime, not
+# just at install time.
+#
+# The vulnerable code path itself (setuptools.PackageIndex, used for
+# resolving and downloading packages from a package index over the
+# network) is never invoked anywhere in this container. Nothing here
+# runs `pip install`, `easy_install`, or any other setuptools
+# operation at runtime — pkg_resources is imported by supervisor
+# purely for its own internal metadata/plugin bookkeeping, not for
+# fetching packages. There is no reachable path from this container's
+# actual behavior to the vulnerable function.
+#
+# Revisit if: Debian ships a patched python3-setuptools release, or
+# if supervisor's own dependency on pkg_resources changes in a future
+# Debian package version.
+CVE-2025-47273

@@ -6,14 +6,12 @@ ARG BUILD_DATE=unknown
 ARG GIT_SHA=unknown
 
 # Install nginx, supervisor, curl
-# --no-install-recommends: supervisor's Debian package can pull in
-# python3-setuptools as an optional "Recommends" dependency, installed
-# into apt's own /usr/lib/python3/dist-packages/ tree — completely
-# separate from and invisible to the pip-managed setuptools we
-# explicitly upgrade below. That leftover apt copy is what Trivy keeps
-# flagging even after the pip-side fix. --no-install-recommends skips
-# optional recommended packages; it never skips a genuine hard
-# dependency, so this can't break anything supervisor actually needs.
+# --no-install-recommends avoids pulling in optional extras, but does
+# NOT remove supervisor's hard dependency on python3-setuptools —
+# Debian's supervisor package needs setuptools' pkg_resources module
+# at runtime (see the .trivyignore justification for the CVE this
+# leaves unresolved, and the note further below on why we don't
+# delete it directly).
 RUN apt-get update && apt-get install -y --no-install-recommends nginx supervisor curl && \
     rm -rf /var/lib/apt/lists/*
 
@@ -24,40 +22,36 @@ COPY requirements.txt /tmp/requirements.txt
 # so pinning a safe version there alone isn't enough on its own
 RUN pip install --upgrade pip setuptools wheel --no-cache-dir && \
     pip install -r /tmp/requirements.txt --no-cache-dir && \
-    # The diagnostic step below (run once already) confirmed two
-    # specific stale copies Trivy keeps flagging, neither reachable
-    # through a normal pip/apt upgrade:
+    # .../pip/_vendor/msgpack — pip vendors its own internal copy of
+    # msgpack for pip's own use, completely separate from (and
+    # invisible to) the msgpack we install via requirements.txt.
+    # `pip install --upgrade msgpack` can never touch this, since it's
+    # bundled inside pip's own package rather than a normal top-level
+    # dependency. pip itself is a build-time tool only — nothing at
+    # runtime calls it — so instead of trying to patch pip's internals
+    # (risky: pip's own code depends on that vendored copy), we remove
+    # pip entirely once it's done its job. A raw file delete is used
+    # rather than `pip uninstall pip`, which has known self-referential
+    # edge cases.
     #
-    # 1. /usr/lib/python3/dist-packages/setuptools — a separate,
-    #    apt-managed Debian copy at the OLD vulnerable version,
-    #    distinct from the clean pip-managed one above.
-    #    --no-install-recommends didn't remove it, which means
-    #    whatever apt package needs setuptools declares it as a hard
-    #    Depends (not a Recommends) — so `apt purge` would risk
-    #    cascade-removing that package too. A direct filesystem
-    #    delete is safe here: nothing at container runtime imports
-    #    from apt's dist-packages tree, only from pip's site-packages.
-    #
-    # 2. .../pip/_vendor/msgpack — pip vendors its own internal copy
-    #    of msgpack for pip's own use, completely separate from (and
-    #    invisible to) the msgpack we install via requirements.txt.
-    #    `pip install --upgrade msgpack` can never touch this, since
-    #    it's bundled inside pip's own package rather than a normal
-    #    top-level dependency. pip itself is a build-time tool only —
-    #    nothing at runtime calls it — so instead of trying to patch
-    #    pip's internals (risky: pip's own code depends on that
-    #    vendored copy), we remove pip entirely once it's done its
-    #    job. A raw file delete is used rather than `pip uninstall
-    #    pip`, which has known self-referential edge cases.
-    rm -rf /usr/lib/python3/dist-packages/setuptools \
-           /usr/local/lib/python3.12/site-packages/pip \
+    # NOTE: we do NOT also delete the apt-managed setuptools copy at
+    # /usr/lib/python3/dist-packages/setuptools, even though Trivy
+    # flags it (CVE-2025-47273) — a previous attempt to delete it
+    # broke the container outright:
+    #   ModuleNotFoundError: No module named 'packaging'
+    #   (supervisord -> supervisor.options -> pkg_resources -> packaging)
+    # supervisor's own startup code imports pkg_resources (part of
+    # setuptools) at runtime, not just install time. This CVE is
+    # instead risk-accepted via .trivyignore — see that file for the
+    # justification.
+    rm -rf /usr/local/lib/python3.12/site-packages/pip \
            /usr/local/lib/python3.12/site-packages/pip-*.dist-info \
            /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.12
 
 # Diagnostic (temporary): print every remaining copy of setuptools/
-# msgpack found anywhere in the image, to confirm the fix above
-# actually cleared both stale copies found in the previous build.
-# Safe to remove once the Trivy scan is confirmed clean.
+# msgpack found anywhere in the image, to confirm pip's vendored
+# msgpack copy is actually gone and the (intentionally kept) apt
+# setuptools copy is the only remaining match.
 RUN echo "=== setuptools/msgpack locations in final image ===" && \
     find / -xdev \( -iname "*setuptools*" -o -iname "*msgpack*" \) 2>/dev/null | grep -v '^/proc' || true
 

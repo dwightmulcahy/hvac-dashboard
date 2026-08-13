@@ -9,6 +9,9 @@ jobs:
   build-and-push:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
+    permissions:
+      contents: read          # actions/checkout
+      security-events: write  # upload Trivy SARIF results to the Security tab
 
     steps:
       - name: Checkout code
@@ -91,6 +94,7 @@ jobs:
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          trivyignores: .trivyignore
           exit-code: "0"
 
       - name: Upload Trivy scan results to Security tab
@@ -112,6 +116,7 @@ jobs:
           format: table
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          trivyignores: .trivyignore
           exit-code: "1"
 
       - name: Build and push Docker image

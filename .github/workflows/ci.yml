@@ -14,6 +14,13 @@ jobs:
   lint-and-build:
     name: Lint and Test Build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read          # actions/checkout
+      security-events: write  # upload Trivy SARIF results to the Security tab
+                               # (note: PRs from forks never get this permission
+                               # regardless of this block, by GitHub's own design —
+                               # the SARIF upload step already has continue-on-error
+                               # for exactly that case)
 
     steps:
       - name: Checkout code
@@ -59,6 +66,7 @@ jobs:
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          trivyignores: .trivyignore
           exit-code: "0"
 
       - name: Upload Trivy scan results to Security tab
@@ -75,6 +83,7 @@ jobs:
           format: table
           severity: CRITICAL
           ignore-unfixed: true
+          trivyignores: .trivyignore
           exit-code: "1"
 
       - name: Test container starts
