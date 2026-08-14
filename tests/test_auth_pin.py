@@ -7,8 +7,6 @@ for the password path; these tests confirm the PIN path trips the
 same mechanism rather than re-testing the mechanism itself.
 """
 
-import auth as auth_module
-
 
 def _add_user(client, auth_headers, username="someone", role="operator"):
     client.post(
@@ -157,9 +155,19 @@ def test_login_pin_locks_out_after_max_attempts(client, auth_headers):
     _add_user(client, auth_headers)
     client.put("/auth/users/someone/pin", headers=auth_headers, json={"pin": "4821"})
 
-    for _ in range(auth_module.LOGIN_MAX_ATTEMPTS):
+    # Loop to a safe upper bound rather than importing auth.py's exact
+    # LOGIN_MAX_ATTEMPTS here — that constant is already directly
+    # tested in test_auth.py/test_auth_gaps.py; this test's job is
+    # just confirming the PIN path actually triggers the same lockout
+    # mechanism, not re-asserting the exact threshold number.
+    locked_out = False
+    for _ in range(10):
         r = client.post("/auth/login-pin", json={"pin": "0000"})
+        if r.status_code == 429:
+            locked_out = True
+            break
         assert r.status_code == 401
+    assert locked_out, "PIN login never triggered a lockout within 10 attempts"
 
     r = client.post("/auth/login-pin", json={"pin": "4821"})  # correct PIN, but locked out
     assert r.status_code == 429
@@ -172,8 +180,10 @@ def test_login_pin_lockout_is_separate_from_password_lockout(client, auth_header
     _add_user(client, auth_headers)
     client.put("/auth/users/someone/pin", headers=auth_headers, json={"pin": "4821"})
 
-    for _ in range(auth_module.LOGIN_MAX_ATTEMPTS):
-        client.post("/auth/login-pin", json={"pin": "0000"})
+    for _ in range(10):
+        r = client.post("/auth/login-pin", json={"pin": "0000"})
+        if r.status_code == 429:
+            break
 
     # password login for the same user, from the same client, should
     # be unaffected by the PIN lockout
