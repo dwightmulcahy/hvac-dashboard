@@ -2,7 +2,7 @@
 
 Self-hosted dashboard for controlling and monitoring **Innovair mini-split AC units** via [SMLIGHT SLWF-01pro](https://smartlight.me) ESPHome dongles using the Midea serial protocol. Runs 24/7 in Docker on a QNAP NAS. All automation (scheduling, temperature guards, watchdog) executes server-side regardless of whether a browser is open.
 
-See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for how the backend is structured (module split, dependency graph, why it's organized this way) and [`TESTING.md`](./TESTING.md) for running the test suite.
+See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for how the backend is structured (module split, dependency graph, why it's organized this way), [`TESTING.md`](./TESTING.md) for running the test suite, and [`KIOSK.md`](./KIOSK.md) for setting up a wall-mounted Raspberry Pi touchscreen panel.
 
 ---
 
@@ -254,6 +254,10 @@ You will be forced to change the password before accessing the dashboard.
 ### Managing Users
 
 Open `··· → Users` (admin only) to add, delete, or change roles for users.
+
+### Kiosk PINs
+
+For the wall-mounted touchscreen panel (see [`KIOSK.md`](./KIOSK.md)), assign each user a 4-digit PIN from the same Users screen. PIN login uses the same role permissions and the same lockout rules as password login (5 failed attempts locks that PIN's client IP for 15 minutes) — it's a separate credential on the same account, not a separate access tier. PINs must be exactly 4 digits; the kiosk's on-screen keypad won't accept longer ones even though the API allows up to 6.
 
 ### Forgot Password
 

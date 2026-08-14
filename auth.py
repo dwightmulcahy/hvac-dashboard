@@ -41,6 +41,18 @@ LOGIN_MAX_ATTEMPTS = 5
 LOGIN_LOCKOUT_MINUTES = 15
 LOGIN_ATTEMPT_WINDOW_MINUTES = 15
 
+# ── Kiosk PIN login ───────────────────────────────────────────
+# PINs are stored/verified with the exact same hash+salt machinery as
+# passwords (_hash_password/_verify_password below) — a PIN is just a
+# short password. PIN login has no separate lockout system: it reuses
+# _check_login_lockout/_record_login_failure/_clear_login_failures
+# keyed by this sentinel "username" + the client IP, so repeated wrong
+# PINs from the same kiosk trip the same LOGIN_MAX_ATTEMPTS/
+# LOGIN_LOCKOUT_MINUTES threshold a password brute-force would.
+PIN_LOCKOUT_KEY = "__pin__"
+PIN_MIN_LENGTH = 4
+PIN_MAX_LENGTH = 6
+
 
 def _login_key(username: str, ip: str) -> str:
     return f"{username}:{ip}"
@@ -262,6 +274,91 @@ async def login(data: dict, request: Request):
     }
 
 
+@router.put("/users/{username}/pin")
+async def set_user_pin(username: str, data: dict, authorization: Optional[str] = Header(None)):
+    """Set or clear a user's kiosk PIN. Admin-only, same as role/
+    force-reset — a household member doesn't self-serve a PIN, since
+    it's meant to be handed out deliberately alongside a chosen role."""
+    _require_role("admin", authorization)
+    user = _state["users"].get(username)
+    if not user:
+        raise HTTPException(status_code=404, detail=USER_NOT_FOUND)
+    pin = data.get("pin")
+    if pin in (None, ""):
+        user.pop("pin_hash", None)
+        user.pop("pin_salt", None)
+        async with _lock:
+            _save_raw(_state)
+        _add_log(f"PIN cleared for user '{username}'", "info")
+        return {"ok": True, "has_pin": False}
+    if not isinstance(pin, str) or not pin.isdigit() or not (PIN_MIN_LENGTH <= len(pin) <= PIN_MAX_LENGTH):
+        raise HTTPException(status_code=400, detail=f"PIN must be {PIN_MIN_LENGTH}-{PIN_MAX_LENGTH} digits")
+    # uniqueness: a PIN alone identifies the user on the kiosk (no
+    # username typed first), so no two users can share one — verify
+    # the candidate against every OTHER user's stored hash rather than
+    # comparing hashes directly, since each has its own random salt.
+    for other_username, other_user in _state["users"].items():
+        if other_username == username:
+            continue
+        other_hash = other_user.get("pin_hash")
+        other_salt = other_user.get("pin_salt")
+        if other_hash and other_salt and _verify_password(pin, other_hash, other_salt):
+            raise HTTPException(status_code=409, detail="That PIN is already assigned to another user")
+    h, s = _hash_password(pin)
+    user["pin_hash"] = h
+    user["pin_salt"] = s
+    async with _lock:
+        _save_raw(_state)
+    _add_log(f"PIN set for user '{username}'", "info")
+    return {"ok": True, "has_pin": True}
+
+
+@router.post("/login-pin")
+async def login_pin(data: dict, request: Request):
+    """Kiosk PIN login. Unlike /auth/login, there's no username to key
+    the lookup on — the PIN itself identifies the user, so this scans
+    every user with a PIN configured and verifies against each. Small
+    household user counts make that linear scan a non-issue."""
+    pin = data.get("pin", "")
+    client_ip = request.client.host if request.client else "unknown"
+
+    remaining = _check_login_lockout(PIN_LOCKOUT_KEY, client_ip)
+    if remaining is not None:
+        mins = remaining // 60 + 1
+        raise HTTPException(status_code=429, detail=f"Too many failed attempts — try again in {mins} minute(s)")
+
+    matched_username = None
+    matched_user = None
+    for username, user in _state["users"].items():
+        pin_hash = user.get("pin_hash")
+        pin_salt = user.get("pin_salt")
+        if pin_hash and pin_salt and _verify_password(pin, pin_hash, pin_salt):
+            matched_username = username
+            matched_user = user
+            break
+
+    if not matched_user:
+        _record_login_failure(PIN_LOCKOUT_KEY, client_ip)
+        attempts_left = max(0, LOGIN_MAX_ATTEMPTS - _login_attempts.get(_login_key(PIN_LOCKOUT_KEY, client_ip), {}).get("failures", 0))
+        detail = "Incorrect PIN"
+        if 0 < attempts_left <= 2:
+            detail += f" ({attempts_left} attempt(s) remaining)"
+        raise HTTPException(status_code=401, detail=detail)
+
+    _clear_login_failures(PIN_LOCKOUT_KEY, client_ip)
+    matched_user["last_login"] = _now_iso()
+    async with _lock:
+        _save_raw(_state)
+    token = _create_token(matched_username, matched_user["role"])
+    return {
+        "ok": True,
+        "token": token,
+        "username": matched_username,
+        "role": matched_user["role"],
+        "must_change_password": matched_user.get("must_change_password", False),
+    }
+
+
 @router.post("/logout")
 async def logout(authorization: Optional[str] = Header(None)):
     if authorization and authorization.startswith("Bearer "):
@@ -299,6 +396,7 @@ async def list_users(authorization: Optional[str] = Header(None)):
             "username": u, "role": v["role"],
             "must_change_password": v.get("must_change_password", False),
             "last_login": v.get("last_login"),
+            "has_pin": bool(v.get("pin_hash")),
         }
         for u, v in _state["users"].items()
     ]}

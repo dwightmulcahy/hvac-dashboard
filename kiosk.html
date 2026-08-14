@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=800, height=480, initial-scale=1, user-scalable=no">
+<title>HVAC Kiosk</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.47.0/iconfont/tabler-icons.min.css">
+<style>
+:root{
+  --bg:#12141a;--bg2:#181a20;--bg3:#1c2c42;
+  --border:#262a33;--border2:#20222a;
+  --text:#e8e9ec;--text2:#7a7f8a;--text3:#5b6270;--text4:#4a4e58;
+  --cool:#3b82f6;--cool-bg:#1c2c42;
+  --heat:#f59e0b;--heat-bg:#3a2c14;
+  --off:#5b6270;--off-bg:#1b1d22;
+  --err:#e24b4a;--ok:#22c55e;--warn:#f59e0b;
+  --amber:#fbbf24;--orange:#fb923c;--violet:#a78bfa;--yellow:#facc15;
+  --green:#4ade80;--teal:#2dd4bf;--gray:#4b5563;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:#000;overflow:hidden;height:100%}
+body{font-family:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif}
+#app{width:800px;height:480px;background:var(--bg);position:relative;overflow:hidden;margin:0 auto}
+button{font-family:inherit;background:transparent;border:0.5px solid var(--border);border-radius:8px;color:var(--text);cursor:pointer}
+button:active{opacity:0.7}
+.screen{position:absolute;inset:0;display:none;flex-direction:column}
+.screen.active{display:flex}
+#lock-screen{align-items:center;justify-content:center;padding:20px}
+#screensaver{align-items:center;justify-content:center;cursor:pointer}
+#main-header,#detail-header{height:44px;flex-shrink:0;border-bottom:0.5px solid var(--border);align-items:center}
+#main-header{display:flex;justify-content:space-between;padding:0 16px}
+#detail-header{display:none;padding:0 4px;cursor:pointer}
+#grid-view{padding:14px;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr);gap:10px;height:354px}
+#grid-detail{display:none;height:354px;padding:10px 20px;overflow:hidden}
+#footer-stats{height:40px;display:grid;grid-template-columns:0.55fr 1.25fr 1.25fr 0.95fr;align-items:center;padding:0 20px;border-top:0.5px solid var(--border);flex-shrink:0}
+.tile{border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;justify-content:space-between;cursor:pointer}
+.stat-card{width:130px;background:var(--bg2);border-radius:10px;padding:12px 10px 10px;display:flex;flex-direction:column;gap:5px}
+#loading-banner{position:absolute;top:0;left:0;right:0;background:var(--err);color:#fff;font-size:11px;text-align:center;padding:3px;display:none;z-index:10}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="loading-banner">Can't reach the server — retrying…</div>
+
+  <div id="lock-screen" class="screen active">
+    <span id="lock-clock" style="color:var(--text3);font-size:15px;margin-bottom:24px"></span>
+    <span id="pin-label" style="color:#c7c9ce;font-size:14px;margin-bottom:14px">Enter PIN</span>
+    <div id="pin-dots" style="display:flex;gap:14px;margin-bottom:26px"></div>
+    <div id="keypad" style="display:grid;grid-template-columns:repeat(3,64px);gap:12px"></div>
+  </div>
+
+  <div id="screensaver" class="screen">
+    <span id="saver-clock" style="color:#3a3d45;font-size:46px;font-weight:500"></span>
+    <span id="saver-sub" style="color:#2c2e35;font-size:13px;margin-top:10px"></span>
+    <span style="color:#23252b;font-size:11px;margin-top:32px">tap to unlock</span>
+  </div>
+
+  <div id="main-screen" class="screen">
+    <div id="main-header">
+      <span style="color:var(--text);font-size:15px;font-weight:500">All units</span>
+      <div style="display:flex;align-items:center;gap:12px">
+        <span id="version-badge" style="color:var(--text3);font-size:11px"></span>
+        <span id="header-clock" style="color:var(--text2);font-size:13px"></span>
+        <i id="relock-btn" class="ti ti-lock-open" style="font-size:15px;color:var(--text2);cursor:pointer" aria-label="Lock panel"></i>
+      </div>
+    </div>
+    <div id="detail-header">
+      <div style="display:flex;align-items:center;gap:6px;padding:10px 16px;width:100%">
+        <i class="ti ti-chevron-left" style="font-size:20px;color:var(--text)" aria-hidden="true"></i>
+        <span style="color:var(--text);font-size:15px;font-weight:500">All units</span>
+      </div>
+    </div>
+    <div id="grid-view"></div>
+    <div id="grid-detail"></div>
+    <div id="footer-stats"></div>
+  </div>
+
+</div>
+
+<script>
+const API=window.location.origin+'/api';
+const MODE_COLOR={COOL:'var(--cool)',HEAT:'var(--heat)',OFF:'var(--off)'};
+const MODE_BG={COOL:'var(--cool-bg)',HEAT:'var(--heat-bg)',OFF:'var(--off-bg)'};
+const DETAIL_IDLE_SECONDS=15;
+const SCREENSAVER_IDLE_SECONDS=180;
+const POLL_INTERVAL_MS=12000;
+
+let token=null,currentUser=null;
+let devices=[],settings={},schedules=[],rootInfo={};
+let entered='',failedAttempts=0,lockoutUntil=0,lockoutTimer=null;
+let idleTimer=null,idleCountdownTimer=null,mainIdleTimer=null,pollTimer=null,clockTimer=null;
+let openDeviceHost=null;
+
+function show(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function fmtClock(){
+  return new Date().toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
+}
+function tickClock(){
+  const t=fmtClock();
+  const a=document.getElementById('lock-clock');if(a)a.textContent=t;
+  const b=document.getElementById('saver-clock');if(b)b.textContent=t;
+  const c=document.getElementById('header-clock');
+  if(c)c.textContent=`${t} · outdoor ${fmtOutdoor()}`;
+}
+
+function fmtOutdoor(){
+  const vals=devices.map(d=>d.state?.outdoor_temp).filter(v=>v!=null);
+  if(!vals.length)return'—';
+  const avg=vals.reduce((a,b)=>a+b,0)/vals.length;
+  return `${Math.round(avg)}°C`;
+}
+
+function safeFloat(v){const n=parseFloat(v);return isNaN(n)?null:n;}
+function fmtOnTime(m){
+  if(!m||m<=0)return'';
+  if(m<60)return`${Math.round(m)}m`;
+  const h=Math.floor(m/60),r=Math.round(m%60);
+  return r?`${h}h ${r}m`:`${h}h`;
+}
+
+// ── Cost / watts estimation — mirrors the same formulas used in
+// hvac-dashboard.html's TESTABLE:rates and TESTABLE:watts-temp
+// regions, so numbers here agree with the full dashboard. Prefers
+// the device's actual reported power draw when the sensor supports
+// it, falling back to the same load-factor estimate otherwise.
+function seerToEer(seer){return(seer||20)*0.875;}
+function maxWatts(btu,seer){return Math.round(btu/seerToEer(seer));}
+function estWatts(d){
+  const s=d.state||{};
+  if(s.actual_power_watts!=null)return s.actual_power_watts;
+  if(!s.mode||s.mode==='OFF'||s.mode==='FAN_ONLY')return 0;
+  if(!d.btu)return null;
+  const indoor=safeFloat(s.current_temperature);
+  const target=safeFloat(s.target_temperature);
+  const outdoor=safeFloat(s.outdoor_temp);
+  if(indoor==null||target==null)return null;
+  const deltaT=Math.abs(indoor-target);
+  const outdoorPenalty=outdoor!=null&&s.mode!=='HEAT'?Math.max(0,(outdoor-25)/20):0;
+  const loadFactor=Math.min(1,0.2+(deltaT/8)*0.8+outdoorPenalty*0.3);
+  return Math.round(maxWatts(d.btu,d.seer)*loadFactor);
+}
+function effectiveRateUsd(){
+  const r=settings||{};
+  if(!r.tiered)return r.flatRate||0.14;
+  const kwh=r.monthlyKwh||400;
+  const xr=r.exchangeRate||455;
+  const tiers=r.tiers||[{upTo:999999,colonesPerKwh:70}];
+  for(const t of tiers){if(kwh<=t.upTo)return t.colonesPerKwh/xr;}
+  return tiers[tiers.length-1].colonesPerKwh/xr;
+}
+function estCostDay(watts){
+  if(!watts)return 0;
+  return(watts/1000)*(settings.dailyHrs||8)*effectiveRateUsd();
+}
+
+// ── PIN entry ────────────────────────────────────────────────
+
+function renderKeypad(){
+  const keys=['1','2','3','4','5','6','7','8','9','','0','back'];
+  document.getElementById('keypad').innerHTML=keys.map(k=>{
+    if(k==='')return'<span></span>';
+    if(k==='back')return'<button data-key="back" style="width:64px;height:52px;border-radius:8px;font-size:16px;padding:0"><i class="ti ti-backspace" aria-hidden="true"></i></button>';
+    return `<button data-key="${k}" style="width:64px;height:52px;border-radius:8px;font-size:19px;font-weight:500;padding:0">${k}</button>`;
+  }).join('');
+  document.getElementById('keypad').querySelectorAll('[data-key]').forEach(b=>b.addEventListener('click',()=>onKey(b.dataset.key)));
+}
+
+function renderDots(err){
+  const el=document.getElementById('pin-dots');
+  if(!el)return;
+  el.innerHTML=[0,1,2,3].map(i=>`<span style="width:12px;height:12px;border-radius:50%;display:inline-block;background:${i<entered.length?(err?'var(--err)':'var(--cool)'):'transparent'};border:1.5px solid ${err?'var(--err)':(i<entered.length?'var(--cool)':'#3a3d45')}"></span>`).join('');
+}
+
+function onKey(k){
+  if(Date.now()<lockoutUntil)return;
+  if(k==='back'){entered=entered.slice(0,-1);renderDots();return;}
+  if(entered.length>=4)return;
+  entered+=k;
+  renderDots();
+  if(entered.length===4)attemptPinLogin();
+}
+
+async function attemptPinLogin(){
+  const pin=entered;
+  try{
+    const r=await fetch(`${API}/auth/login-pin`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({pin})
+    });
+    const data=await r.json();
+    if(r.status===429){
+      const mins=(data.detail.match(/(\d+) minute/)||[])[1]||'a few';
+      startLockout(mins*60);
+      return;
+    }
+    if(!r.ok){
+      renderDots(true);
+      document.getElementById('pin-label').textContent=data.detail||'Wrong PIN';
+      document.getElementById('pin-label').style.color='var(--err)';
+      setTimeout(()=>{entered='';renderDots();document.getElementById('pin-label').textContent='Enter PIN';document.getElementById('pin-label').style.color='#c7c9ce';},900);
+      return;
+    }
+    token=data.token;
+    currentUser={username:data.username,role:data.role};
+    entered='';
+    unlock();
+  }catch(e){
+    entered='';
+    document.getElementById('pin-label').textContent='Can\'t reach server';
+    document.getElementById('pin-label').style.color='var(--err)';
+  }
+}
+
+function startLockout(seconds){
+  entered='';
+  lockoutUntil=Date.now()+seconds*1000;
+  document.getElementById('keypad').style.opacity='0.3';
+  document.getElementById('pin-dots').style.display='none';
+  const label=document.getElementById('pin-label');
+  label.style.color='var(--err)';
+  clearInterval(lockoutTimer);
+  const tick=()=>{
+    const remaining=Math.max(0,Math.ceil((lockoutUntil-Date.now())/1000));
+    const mm=String(Math.floor(remaining/60)).padStart(2,'0');
+    const ss=String(remaining%60).padStart(2,'0');
+    label.textContent=`Too many attempts — ${mm}:${ss}`;
+    if(remaining<=0){
+      clearInterval(lockoutTimer);
+      document.getElementById('keypad').style.opacity='1';
+      document.getElementById('pin-dots').style.display='flex';
+      label.textContent='Enter PIN';
+      label.style.color='#c7c9ce';
+      renderDots();
+    }
+  };
+  tick();
+  lockoutTimer=setInterval(tick,1000);
+}
+
+// ── Unlock / relock ────────────────────────────────────────────
+
+async function unlock(){
+  show('main-screen');
+  showSub('grid');
+  document.getElementById('version-badge').textContent=
+    `${rootInfo.version||''} · ${currentUser.role.charAt(0).toUpperCase()+currentUser.role.slice(1)}`;
+  await refreshAll();
+  startPolling();
+  armMainIdleTimer();
+}
+
+async function relock(){
+  try{await fetch(`${API}/auth/logout`,{method:'POST',headers:authHeaders()});}catch(e){}
+  token=null;currentUser=null;openDeviceHost=null;
+  stopPolling();
+  clearIdleTimer();clearMainIdleTimer();
+  show('lock-screen');
+  renderKeypad();renderDots();
+}
+
+function authHeaders(){
+  return token?{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'}:{'Content-Type':'application/json'};
+}
+
+// ── Screensaver / idle timers ─────────────────────────────────
+
+function clearMainIdleTimer(){clearTimeout(mainIdleTimer);mainIdleTimer=null;}
+function armMainIdleTimer(){
+  clearMainIdleTimer();
+  mainIdleTimer=setTimeout(showScreensaver,SCREENSAVER_IDLE_SECONDS*1000);
+}
+function showScreensaver(){
+  clearIdleTimer();clearMainIdleTimer();stopPolling();
+  const online=devices.filter(d=>!d._stale).length;
+  document.getElementById('saver-sub').textContent=`outdoor ${fmtOutdoor()} · ${online}/${devices.length} online`;
+  show('screensaver');
+}
+document.getElementById('screensaver').addEventListener('click',relock);
+
+function clearIdleTimer(){
+  clearTimeout(idleTimer);clearInterval(idleCountdownTimer);
+  idleTimer=null;idleCountdownTimer=null;
+  const badge=document.getElementById('idle-badge');
+  if(badge)badge.textContent='';
+}
+function armIdleTimer(){
+  clearIdleTimer();
+  let remaining=DETAIL_IDLE_SECONDS;
+  const tick=()=>{
+    const badge=document.getElementById('idle-badge');
+    if(badge)badge.textContent=remaining<=5?`auto-return in ${remaining}s`:'';
+    remaining--;
+  };
+  tick();
+  idleCountdownTimer=setInterval(tick,1000);
+  idleTimer=setTimeout(()=>showSub('grid'),DETAIL_IDLE_SECONDS*1000);
+}
+
+function touch(){armMainIdleTimer();}
+
+// ── Sub-navigation within main-screen (grid vs detail) ─────────
+
+function showSub(sub){
+  document.getElementById('main-header').style.display=sub==='grid'?'flex':'none';
+  document.getElementById('detail-header').style.display=sub==='detail'?'flex':'none';
+  document.getElementById('grid-view').style.display=sub==='grid'?'grid':'none';
+  document.getElementById('grid-detail').style.display=sub==='detail'?'block':'none';
+  if(sub==='grid'){clearIdleTimer();openDeviceHost=null;}
+}
+document.getElementById('detail-header').addEventListener('click',()=>{showSub('grid');touch();});
+document.getElementById('relock-btn').addEventListener('click',relock);
+
+// ── Polling ────────────────────────────────────────────────────
+
+function startPolling(){
+  stopPolling();
+  pollTimer=setInterval(refreshAll,POLL_INTERVAL_MS);
+}
+function stopPolling(){clearInterval(pollTimer);pollTimer=null;}
+
+async function refreshAll(){
+  try{
+    if(!rootInfo.version){
+      try{const rr=await fetch(`${API}/`);rootInfo=await rr.json();
+        document.getElementById('version-badge').textContent=
+          `${rootInfo.version||''} · ${currentUser.role.charAt(0).toUpperCase()+currentUser.role.slice(1)}`;
+      }catch(e){}
+    }
+    const [devRes,setRes,schRes]=await Promise.all([
+      fetch(`${API}/devices`,{headers:authHeaders()}),
+      fetch(`${API}/settings`,{headers:authHeaders()}),
+      fetch(`${API}/schedules`,{headers:authHeaders()})
+    ]);
+    if(devRes.status===401){relock();return;}
+    const devData=await devRes.json();
+    devices=devData.devices||[];
+    settings=await setRes.json();
+    schedules=(await schRes.json()).schedules||[];
+    document.getElementById('loading-banner').style.display='none';
+    renderGrid();
+    renderFooter();
+    if(openDeviceHost)renderDetail(openDeviceHost);
+  }catch(e){
+    document.getElementById('loading-banner').style.display='block';
+  }
+}
+
+// ── Grid ─────────────────────────────────────────────────────
+
+function renderGrid(){
+  const el=document.getElementById('grid-view');
+  el.innerHTML=devices.map(d=>{
+    const dim=d._stale;
+    const mode=d.state?.mode||'OFF';
+    const bg=dim?'var(--bg2)':MODE_BG[mode];
+    const border=dim?'var(--border)':MODE_COLOR[mode]+'44';
+    const cur=safeFloat(d.state?.current_temperature);
+    const tgt=safeFloat(d.state?.target_temperature);
+    return `
+    <div data-host="${d.host}" class="tile" style="background:${bg};border:0.5px solid ${border};opacity:${dim?0.55:1}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <span style="color:var(--text);font-size:14px;font-weight:500">${d.name}</span>
+        <div style="display:flex;align-items:center;gap:5px">
+          ${d.lock_temp&&!dim?'<i class="ti ti-lock" style="font-size:12px;color:var(--text2)" aria-hidden="true"></i>':''}
+          ${d._max_temp_active&&!dim?'<span style="width:6px;height:6px;border-radius:50%;background:var(--err);display:inline-block"></span>':''}
+          <span style="color:${dim?'var(--text2)':MODE_COLOR[mode]};font-size:11px;font-weight:500">${dim?'OFFLINE':mode}</span>
+        </div>
+      </div>
+      <div style="display:flex;align-items:baseline;gap:6px">
+        <span style="color:${dim?'var(--text2)':'var(--text)'};font-size:30px;font-weight:500">${cur!=null?Math.round(cur)+'°':'—'}</span>
+        ${!dim&&mode!=='OFF'&&tgt!=null?`<span style="color:var(--text2);font-size:13px">→ ${Math.round(tgt)}°</span>`:''}
+      </div>
+      <div style="color:var(--text2);font-size:11px;min-height:13px">${!dim?fmtOnTime(d._on_time_minutes):''}</div>
+    </div>`;
+  }).join('');
+  el.querySelectorAll('.tile').forEach(t=>t.addEventListener('click',()=>{
+    touch();
+    const d=devices.find(x=>x.host===t.dataset.host);
+    if(d&&!d._stale)openDetail(d.host);
+  }));
+}
+
+// ── Detail ───────────────────────────────────────────────────
+
+function openDetail(host){
+  openDeviceHost=host;
+  showSub('detail');
+  renderDetail(host);
+  armIdleTimer();
+}
+
+function wifiInfo(dbm){
+  if(dbm==null)return{icon:'ti-wifi-off',color:'var(--gray)',txt:'—'};
+  if(dbm>=-50)return{icon:'ti-wifi',color:'var(--ok)',txt:'Excellent'};
+  if(dbm>=-60)return{icon:'ti-wifi',color:'var(--ok)',txt:'Good'};
+  if(dbm>=-70)return{icon:'ti-wifi',color:'var(--warn)',txt:'Fair'};
+  return{icon:'ti-wifi',color:'var(--err)',txt:'Weak'};
+}
+
+function statCard(icon,value,label,color){
+  return `<div class="stat-card">
+    <i class="ti ${icon}" style="font-size:25px;color:${color}" aria-hidden="true"></i>
+    <span style="color:var(--text);font-size:14px;font-weight:500">${value}</span>
+    <span style="color:var(--text3);font-size:9px;letter-spacing:0.3px">${label}</span>
+  </div>`;
+}
+
+function renderDetail(host){
+  const d=devices.find(x=>x.host===host);
+  if(!d){showSub('grid');return;}
+  const s=d.state||{};
+  const mode=s.mode||'OFF';
+  const tgt=safeFloat(s.target_temperature);
+  const canControl=currentUser.role!=='viewer';
+  const running=mode!=='OFF';
+  const watts=estWatts(d);
+  const costHr=(watts/1000*effectiveRateUsd()).toFixed(2);
+  const wifi=wifiInfo(s.wifi_signal);
+  const GRAY='var(--gray)';
+  const outdoor=safeFloat(s.outdoor_temp);
+
+  const el=document.getElementById('grid-detail');
+  el.innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <span style="color:var(--text);font-size:17px;font-weight:500">${d.name}</span>
+      <span style="color:${MODE_COLOR[mode]};font-size:13px;font-weight:500">${mode}</span>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:center;gap:${canControl?'22px':'0'};margin:2px 0 4px">
+      ${canControl?'<button data-act="down" style="width:46px;height:46px;border-radius:50%;font-size:20px;padding:0">−</button>':''}
+      <span style="color:var(--text);font-size:44px;font-weight:500;min-width:96px;text-align:center">${tgt!=null?Math.round(tgt)+'°':'—'}</span>
+      ${canControl?'<button data-act="up" style="width:46px;height:46px;border-radius:50%;font-size:20px;padding:0">+</button>':''}
+    </div>
+    ${canControl?`<div style="display:flex;gap:8px;justify-content:center;margin-bottom:8px">
+      ${['OFF','COOL','HEAT'].map(m=>`<button data-mode="${m}" style="flex:1;max-width:120px;padding:8px;border-radius:6px;background:${m===mode?MODE_BG[m]:'transparent'};border:0.5px solid ${m===mode?MODE_COLOR[m]:'var(--border)'};color:${m===mode?MODE_COLOR[m]:'var(--text2)'};font-size:12px;font-weight:500">${m}</button>`).join('')}
+    </div>`:`<div style="color:var(--text3);font-size:11px;text-align:center;margin:4px 0 8px"><i class="ti ti-eye" style="font-size:12px;vertical-align:-1px;margin-right:4px" aria-hidden="true"></i>View only — sign in as operator to control</div>`}
+    <div style="height:1px;background:var(--border2);margin:2px 0 10px"></div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center">
+      ${statCard('ti-clock',fmtOnTime(d._on_time_minutes)||'Off','ON-TIME',running?'var(--amber)':GRAY)}
+      ${statCard('ti-sun',outdoor!=null?Math.round(outdoor)+'°':'—','OUTDOOR','var(--orange)')}
+      ${statCard('ti-shield-check',d.max_temp!=null?Math.round(d.max_temp)+'°':'—','GUARD',d._max_temp_active?'var(--err)':GRAY)}
+      ${statCard('ti-lock',d.lock_temp?Math.round(d.locked_target_temp)+'°':'—','LOCKED',d.lock_temp?'var(--violet)':GRAY)}
+      ${statCard('ti-bolt',running&&watts!=null?watts+'W':'0W','POWER',running?'var(--yellow)':GRAY)}
+      ${statCard('ti-currency-dollar',running&&watts?'$'+costHr+'/hr':'—','COST',running?'var(--green)':GRAY)}
+      ${statCard(wifi.icon,wifi.txt,'WIFI',wifi.color)}
+      ${statCard('ti-bell',d.beeper==='ON'?'On':'Off','BEEPER',d.beeper==='ON'?'var(--teal)':GRAY)}
+    </div>
+    <div style="color:var(--text4);font-size:10px;text-align:center;margin-top:10px">${d.host} · ESPHome ${d._firmware_version||'—'}</div>
+    <div id="idle-badge" style="color:var(--text4);font-size:10px;text-align:center;margin-top:4px"></div>
+  `;
+  if(canControl){
+    el.querySelector('[data-act="up"]').addEventListener('click',()=>adjustTemp(host,1));
+    el.querySelector('[data-act="down"]').addEventListener('click',()=>adjustTemp(host,-1));
+    el.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setMode(host,b.dataset.mode)));
+  }
+}
+
+async function sendCmd(host,params){
+  touch();armIdleTimer();
+  try{
+    await fetch(`${API}/devices/${encodeURIComponent(host)}/cmd`,{
+      method:'POST',headers:authHeaders(),body:JSON.stringify({params})
+    });
+  }catch(e){}
+  await refreshAll();
+}
+
+function adjustTemp(host,delta){
+  const d=devices.find(x=>x.host===host);
+  const cur=safeFloat(d.state?.target_temperature)||22;
+  const next=Math.max(16,Math.min(30,cur+delta));
+  sendCmd(host,{target_temperature:next});
+}
+function setMode(host,mode){sendCmd(host,{mode});}
+
+// ── Footer ───────────────────────────────────────────────────
+
+function statCell(label,value,extra){
+  return `<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+    <span style="color:var(--text3);font-size:10px;font-weight:500;letter-spacing:0.4px">${label}</span>
+    <span style="color:var(--text);font-size:13px;font-weight:500;margin-left:7px">${value}</span>
+    ${extra?`<span style="color:var(--text3);font-size:12px;margin-left:7px">${extra}</span>`:''}
+  </div>`;
+}
+
+function nextScheduleText(){
+  const now=new Date();
+  let nearest=null,nearestMs=Infinity;
+  schedules.filter(s=>s.enabled).forEach(s=>{
+    const [hh,mm]=(s.time||'00:00').split(':').map(Number);
+    const days=s.days||[0,1,2,3,4,5,6];
+    for(let dOff=0;dOff<8;dOff++){
+      const cand=new Date(now);
+      cand.setDate(now.getDate()+dOff);
+      cand.setHours(hh,mm,0,0);
+      if(!days.includes(cand.getDay()))continue;
+      if(cand<=now)continue;
+      const ms=cand-now;
+      if(ms<nearestMs){nearestMs=ms;nearest=s;}
+      break;
+    }
+  });
+  if(!nearest)return'—';
+  return `${nearest.device_name} @ ${nearest.time}`;
+}
+
+function renderFooter(){
+  const online=devices.filter(d=>!d._stale);
+  const on=online.filter(d=>(d.state?.mode||'OFF')!=='OFF');
+  const totalW=online.reduce((s,d)=>s+(estWatts(d)||0),0);
+  const dayCost=estCostDay(totalW).toFixed(2);
+  const proj=(dayCost*30).toFixed(0);
+  document.getElementById('footer-stats').innerHTML=[
+    statCell('ONLINE',`${online.length}/${devices.length}`),
+    statCell('LOAD',`${Math.round(totalW)}W`,`(${on.length} on)`),
+    statCell('TODAY',`$${dayCost}`,`→ $${proj}/mo`),
+    statCell('NEXT',nextScheduleText())
+  ].join('');
+}
+
+// ── Startup ──────────────────────────────────────────────────
+
+async function init(){
+  renderKeypad();renderDots();
+  tickClock();
+  clockTimer=setInterval(tickClock,1000);
+  try{
+    const r=await fetch(`${API}/`);
+    rootInfo=await r.json();
+  }catch(e){}
+}
+init();
+</script>
+</body>
+</html>

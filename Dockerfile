@@ -67,6 +67,7 @@ RUN mkdir -p /var/www/html /app /data
 
 # Copy app files
 COPY hvac-dashboard.html /var/www/html/index.html
+COPY kiosk.html /var/www/html/kiosk.html
 COPY api.py auth.py state.py models.py worker.py /app/
 COPY routers/ /app/routers/
 
