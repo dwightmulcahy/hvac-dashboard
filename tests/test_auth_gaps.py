@@ -190,6 +190,55 @@ def test_list_users_returns_all(client, auth_headers):
     assert "someone" in usernames
 
 
+def test_new_user_has_no_last_login_until_they_log_in(client, auth_headers):
+    client.post(
+        "/auth/users", headers=auth_headers,
+        json={"username": "someone", "password": "longenough123", "role": "viewer"},
+    )
+    r = client.get("/auth/users", headers=auth_headers)
+    someone = next(u for u in r.json()["users"] if u["username"] == "someone")
+    assert someone["last_login"] is None
+
+
+def test_last_login_recorded_after_successful_login(client, auth_headers):
+    client.post(
+        "/auth/users", headers=auth_headers,
+        json={"username": "someone", "password": "longenough123", "role": "viewer"},
+    )
+    client.post("/auth/login", json={"username": "someone", "password": "longenough123"})
+
+    r = client.get("/auth/users", headers=auth_headers)
+    someone = next(u for u in r.json()["users"] if u["username"] == "someone")
+    assert someone["last_login"] is not None
+
+
+def test_last_login_not_recorded_on_failed_login(client, auth_headers):
+    client.post(
+        "/auth/users", headers=auth_headers,
+        json={"username": "someone", "password": "longenough123", "role": "viewer"},
+    )
+    client.post("/auth/login", json={"username": "someone", "password": "wrongpassword"})
+
+    r = client.get("/auth/users", headers=auth_headers)
+    someone = next(u for u in r.json()["users"] if u["username"] == "someone")
+    assert someone["last_login"] is None
+
+
+def test_last_login_updates_on_each_subsequent_login(client, auth_headers, api_module):
+    client.post(
+        "/auth/users", headers=auth_headers,
+        json={"username": "someone", "password": "longenough123", "role": "viewer"},
+    )
+    client.post("/auth/login", json={"username": "someone", "password": "longenough123"})
+
+    # force a stale timestamp, then confirm a fresh login overwrites it
+    api_module._state["users"]["someone"]["last_login"] = "2020-01-01T00:00:00"
+    client.post("/auth/login", json={"username": "someone", "password": "longenough123"})
+    updated_login = api_module._state["users"]["someone"]["last_login"]
+
+    assert updated_login != "2020-01-01T00:00:00"
+
+
 def test_delete_user_cannot_delete_self(client, auth_headers):
     r = client.delete("/auth/users/admin", headers=auth_headers)
     assert r.status_code == 400

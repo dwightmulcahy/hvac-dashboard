@@ -21,12 +21,14 @@ def test_device_config_defaults():
     assert d.beeper == "OFF"
     assert d.watchdog_minutes == 5
     assert d.lock_temp is False
+    assert d.has_ir_emitter is False
 
 
 def test_device_config_accepts_overrides():
-    d = DeviceConfig(host="ac1.local", name="Bedroom", btu=12000, seer=18, max_temp=31.5)
+    d = DeviceConfig(host="ac1.local", name="Bedroom", btu=12000, seer=18, max_temp=31.5, has_ir_emitter=True)
     assert d.btu == 12000
     assert d.max_temp == 31.5
+    assert d.has_ir_emitter is True
 
 
 def test_command_payload_requires_params():

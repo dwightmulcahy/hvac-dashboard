@@ -10,6 +10,18 @@ def test_root_status(client):
     assert r.json()["status"] == "ok"
 
 
+def test_root_status_git_sha_defaults_to_unknown_without_env_var(client, monkeypatch):
+    monkeypatch.delenv("GIT_SHA", raising=False)
+    r = client.get("/")
+    assert r.json()["git_sha"] == "unknown"
+
+
+def test_root_status_git_sha_truncated_to_short_form(client, monkeypatch):
+    monkeypatch.setenv("GIT_SHA", "a1b2c3d4e5f6789012345678901234567890abcd")
+    r = client.get("/")
+    assert r.json()["git_sha"] == "a1b2c3d"
+
+
 def test_health_endpoint_with_no_devices(client):
     r = client.get("/health")
     assert r.status_code == 200
@@ -158,6 +170,21 @@ def test_add_and_list_device(client, auth_headers):
     devices = r.json()["devices"]
     assert len(devices) == 1
     assert devices[0]["name"] == "Living Room"
+
+
+def test_add_device_has_ir_emitter_defaults_false(client, auth_headers):
+    client.post("/devices", headers=auth_headers, json={"host": "ac1.local", "name": "Living Room"})
+    r = client.get("/devices", headers=auth_headers)
+    assert r.json()["devices"][0]["has_ir_emitter"] is False
+
+
+def test_add_device_has_ir_emitter_can_be_set_true(client, auth_headers):
+    client.post(
+        "/devices", headers=auth_headers,
+        json={"host": "ac1.local", "name": "Living Room", "has_ir_emitter": True},
+    )
+    r = client.get("/devices", headers=auth_headers)
+    assert r.json()["devices"][0]["has_ir_emitter"] is True
 
 
 def test_adding_same_host_twice_updates_not_duplicates(client, auth_headers):

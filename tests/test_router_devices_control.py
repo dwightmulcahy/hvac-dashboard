@@ -109,13 +109,27 @@ def test_lock_disable_clears_target_temp(client, auth_headers, api_module):
 
 
 def test_display_toggle_success(client, auth_headers, api_module, mocker):
-    api_module._state["devices"].append({"host": "ac1.local", "name": "Living Room"})
+    api_module._state["devices"].append({"host": "ac1.local", "name": "Living Room", "has_ir_emitter": True})
     async def fake_post(self, url, *a, **kw):
         return _FakeResponse(status_code=200)
     mocker.patch.object(httpx.AsyncClient, "post", fake_post)
 
     r = client.post("/devices/ac1.local/display-toggle", headers=auth_headers)
     assert r.json()["ok"] is True
+
+
+def test_display_toggle_blocked_without_ir_emitter(client, auth_headers, api_module, mocker):
+    """A registered device without has_ir_emitter should be blocked
+    server-side, not just hidden in the UI — defense in depth against
+    someone hitting the endpoint directly."""
+    api_module._state["devices"].append({"host": "ac1.local", "name": "Living Room", "has_ir_emitter": False})
+    async def fake_post(self, url, *a, **kw):
+        return _FakeResponse(status_code=200)  # would succeed if it were ever attempted
+    mocker.patch.object(httpx.AsyncClient, "post", fake_post)
+
+    r = client.post("/devices/ac1.local/display-toggle", headers=auth_headers)
+    assert r.json()["ok"] is False
+    assert "IR emitter" in r.json()["error"]
 
 
 def test_display_toggle_unsupported_returns_error(client, auth_headers, mocker):
@@ -135,6 +149,61 @@ def test_display_toggle_network_exception_returns_error(client, auth_headers, mo
 
     r = client.post("/devices/ac1.local/display-toggle", headers=auth_headers)
     assert r.json()["ok"] is False
+
+
+# ── /swing-step ──────────────────────────────────────────────
+# Same underlying helper as display-toggle (_press_ir_button), same
+# IR-emitter gate, same firmware pattern (slwf-base.yaml defines both
+# as template buttons calling a midea_ac.XXX: action) — so these
+# mirror the display-toggle tests above rather than duplicating every
+# edge case independently.
+
+
+def test_swing_step_success(client, auth_headers, api_module, mocker):
+    api_module._state["devices"].append({"host": "ac1.local", "name": "Living Room", "has_ir_emitter": True})
+    async def fake_post(self, url, *a, **kw):
+        return _FakeResponse(status_code=200)
+    mocker.patch.object(httpx.AsyncClient, "post", fake_post)
+
+    r = client.post("/devices/ac1.local/swing-step", headers=auth_headers)
+    assert r.json()["ok"] is True
+
+
+def test_swing_step_blocked_without_ir_emitter(client, auth_headers, api_module, mocker):
+    api_module._state["devices"].append({"host": "ac1.local", "name": "Living Room", "has_ir_emitter": False})
+    async def fake_post(self, url, *a, **kw):
+        return _FakeResponse(status_code=200)
+    mocker.patch.object(httpx.AsyncClient, "post", fake_post)
+
+    r = client.post("/devices/ac1.local/swing-step", headers=auth_headers)
+    assert r.json()["ok"] is False
+    assert "IR emitter" in r.json()["error"]
+
+
+def test_swing_step_falls_through_to_underscore_path(client, auth_headers, api_module, mocker):
+    api_module._state["devices"].append({"host": "ac1.local", "name": "Living Room", "has_ir_emitter": True})
+    calls = []
+    async def fake_post(self, url, *a, **kw):
+        calls.append(url)
+        if "Air%20Conditioner" in url:
+            return _FakeResponse(status_code=404)
+        return _FakeResponse(status_code=200)
+    mocker.patch.object(httpx.AsyncClient, "post", fake_post)
+
+    r = client.post("/devices/ac1.local/swing-step", headers=auth_headers)
+    assert r.json()["ok"] is True
+    assert len(calls) == 2
+
+
+def test_swing_step_unsupported_returns_error(client, auth_headers, api_module, mocker):
+    api_module._state["devices"].append({"host": "ac1.local", "name": "Living Room", "has_ir_emitter": True})
+    async def fake_post(self, url, *a, **kw):
+        return _FakeResponse(status_code=404)
+    mocker.patch.object(httpx.AsyncClient, "post", fake_post)
+
+    r = client.post("/devices/ac1.local/swing-step", headers=auth_headers)
+    assert r.json()["ok"] is False
+    assert "not supported" in r.json()["error"]
 
 
 # ── /beeper/test and /beeper/{state} ─────────────────────────
