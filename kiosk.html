@@ -304,7 +304,7 @@ async function unlock(){
   show('main-screen');
   showSub('grid');
   document.getElementById('version-badge').textContent=
-    `${rootInfo.version||''} · ${currentUser.role.charAt(0).toUpperCase()+currentUser.role.slice(1)}`;
+    `${rootInfo.version||''} · ${currentUser.username} · ${currentUser.role.charAt(0).toUpperCase()+currentUser.role.slice(1)}`;
   await refreshAll();
   startPolling();
   armMainIdleTimer();
@@ -392,7 +392,7 @@ async function refreshAll(){
     if(!rootInfo.version){
       try{const rr=await fetch(`${API}/`);rootInfo=await rr.json();
         document.getElementById('version-badge').textContent=
-          `${rootInfo.version||''} · ${currentUser.role.charAt(0).toUpperCase()+currentUser.role.slice(1)}`;
+          `${rootInfo.version||''} · ${currentUser.username} · ${currentUser.role.charAt(0).toUpperCase()+currentUser.role.slice(1)}`;
       }catch(e){}
     }
     const [devRes,setRes,schRes]=await Promise.all([
@@ -490,12 +490,28 @@ function wifiStatCard(dbm){
   </div>`;
 }
 
+// ── Optimistic control state ──────────────────────────────────
+// Tapping +/-, a mode button, or beeper previously did nothing
+// visible until a full round trip (send command -> refetch devices)
+// completed — on a touchscreen that reads as laggy, and rapid +/-
+// taps each fired their own separate command instead of coalescing
+// into one. pendingHost/pendingTarget/pendingMode/pendingBeeper track
+// a not-yet-confirmed local change so the UI updates instantly; while
+// one is set, renderDetail() shows it instead of the (possibly
+// stale-relative-to-this-tap) server value, so a periodic poll firing
+// mid-adjustment can't make the display flicker back to the old
+// number. Temp taps are also debounced — five quick taps send one
+// command with the final value, not five.
+let pendingHost=null,pendingTarget=null,pendingMode=null,pendingBeeper=null;
+let tempDebounceTimer=null;
+
 function renderDetail(host){
   const d=devices.find(x=>x.host===host);
   if(!d){showSub('grid');return;}
   const s=d.state||{};
-  const mode=s.mode||'OFF';
-  const tgt=safeFloat(s.target_temperature);
+  const isPending=pendingHost===host;
+  const mode=(isPending&&pendingMode!=null)?pendingMode:(s.mode||'OFF');
+  const tgt=(isPending&&pendingTarget!=null)?pendingTarget:safeFloat(s.target_temperature);
   const tgtFmt=fmtTempFull(tgt);
   const canControl=currentUser.role!=='viewer';
   const running=mode!=='OFF';
@@ -503,7 +519,7 @@ function renderDetail(host){
   const costHr=(watts/1000*effectiveRateUsd()).toFixed(2);
   const GRAY='var(--gray)';
   const outdoor=safeFloat(s.outdoor_temp);
-  const beeperOn=d.beeper==='ON';
+  const beeperOn=(isPending&&pendingBeeper!=null)?pendingBeeper:(d.beeper==='ON');
 
   const el=document.getElementById('grid-detail');
   el.innerHTML=`
@@ -540,7 +556,7 @@ function renderDetail(host){
     el.querySelector('[data-act="up"]').addEventListener('click',()=>adjustTemp(host,1));
     el.querySelector('[data-act="down"]').addEventListener('click',()=>adjustTemp(host,-1));
     el.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setMode(host,b.dataset.mode)));
-    el.querySelector('[data-act="beeper"]').addEventListener('click',()=>toggleBeeper(host,!beeperOn));
+    el.querySelector('[data-act="beeper"]').addEventListener('click',()=>toggleBeeperOptimistic(host,!beeperOn));
   }
 }
 
@@ -558,16 +574,44 @@ function adjustTemp(host,delta){
   const d=devices.find(x=>x.host===host);
   if(!d||!d.state)return;
   const step=safeFloat(d.state.step)||0.5;
-  const base=safeFloat(d.state.target_temperature)||22;
+  const base=(pendingHost===host&&pendingTarget!=null)?pendingTarget:(safeFloat(d.state.target_temperature)||22);
   const minT=safeFloat(d.state.min_temp)||17;
   const maxT=safeFloat(d.state.max_temp)||30;
   const next=Math.round((Math.min(maxT,Math.max(minT,base+delta*step)))/step)*step;
-  sendCmd(host,{target_temperature:next});
+
+  pendingHost=host;
+  pendingTarget=next;
+  touch();armIdleTimer();
+  renderDetail(host);
+
+  clearTimeout(tempDebounceTimer);
+  tempDebounceTimer=setTimeout(async()=>{
+    await sendCmd(host,{target_temperature:next});
+    if(pendingHost===host&&pendingTarget===next){pendingHost=null;pendingTarget=null;}
+  },600);
 }
-function setMode(host,mode){sendCmd(host,{mode});}
+
+function setMode(host,mode){
+  pendingHost=host;
+  pendingMode=mode;
+  touch();armIdleTimer();
+  renderDetail(host);
+  sendCmd(host,{mode}).then(()=>{
+    if(pendingHost===host&&pendingMode===mode){pendingHost=null;pendingMode=null;}
+  });
+}
+
+function toggleBeeperOptimistic(host,turnOn){
+  pendingHost=host;
+  pendingBeeper=turnOn;
+  touch();armIdleTimer();
+  renderDetail(host);
+  toggleBeeper(host,turnOn).then(()=>{
+    if(pendingHost===host&&pendingBeeper===turnOn){pendingHost=null;pendingBeeper=null;}
+  });
+}
 
 async function toggleBeeper(host,turnOn){
-  touch();armIdleTimer();
   try{
     await fetch(`${API}/devices/${encodeURIComponent(host)}/beeper/${turnOn?'on':'off'}`,{
       method:'POST',headers:authHeaders()
