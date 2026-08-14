@@ -808,6 +808,7 @@ async function renderUsersTab(){
   thead.innerHTML='<tr><th style="text-align:left;padding:6px 0;border-bottom:1px solid var(--border)">Username</th>'
     +'<th style="text-align:left;padding:6px 0;border-bottom:1px solid var(--border)">Role</th>'
     +'<th style="text-align:left;padding:6px 0;border-bottom:1px solid var(--border)">Last Login</th>'
+    +'<th style="text-align:left;padding:6px 0;border-bottom:1px solid var(--border)">Kiosk PIN</th>'
     +'<th style="padding:6px 0;border-bottom:1px solid var(--border)"></th></tr>';
   table.appendChild(thead);
   const tbody=document.createElement('tbody');
@@ -829,6 +830,10 @@ async function renderUsersTab(){
     const td4=document.createElement('td');td4.style.cssText='padding:8px 0;color:var(--text3);font-size:11px';
     td4.textContent=u.last_login?fmtAgo(u.last_login):'Never';
     tr.appendChild(td4);
+    // kiosk PIN cell
+    const td5=document.createElement('td');td5.style.padding='8px 0';
+    renderPinCell(td5,u.username,u.has_pin);
+    tr.appendChild(td5);
     // actions cell
     const td3=document.createElement('td');td3.style.cssText='padding:8px 0;text-align:right;display:flex;gap:4px;justify-content:flex-end';
     const resetBtn=document.createElement('button');resetBtn.className='btn';
@@ -851,6 +856,119 @@ async function forcePasswordReset(username){
   if(r.ok){addLog(`Password reset forced for '${username}'`,'warn');renderUsersTab();}
   else{const d=await r.json();addLog(d.detail||'Failed','err');}
 }
+
+// ── Kiosk PIN management ─────────────────────────────────────
+// PINs are a second credential on the same account (same role, same
+// login-lockout rules as passwords — see auth.py's PIN_LOCKOUT_KEY),
+// not a separate access tier, so this lives right in the Users table
+// rather than its own settings section.
+
+function renderPinCell(td,username,hasPin){
+  td.innerHTML='';
+  const status=document.createElement('span');
+  status.style.cssText=hasPin?'color:var(--text2);font-size:11px':'color:var(--text3);font-size:11px';
+  status.textContent=hasPin?'•••• set':'Not set';
+  td.appendChild(status);
+
+  const setBtn=document.createElement('button');
+  setBtn.className='btn';
+  setBtn.style.cssText='font-size:10px;padding:2px 6px;margin-left:6px';
+  setBtn.textContent=hasPin?'Change':'Set';
+  setBtn.onclick=function(){startEditPin(td,username,hasPin);};
+  td.appendChild(setBtn);
+
+  if(hasPin){
+    const clearBtn=document.createElement('button');
+    clearBtn.className='btn';
+    clearBtn.style.cssText='font-size:10px;padding:2px 6px;margin-left:4px;color:var(--err);border-color:var(--err)';
+    clearBtn.textContent='Clear';
+    clearBtn.onclick=function(){clearUserPin(username);};
+    td.appendChild(clearBtn);
+  }
+}
+
+function startEditPin(td,username,hasPin){
+  td.innerHTML='';
+  const row=document.createElement('div');
+  row.style.cssText='display:flex;align-items:center;gap:4px';
+
+  const input=document.createElement('input');
+  input.type='text';
+  input.inputMode='numeric';
+  input.pattern='[0-9]*';
+  input.maxLength=4;
+  input.placeholder='4 digits';
+  input.className='inp';
+  input.style.cssText='width:70px;font-size:11px';
+  row.appendChild(input);
+
+  const saveBtn=document.createElement('button');
+  saveBtn.className='btn';
+  saveBtn.style.cssText='font-size:10px;padding:2px 6px;color:var(--ok);border-color:var(--ok)';
+  saveBtn.textContent='Save';
+  row.appendChild(saveBtn);
+
+  const cancelBtn=document.createElement('button');
+  cancelBtn.className='btn';
+  cancelBtn.style.cssText='font-size:10px;padding:2px 6px';
+  cancelBtn.textContent='Cancel';
+  row.appendChild(cancelBtn);
+
+  td.appendChild(row);
+
+  const err=document.createElement('div');
+  err.style.cssText='display:none;color:var(--err);font-size:10px;margin-top:3px';
+  td.appendChild(err);
+
+  saveBtn.onclick=function(){savePinEdit(td,username,input,err);};
+  cancelBtn.onclick=function(){renderPinCell(td,username,hasPin);};
+
+  input.focus();
+  input.addEventListener('keydown',function(ev){
+    if(ev.key==='Enter')savePinEdit(td,username,input,err);
+    if(ev.key==='Escape')renderPinCell(td,username,hasPin);
+  });
+}
+
+async function savePinEdit(td,username,input,errEl){
+  const pin=input.value.trim();
+  if(!/^\d{4}$/.test(pin)){
+    errEl.textContent='Must be exactly 4 digits';
+    errEl.style.display='block';
+    return;
+  }
+  errEl.style.display='none';
+  try{
+    const r=await fetch(`${API}/auth/users/${username}/pin`,{
+      method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({pin})
+    });
+    const data=await r.json();
+    if(r.ok){
+      addLog(`PIN set for '${username}'`,'ok');
+      renderPinCell(td,username,true);
+    }else{
+      errEl.textContent=data.detail||'Failed to set PIN';
+      errEl.style.display='block';
+    }
+  }catch(e){
+    errEl.textContent=e.message;
+    errEl.style.display='block';
+  }
+}
+
+async function clearUserPin(username){
+  if(!confirm(`Remove '${username}''s kiosk PIN? They won't be able to use the kiosk touchscreen until a new one is set.`))return;
+  try{
+    const r=await fetch(`${API}/auth/users/${username}/pin`,{
+      method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({pin:''})
+    });
+    if(r.ok){addLog(`PIN cleared for '${username}'`,'warn');renderUsersTab();}
+    else{const d=await r.json();addLog(d.detail||'Failed','err');}
+  }catch(e){addLog(e.message,'err');}
+}
+
 const ROLE_OPTIONS=['viewer','operator','admin'];
 
 function showAddUserForm(){
