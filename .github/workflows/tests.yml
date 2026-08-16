@@ -13,15 +13,15 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: pip install -r requirements-dev.txt
 
       - name: Run pyflakes (fast syntax/unused-var check)
@@ -29,6 +29,12 @@ jobs:
 
       - name: Run pytest
         run: pytest tests/ -v --tb=short
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
 
       - name: Check hvac-dashboard.html JS syntax
         run: |
@@ -45,5 +51,23 @@ jobs:
           print('Dashboard JS syntax: CLEAN')
           "
 
-      - name: Run dashboard JS unit tests
+      - name: Check kiosk.html JS syntax
+        run: |
+          python3 -c "
+          import subprocess
+          html = open('kiosk.html').read()
+          start = html.index('<script>') + 8
+          end = html.rindex('</script>')
+          open('/tmp/check_kiosk.js', 'w').write(html[start:end])
+          r = subprocess.run(['node', '--check', '/tmp/check_kiosk.js'], capture_output=True, text=True)
+          if r.returncode != 0:
+              print(r.stderr)
+              exit(1)
+          print('Kiosk JS syntax: CLEAN')
+          "
+
+      - name: Install JS test dependencies
+        run: npm install
+
+      - name: Run JS unit tests (dashboard + kiosk)
         run: node --test tests-js/*.test.js

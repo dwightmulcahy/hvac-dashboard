@@ -84,16 +84,22 @@ have caught it — `test_max_temp.py` has good examples of this pattern
 
 ## JavaScript tests
 
-`hvac-dashboard.html` is a single-file frontend with no build step, so
-its tests don't use npm/jest/vitest — they use Node's **built-in**
-test runner (`node:test`), which needs zero installation on any
-machine that already has Node.
+`hvac-dashboard.html` and `kiosk.html` are both single-file frontends
+with no build step. Their tests use Node's **built-in** test runner
+(`node:test`), which needs zero installation on any machine that
+already has Node — but `kiosk.html`'s tests specifically also need
+`jsdom` (see below), so a one-time `npm install` is required before
+running either file.
 
 ```bash
-node --test tests-js/*.test.js
+npm install                      # one-time, installs jsdom
+node --test tests-js/*.test.js   # runs both dashboard and kiosk tests
 ```
 
-### How it works
+There are two genuinely different testing approaches here, because the
+two files need different things verified:
+
+### `hvac-dashboard.html` — pure function extraction, no DOM needed
 
 `tests-js/extract.js` pulls specific pure utility functions (`safeFloat`,
 `fmtTemp`, `estWatts`, `fmtDays`, `effectiveRateUsd`, etc.) directly out
@@ -118,11 +124,11 @@ silently leaving a region untested.
 Only pure, DOM-independent functions are covered this way — things
 like temperature/cost/day formatting and watt estimation. Functions
 that touch `document`, `fetch`, or `localStorage` directly (rendering,
-event handlers, API calls) aren't unit tested; those are covered by
-the syntax check step and by manual testing against a running
-instance.
+event handlers, API calls) aren't unit tested this way; those are
+covered by the syntax check step and by manual testing against a
+running instance.
 
-### Adding a new function to test
+#### Adding a new function to test
 
 1. Wrap the function (and anything it depends on) in a new sentinel
    pair in `hvac-dashboard.html`:
@@ -138,10 +144,50 @@ instance.
 4. Add `test(...)` blocks to `dashboard-functions.test.js` using
    `node:assert/strict`.
 
+### `kiosk.html` — a real DOM, because most of it isn't pure functions
+
+`kiosk.html`'s PIN lock screen, screen navigation, and rendered output
+are inherently DOM-driven — sentinel extraction can't meaningfully
+test "does tapping 4821 unlock the panel" or "does a locked device
+gray out its +/- buttons," since there's no pure function to pull out.
+
+`tests-js/kiosk.test.js` instead loads the real file into an actual
+DOM implementation (`jsdom`, hence the one dependency this project
+otherwise doesn't have) with a mocked `fetch`, then drives it exactly
+the way a finger on the touchscreen would: dispatching real click
+events on the PIN keypad, grid tiles, and buttons, and asserting on
+what actually rendered. One long, sequential `t.test()` tree — later
+subtests build on state left by earlier ones (already unlocked, a
+detail view already open) rather than each one re-doing the full
+unlock-and-navigate setup from scratch, which would make an already
+multi-second test suite meaningfully slower for no real benefit.
+
+One thing worth knowing if you're extending this file: `kiosk.html`
+runs several `setInterval` timers forever by design (the on-screen
+clock, background polling) — correct behavior for a real kiosk left
+open permanently, but without an explicit `window.close()` at the end
+of the test, those timers keep the bare `jsdom` window alive
+indefinitely and `node --test` never naturally exits. This already
+happened once while building this suite — CI would have hung on every
+single run until GitHub Actions' own job timeout eventually killed it,
+silently burning CI minutes with no obvious cause in the output, since
+every individual subtest genuinely passed the whole time.
+
+#### Adding a new assertion to `kiosk.test.js`
+
+Add a new `await t.test("description", () => { assert...(...); });`
+block at the appropriate point in the existing flow — right after
+whatever tap/interaction produces the state you're checking. If it
+needs genuinely fresh setup (a new PIN, a new mock device), either
+extend `MOCK_DEVICES`/`MOCK_SCHEDULES` at the top of the file, or add
+a new PIN→role mapping in the mocked `/api/auth/login-pin` handler,
+matching the existing `4821`/`1357` pattern.
+
 ---
 
 ## CI
 
-`.github/workflows/tests.yml` runs the full pytest suite, `pyflakes`,
-the dashboard JS syntax check, and the JS unit test suite on every
-push/PR to `main`, `develop`, and `release`.
+`.github/workflows/tests.yml` runs, on every push/PR to `main`,
+`develop`, and `release`: the full pytest suite, `pyflakes`, both
+dashboard and kiosk JS syntax checks, `npm install` (for `kiosk.test.js`'s
+`jsdom` dependency), and the full JS unit test suite.
