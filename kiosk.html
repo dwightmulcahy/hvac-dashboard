@@ -26,14 +26,14 @@ button:active{opacity:0.7}
 .screen{position:absolute;inset:0;display:none;flex-direction:column}
 .screen.active{display:flex}
 #lock-screen{align-items:center;justify-content:center;padding:20px}
-#screensaver{align-items:center;justify-content:center;cursor:pointer}
+#screensaver{cursor:pointer}
 #main-header{height:44px;flex-shrink:0;border-bottom:0.5px solid var(--border);align-items:center;display:flex;justify-content:space-between;padding:0 16px}
 #sub-header{height:44px;flex-shrink:0;border-bottom:0.5px solid var(--border);align-items:center;display:none;padding:0 4px;cursor:pointer}
 #grid-view{padding:14px;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr);gap:10px;height:354px}
 #grid-detail,#schedules-view,#devices-view{display:none;height:354px;padding:10px 20px;overflow:hidden}
 #footer-stats{height:40px;display:grid;grid-template-columns:0.55fr 1.25fr 1.25fr 0.95fr;align-items:center;padding:0 20px;border-top:0.5px solid var(--border);flex-shrink:0}
 .tile{border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;justify-content:space-between;cursor:pointer}
-.stat-card{width:140px;background:var(--bg2);border-radius:10px;padding:10px 12px;display:flex;flex-direction:row;align-items:center;gap:10px}
+.stat-card{width:100%;background:var(--bg2);border-radius:10px;padding:12px 14px;display:flex;flex-direction:row;align-items:center;gap:11px}
 .icon{display:inline-flex;flex-shrink:0}
 .footer-tappable{cursor:pointer}
 #loading-banner{position:absolute;top:0;left:0;right:0;background:var(--err);color:#fff;font-size:11px;text-align:center;padding:3px;display:none;z-index:10}
@@ -52,9 +52,11 @@ button:active{opacity:0.7}
   </div>
 
   <div id="screensaver" class="screen">
-    <span id="saver-clock" style="color:#3a3d45;font-size:46px;font-weight:500"></span>
-    <span id="saver-sub" style="color:#2c2e35;font-size:13px;margin-top:10px"></span>
-    <span style="color:#23252b;font-size:11px;margin-top:32px">tap to unlock</span>
+    <div id="saver-content" style="position:absolute;display:flex;flex-direction:column;align-items:center;transition:top 1.8s ease,left 1.8s ease">
+      <span id="saver-clock" style="color:#3a3d45;font-size:72px;font-weight:500"></span>
+      <span id="saver-sub" style="color:#2c2e35;font-size:15px;margin-top:12px"></span>
+      <span style="color:#23252b;font-size:12px;margin-top:34px">tap to unlock</span>
+    </div>
   </div>
 
   <div id="main-screen" class="screen">
@@ -63,6 +65,7 @@ button:active{opacity:0.7}
       <div style="display:flex;align-items:center;gap:12px">
         <span id="version-badge" style="color:var(--text3);font-size:11px"></span>
         <span id="header-clock" style="color:var(--text2);font-size:13px"></span>
+        <span id="vacation-btn" class="icon" style="display:none;color:var(--text2);cursor:pointer" title="Toggle vacation mode"></span>
         <span id="relock-btn" class="icon" style="color:var(--text2);cursor:pointer" aria-label="Lock panel"></span>
       </div>
     </div>
@@ -76,6 +79,7 @@ button:active{opacity:0.7}
     <div id="grid-detail"></div>
     <div id="schedules-view"></div>
     <div id="devices-view"></div>
+    <div id="idle-badge" style="display:none;color:var(--text4);font-size:10px;text-align:center;padding:3px 0"></div>
     <div id="footer-stats"></div>
   </div>
 
@@ -83,17 +87,33 @@ button:active{opacity:0.7}
 
 <script>
 const API=window.location.origin+'/api';
+const FETCH_TIMEOUT_MS=10000;
+// Every network call in this file goes through here rather than raw
+// fetchT() — a kiosk meant to run unattended for months shouldn't be
+// able to get stuck indefinitely on one hung connection. AbortController
+// forces the request to give up and fail cleanly after FETCH_TIMEOUT_MS
+// instead of leaving a request (and whatever awaited it) hanging forever.
+async function fetchT(url,opts){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),FETCH_TIMEOUT_MS);
+  try{
+    return await fetch(url,{...(opts||{}),signal:controller.signal});
+  }finally{
+    clearTimeout(timer);
+  }
+}
 const MODE_COLOR={COOL:'var(--cool)',HEAT:'var(--heat)',AUTO:'var(--auto)',OFF:'var(--off)'};
 const MODE_BG={COOL:'var(--cool-bg)',HEAT:'var(--heat-bg)',AUTO:'var(--auto-bg)',OFF:'var(--off-bg)'};
 const MODES=['OFF','COOL','HEAT','AUTO'];
 const DETAIL_IDLE_SECONDS=15;
+const INFO_IDLE_SECONDS=30;
 const SCREENSAVER_IDLE_SECONDS=180;
 const POLL_INTERVAL_MS=12000;
 
 let token=null,currentUser=null;
 let devices=[],settings={},schedules=[],rootInfo={};
 let entered='',failedAttempts=0,lockoutUntil=0,lockoutTimer=null;
-let idleTimer=null,idleCountdownTimer=null,mainIdleTimer=null,pollTimer=null,clockTimer=null;
+let idleTimer=null,idleCountdownTimer=null,mainIdleTimer=null,pollTimer=null,clockTimer=null,saverMoveTimer=null;
 let openDeviceHost=null,currentSub='grid';
 
 // ── Self-contained icons ─────────────────────────────────────
@@ -119,7 +139,8 @@ const ICON_PATHS={
   'backspace':'<path d="M4 12l6-7h10v14H10l-6-7z"/><path d="M13 9l4 6M17 9l-4 6"/>',
   'calendar':'<rect x="4" y="5" width="16" height="16" rx="2"/><path d="M4 10h16M8 3v4M16 3v4"/>',
   'list':'<rect x="4" y="4" width="16" height="4.5" rx="1"/><rect x="4" y="10.5" width="16" height="4.5" rx="1"/><rect x="4" y="17" width="16" height="3" rx="1"/>',
-  'wifi-off':'<path d="M3 3l18 18"/><path d="M8.5 16.5a5 5 0 0 1 5-1.3M5 12.5a10 10 0 0 1 3-1.9M19 12.5a10 10 0 0 0 -2.3-1.7M12 19v.01"/>'
+  'wifi-off':'<path d="M3 3l18 18"/><path d="M8.5 16.5a5 5 0 0 1 5-1.3M5 12.5a10 10 0 0 1 3-1.9M19 12.5a10 10 0 0 0 -2.3-1.7M12 19v.01"/>',
+  'suitcase':'<rect x="4" y="8" width="16" height="12" rx="1.5"/><path d="M9 8V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/><path d="M4 13h16"/>'
 };
 function svgIcon(name,size){
   size=size||18;
@@ -242,7 +263,7 @@ function onKey(k){
 async function attemptPinLogin(){
   const pin=entered;
   try{
-    const r=await fetch(`${API}/auth/login-pin`,{
+    const r=await fetchT(`${API}/auth/login-pin`,{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({pin})
     });
@@ -301,6 +322,9 @@ function startLockout(seconds){
 async function unlock(){
   document.getElementById('relock-btn').innerHTML=svgIcon('lock-open',15);
   document.getElementById('sub-header-back-icon').innerHTML=svgIcon('chevron-left',20);
+  const vacBtn=document.getElementById('vacation-btn');
+  vacBtn.innerHTML=svgIcon('suitcase',16);
+  vacBtn.style.display=currentUser.role!=='viewer'?'inline-flex':'none';
   show('main-screen');
   showSub('grid');
   document.getElementById('version-badge').textContent=
@@ -311,10 +335,11 @@ async function unlock(){
 }
 
 async function relock(){
-  try{await fetch(`${API}/auth/logout`,{method:'POST',headers:authHeaders()});}catch(e){}
+  try{await fetchT(`${API}/auth/logout`,{method:'POST',headers:authHeaders()});}catch(e){}
   token=null;currentUser=null;openDeviceHost=null;
   stopPolling();
   clearIdleTimer();clearMainIdleTimer();
+  clearInterval(saverMoveTimer);saverMoveTimer=null;
   show('lock-screen');
   renderKeypad();renderDots();
 }
@@ -324,17 +349,34 @@ function authHeaders(){
 }
 
 // ── Screensaver / idle timers ─────────────────────────────────
+// The clock periodically jumps to a new random position rather than
+// sitting in one spot — this panel is expected to run 24/7, and a
+// static bright element in the exact same place for hours at a time
+// is exactly the scenario that causes burn-in/image retention on an
+// always-on display.
+const SAVER_MOVE_INTERVAL_MS=20000;
 
 function clearMainIdleTimer(){clearTimeout(mainIdleTimer);mainIdleTimer=null;}
 function armMainIdleTimer(){
   clearMainIdleTimer();
   mainIdleTimer=setTimeout(showScreensaver,SCREENSAVER_IDLE_SECONDS*1000);
 }
+function moveSaverContent(){
+  const el=document.getElementById('saver-content');
+  const rect=el.getBoundingClientRect();
+  const maxLeft=Math.max(0,800-rect.width);
+  const maxTop=Math.max(0,480-rect.height);
+  el.style.left=Math.floor(Math.random()*maxLeft)+'px';
+  el.style.top=Math.floor(Math.random()*maxTop)+'px';
+}
 function showScreensaver(){
   clearIdleTimer();clearMainIdleTimer();stopPolling();
   const online=devices.filter(d=>!d._stale).length;
   document.getElementById('saver-sub').textContent=`outdoor ${fmtOutdoorShort()} · ${online}/${devices.length} online`;
   show('screensaver');
+  moveSaverContent();
+  clearInterval(saverMoveTimer);
+  saverMoveTimer=setInterval(moveSaverContent,SAVER_MOVE_INTERVAL_MS);
 }
 document.getElementById('screensaver').addEventListener('click',relock);
 
@@ -342,19 +384,20 @@ function clearIdleTimer(){
   clearTimeout(idleTimer);clearInterval(idleCountdownTimer);
   idleTimer=null;idleCountdownTimer=null;
   const badge=document.getElementById('idle-badge');
-  if(badge)badge.textContent='';
+  if(badge){badge.textContent='';badge.style.display='none';}
 }
-function armIdleTimer(){
+function armIdleTimer(seconds){
   clearIdleTimer();
-  let remaining=DETAIL_IDLE_SECONDS;
+  let remaining=seconds;
+  const badge=document.getElementById('idle-badge');
+  if(badge)badge.style.display='block';
   const tick=()=>{
-    const badge=document.getElementById('idle-badge');
     if(badge)badge.textContent=remaining<=5?`auto-return in ${remaining}s`:'';
     remaining--;
   };
   tick();
   idleCountdownTimer=setInterval(tick,1000);
-  idleTimer=setTimeout(()=>showSub('grid'),DETAIL_IDLE_SECONDS*1000);
+  idleTimer=setTimeout(()=>showSub('grid'),seconds*1000);
 }
 
 function touch(){armMainIdleTimer();}
@@ -363,6 +406,11 @@ function touch(){armMainIdleTimer();}
 // 'grid' | 'detail' | 'schedules' | 'devices' — detail/schedules/
 // devices all share the same generic sub-header ("‹ All units"),
 // since all three just need to get back to the grid the same way.
+// detail gets the short DETAIL_IDLE_SECONDS timeout since it's an
+// active-control screen where any tap resets the clock anyway;
+// schedules/devices are read-only browsing screens, so bouncing
+// someone back to the grid mid-read after only 15s felt too fast —
+// they get the longer INFO_IDLE_SECONDS instead.
 
 function showSub(sub){
   currentSub=sub;
@@ -374,7 +422,8 @@ function showSub(sub){
   document.getElementById('schedules-view').style.display=sub==='schedules'?'block':'none';
   document.getElementById('devices-view').style.display=sub==='devices'?'block':'none';
   if(isGrid){clearIdleTimer();openDeviceHost=null;}
-  else{armIdleTimer();}
+  else if(sub==='detail'){armIdleTimer(DETAIL_IDLE_SECONDS);}
+  else{armIdleTimer(INFO_IDLE_SECONDS);}
 }
 document.getElementById('sub-header').addEventListener('click',()=>{showSub('grid');touch();});
 document.getElementById('relock-btn').addEventListener('click',relock);
@@ -387,36 +436,97 @@ function startPolling(){
 }
 function stopPolling(){clearInterval(pollTimer);pollTimer=null;}
 
-async function refreshAll(){
+let refreshPromise=null;
+let consecutiveFailures=0;
+const STALE_THRESHOLD=2; // consecutive failed polls (~24s at the 12s interval) before flagging data as stale
+
+function refreshAll(){
+  // Coalesce concurrent calls into the same in-flight request instead
+  // of firing overlapping ones — e.g. a periodic poll tick landing at
+  // the same moment as a post-command refresh. Matters more here than
+  // it would on a page someone's actively watching, since this is
+  // meant to poll unattended every 12s for months at a time.
+  if(refreshPromise)return refreshPromise;
+  refreshPromise=_refreshAllImpl().finally(()=>{refreshPromise=null;});
+  return refreshPromise;
+}
+
+async function _refreshAllImpl(){
   try{
     if(!rootInfo.version){
-      try{const rr=await fetch(`${API}/`);rootInfo=await rr.json();
+      try{const rr=await fetchT(`${API}/`);rootInfo=await rr.json();
         document.getElementById('version-badge').textContent=
           `${rootInfo.version||''} · ${currentUser.username} · ${currentUser.role.charAt(0).toUpperCase()+currentUser.role.slice(1)}`;
       }catch(e){}
     }
     const [devRes,setRes,schRes]=await Promise.all([
-      fetch(`${API}/devices`,{headers:authHeaders()}),
-      fetch(`${API}/settings`,{headers:authHeaders()}),
-      fetch(`${API}/schedules`,{headers:authHeaders()})
+      fetchT(`${API}/devices`,{headers:authHeaders()}),
+      fetchT(`${API}/settings`,{headers:authHeaders()}),
+      fetchT(`${API}/schedules`,{headers:authHeaders()})
     ]);
     if(devRes.status===401){relock();return;}
     const devData=await devRes.json();
     devices=devData.devices||[];
     settings=await setRes.json();
     schedules=(await schRes.json()).schedules||[];
+    consecutiveFailures=0;
     document.getElementById('loading-banner').style.display='none';
+    setStaleIndicator(false);
     renderGrid();
+    renderVacationBtn();
     renderFooter();
     if(currentSub==='detail'&&openDeviceHost)renderDetail(openDeviceHost);
     if(currentSub==='schedules')renderSchedulesView();
     if(currentSub==='devices')renderDevicesView();
   }catch(e){
-    document.getElementById('loading-banner').style.display='block';
+    consecutiveFailures++;
+    if(consecutiveFailures>=STALE_THRESHOLD){
+      document.getElementById('loading-banner').style.display='block';
+      setStaleIndicator(true);
+    }
   }
 }
 
+// Dims the currently-visible content once data has been stale for
+// STALE_THRESHOLD polls in a row — the "can't reach server" banner is
+// a single thin line that's easy to miss from across a room; a
+// visibly dimmed screen is much harder to mistake for "everything's
+// fine" when it isn't.
+function setStaleIndicator(isStale){
+  const opacity=isStale?'0.4':'1';
+  document.getElementById('grid-view').style.opacity=opacity;
+  document.getElementById('grid-detail').style.opacity=opacity;
+  document.getElementById('schedules-view').style.opacity=opacity;
+  document.getElementById('devices-view').style.opacity=opacity;
+  document.getElementById('footer-stats').style.opacity=isStale?'0.5':'1';
+}
+
 // ── Grid ─────────────────────────────────────────────────────
+
+// ── Vacation mode ────────────────────────────────────────────
+// Quick physical-panel convenience: walking out the door shouldn't
+// require finding a phone and the full dashboard just to pause
+// schedules and cap everyone's max temp. settings.vacation_mode
+// comes from the same GET /settings call refreshAll() already makes
+// every poll cycle — no separate endpoint needed to read the state.
+
+function renderVacationBtn(){
+  const btn=document.getElementById('vacation-btn');
+  if(btn.style.display==='none')return;
+  const on=!!settings.vacation_mode;
+  btn.style.color=on?'var(--amber)':'var(--text2)';
+  btn.setAttribute('aria-label',`Vacation mode is ${on?'on':'off'}, tap to toggle`);
+}
+
+async function toggleVacation(){
+  touch();
+  const turnOn=!settings.vacation_mode;
+  try{
+    await fetchT(`${API}/vacation/${turnOn?'on':'off'}`,{method:'POST',headers:authHeaders()});
+  }catch(e){}
+  await refreshAll();
+}
+document.getElementById('vacation-btn').addEventListener('click',toggleVacation);
 
 function renderGrid(){
   const el=document.getElementById('grid-view');
@@ -438,8 +548,8 @@ function renderGrid(){
         </div>
       </div>
       <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap">
-        <span style="color:${dim?'var(--text2)':'var(--text)'};font-size:22px;font-weight:500">${fmtTempCompact(cur)}</span>
-        ${!dim&&mode!=='OFF'&&tgt!=null?`<span style="color:var(--text2);font-size:12px">→ ${fmtTempCompact(tgt)}</span>`:''}
+        <span style="color:${dim?'var(--text2)':'var(--text)'};font-size:30px;font-weight:500">${fmtTempCompact(cur)}</span>
+        ${!dim&&mode!=='OFF'&&tgt!=null?`<span style="color:var(--text2);font-size:14px">→ ${fmtTempCompact(tgt)}</span>`:''}
       </div>
       <div style="color:var(--text2);font-size:11px;min-height:13px">${!dim?fmtOnTime(d._on_time_minutes):''}</div>
     </div>`;
@@ -460,32 +570,32 @@ function openDetail(host){
 }
 
 function wifiMeter(dbm){
-  if(dbm==null)return{html:iconSpan('wifi-off',16,'var(--gray)'),color:'var(--gray)',label:'—'};
+  if(dbm==null)return{html:iconSpan('wifi-off',18,'var(--gray)'),color:'var(--gray)',label:'—'};
   let active=1,color='var(--err)';
   if(dbm>=-50){active=4;color='var(--ok)';}
   else if(dbm>=-60){active=3;color='var(--ok)';}
   else if(dbm>=-70){active=2;color='var(--warn)';}
-  const heights=[6,10,14,18];
-  const bars=heights.map((h,i)=>`<span style="width:4px;height:${h}px;background:${i<active?color:'var(--gray)'};border-radius:1px;display:inline-block;margin-right:2px"></span>`).join('');
-  return{html:`<span style="display:inline-flex;align-items:flex-end;height:18px">${bars}</span>`,color,label:`${Math.round(dbm)} dBm`};
+  const heights=[7,12,17,22];
+  const bars=heights.map((h,i)=>`<span style="width:5px;height:${h}px;background:${i<active?color:'var(--gray)'};border-radius:1px;display:inline-block;margin-right:2px"></span>`).join('');
+  return{html:`<span style="display:inline-flex;align-items:flex-end;height:22px">${bars}</span>`,color,label:`${Math.round(dbm)} dBm`};
 }
 
 function statCard(iconName,value,label,color){
   return `<div class="stat-card">
-    <span style="display:inline-flex;color:${color}">${svgIcon(iconName,28)}</span>
+    <span style="display:inline-flex;color:${color}">${svgIcon(iconName,30)}</span>
     <div style="display:flex;flex-direction:column;gap:2px;min-width:0;overflow:hidden">
-      <span style="color:var(--text);font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${value}</span>
-      <span style="color:var(--text3);font-size:9px;letter-spacing:0.3px">${label}</span>
+      <span style="color:var(--text);font-size:15px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${value}</span>
+      <span style="color:var(--text3);font-size:10px;letter-spacing:0.3px">${label}</span>
     </div>
   </div>`;
 }
 function wifiStatCard(dbm){
   const w=wifiMeter(dbm);
   return `<div class="stat-card">
-    <span style="display:inline-flex;align-items:center;height:28px">${w.html}</span>
+    <span style="display:inline-flex;align-items:center;height:30px">${w.html}</span>
     <div style="display:flex;flex-direction:column;gap:2px;min-width:0;overflow:hidden">
-      <span style="color:var(--text);font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${w.label}</span>
-      <span style="color:var(--text3);font-size:9px;letter-spacing:0.3px">WIFI</span>
+      <span style="color:var(--text);font-size:15px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${w.label}</span>
+      <span style="color:var(--text3);font-size:10px;letter-spacing:0.3px">WIFI</span>
     </div>
   </div>`;
 }
@@ -520,6 +630,14 @@ function renderDetail(host){
   const GRAY='var(--gray)';
   const outdoor=safeFloat(s.outdoor_temp);
   const beeperOn=(isPending&&pendingBeeper!=null)?pendingBeeper:(d.beeper==='ON');
+  // A locked device's target gets unconditionally restored by the
+  // worker on its next poll, regardless of what sent the change —
+  // including the kiosk itself. Letting someone tap +/-, see it
+  // briefly "work", then have it silently revert a poll cycle later
+  // would look like a bug. Disabling the buttons (not just graying
+  // them) is the honest behavior here.
+  const locked=!!d.lock_temp;
+  const tempBtnStyle=(extra)=>`width:44px;height:44px;border-radius:50%;font-size:20px;padding:0;${locked?`color:${GRAY};border-color:var(--border);cursor:default;`:''}${extra||''}`;
 
   const el=document.getElementById('grid-detail');
   el.innerHTML=`
@@ -528,42 +646,43 @@ function renderDetail(host){
       <span style="color:${MODE_COLOR[mode]};font-size:13px;font-weight:500">${mode}</span>
     </div>
     <div style="display:flex;align-items:center;justify-content:center;gap:${canControl?'16px':'0'};margin:2px 0 2px">
-      ${canControl?'<button data-act="down" style="width:44px;height:44px;border-radius:50%;font-size:20px;padding:0">−</button>':''}
-      <div style="min-width:170px;text-align:center">
-        <span style="color:var(--text);font-size:34px;font-weight:500">${tgtFmt.c}</span>
-        <span style="color:var(--text2);font-size:16px;margin-left:6px">${tgtFmt.f}</span>
+      ${canControl?`<button data-act="down" style="${tempBtnStyle()}">−</button>`:''}
+      <div style="min-width:220px;text-align:center">
+        <span style="color:var(--text);font-size:52px;font-weight:500">${tgtFmt.c}</span>
+        <span style="color:var(--text2);font-size:20px;margin-left:8px">${tgtFmt.f}</span>
       </div>
-      ${canControl?'<button data-act="up" style="width:44px;height:44px;border-radius:50%;font-size:20px;padding:0">+</button>':''}
+      ${canControl?`<button data-act="up" style="${tempBtnStyle()}">+</button>`:''}
       ${canControl?`<button data-act="beeper" title="Toggle beeper" aria-label="Beeper is ${beeperOn?'on':'off'}, tap to toggle" style="width:38px;height:38px;border-radius:50%;padding:0;display:flex;align-items:center;justify-content:center;color:${beeperOn?'var(--auto)':'var(--text2)'};border-color:${beeperOn?'var(--auto)':'var(--border)'}">${iconSpan('bell',17)}</button>`:''}
+      ${locked?`<span class="icon" title="Locked at ${fmtTempCompact(d.locked_target_temp)}" aria-label="Temperature locked at ${fmtTempCompact(d.locked_target_temp)}" style="width:38px;height:38px;border-radius:50%;border:0.5px solid var(--violet);display:flex;align-items:center;justify-content:center;color:var(--violet)">${svgIcon('lock',17)}</span>`:''}
     </div>
     ${canControl?`<div style="display:flex;gap:6px;justify-content:center;margin-bottom:6px">
       ${MODES.map(m=>`<button data-mode="${m}" style="flex:1;max-width:96px;padding:7px 4px;border-radius:6px;background:${m===mode?MODE_BG[m]:'transparent'};border:0.5px solid ${m===mode?MODE_COLOR[m]:'var(--border)'};color:${m===mode?MODE_COLOR[m]:'var(--text2)'};font-size:11px;font-weight:500">${m}</button>`).join('')}
     </div>`:`<div style="color:var(--text3);font-size:11px;text-align:center;margin:4px 0 8px">${iconSpan('eye',12,'currentColor','vertical-align:-1px;margin-right:4px')}View only — sign in as operator to control</div>`}
     <div style="height:1px;background:var(--border2);margin:2px 0 8px"></div>
-    <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
       ${statCard('clock',fmtOnTime(d._on_time_minutes)||'Off','ON-TIME',running?'var(--amber)':GRAY)}
       ${statCard('sun',outdoor!=null?fmtTempCompact(outdoor):'—','OUTDOOR','var(--orange)')}
       ${statCard('shield-check',d.max_temp!=null?fmtTempCompact(d.max_temp):'—','GUARD',d._max_temp_active?'var(--err)':GRAY)}
-      ${statCard('lock',d.lock_temp?fmtTempCompact(d.locked_target_temp):'—','LOCKED',d.lock_temp?'var(--violet)':GRAY)}
       ${statCard('bolt',running&&watts!=null?watts+'W':'0W','POWER',running?'var(--yellow)':GRAY)}
       ${statCard('dollar',running&&watts?'$'+costHr+'/hr':'—','COST',running?'var(--green)':GRAY)}
       ${wifiStatCard(s.wifi_signal)}
     </div>
     <div style="color:var(--text4);font-size:10px;text-align:center;margin-top:8px">${d.host} · ESPHome ${d._firmware_version||'—'}</div>
-    <div id="idle-badge" style="color:var(--text4);font-size:10px;text-align:center;margin-top:4px"></div>
   `;
   if(canControl){
-    el.querySelector('[data-act="up"]').addEventListener('click',()=>adjustTemp(host,1));
-    el.querySelector('[data-act="down"]').addEventListener('click',()=>adjustTemp(host,-1));
+    if(!locked){
+      el.querySelector('[data-act="up"]').addEventListener('click',()=>adjustTemp(host,1));
+      el.querySelector('[data-act="down"]').addEventListener('click',()=>adjustTemp(host,-1));
+    }
     el.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setMode(host,b.dataset.mode)));
     el.querySelector('[data-act="beeper"]').addEventListener('click',()=>toggleBeeperOptimistic(host,!beeperOn));
   }
 }
 
 async function sendCmd(host,params){
-  touch();armIdleTimer();
+  touch();armIdleTimer(DETAIL_IDLE_SECONDS);
   try{
-    await fetch(`${API}/devices/${encodeURIComponent(host)}/cmd`,{
+    await fetchT(`${API}/devices/${encodeURIComponent(host)}/cmd`,{
       method:'POST',headers:authHeaders(),body:JSON.stringify({params})
     });
   }catch(e){}
@@ -581,7 +700,7 @@ function adjustTemp(host,delta){
 
   pendingHost=host;
   pendingTarget=next;
-  touch();armIdleTimer();
+  touch();armIdleTimer(DETAIL_IDLE_SECONDS);
   renderDetail(host);
 
   clearTimeout(tempDebounceTimer);
@@ -594,7 +713,7 @@ function adjustTemp(host,delta){
 function setMode(host,mode){
   pendingHost=host;
   pendingMode=mode;
-  touch();armIdleTimer();
+  touch();armIdleTimer(DETAIL_IDLE_SECONDS);
   renderDetail(host);
   sendCmd(host,{mode}).then(()=>{
     if(pendingHost===host&&pendingMode===mode){pendingHost=null;pendingMode=null;}
@@ -604,7 +723,7 @@ function setMode(host,mode){
 function toggleBeeperOptimistic(host,turnOn){
   pendingHost=host;
   pendingBeeper=turnOn;
-  touch();armIdleTimer();
+  touch();armIdleTimer(DETAIL_IDLE_SECONDS);
   renderDetail(host);
   toggleBeeper(host,turnOn).then(()=>{
     if(pendingHost===host&&pendingBeeper===turnOn){pendingHost=null;pendingBeeper=null;}
@@ -613,7 +732,7 @@ function toggleBeeperOptimistic(host,turnOn){
 
 async function toggleBeeper(host,turnOn){
   try{
-    await fetch(`${API}/devices/${encodeURIComponent(host)}/beeper/${turnOn?'on':'off'}`,{
+    await fetchT(`${API}/devices/${encodeURIComponent(host)}/beeper/${turnOn?'on':'off'}`,{
       method:'POST',headers:authHeaders()
     });
   }catch(e){}
@@ -622,17 +741,52 @@ async function toggleBeeper(host,turnOn){
 
 // ── Schedules view (tap NEXT in footer) ─────────────────────────
 
-function nextOccurrence(sch,now){
-  const [hh,mm]=(sch.time||'00:00').split(':').map(Number);
+const DAY_ABBR=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+function fmtDays(days){
+  if(!days||!days.length)return'—';
+  const sorted=[...days].sort();
+  const key=sorted.join(',');
+  if(key==='0,1,2,3,4,5,6')return'Every day';
+  if(key==='1,2,3,4,5')return'Weekdays';
+  if(key==='0,6')return'Weekends';
+  return sorted.map(d=>DAY_ABBR[d]).join(', ');
+}
+
+function nextOccurrenceOf(sch,now,timeField){
+  const t=sch[timeField];
+  if(!t)return null;
+  const [hh,mm]=t.split(':').map(Number);
   const days=sch.days||[0,1,2,3,4,5,6];
+  // An overnight end_time (e.g. start 20:45, end 06:45) technically
+  // belongs to the day the schedule *started*, not the calendar day
+  // it lands on after crossing midnight — same distinction worker.py
+  // makes server-side for the real firing logic. Getting this wrong
+  // here doesn't just look wrong, it can send the countdown a full
+  // week into the future for a schedule that's actually about to end.
+  const isOvernightEnd=timeField==='end_time'&&sch.time&&sch.end_time<sch.time;
   for(let dOff=0;dOff<8;dOff++){
     const cand=new Date(now);
     cand.setDate(now.getDate()+dOff);
     cand.setHours(hh,mm,0,0);
-    if(!days.includes(cand.getDay()))continue;
+    const matchDay=isOvernightEnd?(cand.getDay()+6)%7:cand.getDay();
+    if(!days.includes(matchDay))continue;
     if(cand<=now)continue;
     return cand;
   }
+  return null;
+}
+function nextOccurrence(sch,now){return nextOccurrenceOf(sch,now,'time');}
+
+// A schedule with an end_time is really two events (turns on, later
+// auto-offs) — whichever comes first is the one worth showing. Once
+// end_time is visible in the UI at all, showing "starts in 8h" for a
+// schedule that's actually mid-run and about to auto-off in 20
+// minutes would read as simply wrong, not just incomplete.
+function nextRelevantEvent(sch,now){
+  const start=nextOccurrenceOf(sch,now,'time');
+  const end=sch.end_time?nextOccurrenceOf(sch,now,'end_time'):null;
+  if(end&&(!start||end<start))return{when:end,label:'ends'};
+  if(start)return{when:start,label:'starts'};
   return null;
 }
 
@@ -640,9 +794,9 @@ function nextScheduleText(){
   const now=new Date();
   let nearest=null,nearestMs=Infinity;
   schedules.filter(s=>s.enabled).forEach(s=>{
-    const cand=nextOccurrence(s,now);
-    if(!cand)return;
-    const ms=cand-now;
+    const ev=nextRelevantEvent(s,now);
+    if(!ev)return;
+    const ms=ev.when-now;
     if(ms<nearestMs){nearestMs=ms;nearest=s;}
   });
   if(!nearest)return'—';
@@ -661,28 +815,29 @@ function renderSchedulesView(){
   const now=new Date();
   const upcoming=schedules
     .filter(s=>s.enabled)
-    .map(s=>({s,next:nextOccurrence(s,now)}))
-    .filter(x=>x.next)
-    .sort((a,b)=>a.next-b.next);
+    .map(s=>({s,event:nextRelevantEvent(s,now)}))
+    .filter(x=>x.event)
+    .sort((a,b)=>a.event.when-b.event.when);
 
   if(!upcoming.length){
-    el.innerHTML='<div style="color:var(--text2);font-size:13px;text-align:center;margin-top:40px">No enabled schedules</div>';
+    el.innerHTML='<div style="color:var(--text2);font-size:15px;text-align:center;margin-top:40px">No enabled schedules</div>';
     return;
   }
 
-  el.innerHTML=`<div style="max-width:600px;margin:0 auto;width:100%;max-height:340px;overflow:hidden">
-    ${upcoming.slice(0,8).map(({s,next})=>{
+  el.innerHTML=`<div style="max-width:680px;margin:0 auto;width:100%;max-height:340px;overflow:hidden">
+    ${upcoming.slice(0,5).map(({s,event})=>{
       const modeColor=s.mode?MODE_COLOR[s.mode]||'var(--text2)':'var(--text2)';
       const action=s.power==='off'?'Off':(s.mode?`${s.mode}${s.temp!=null?' '+fmtTempCompact(s.temp):''}`:'—');
-      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 4px;border-bottom:0.5px solid var(--border2)">
-        <div style="display:flex;align-items:center;gap:10px">
-          ${iconSpan('calendar',18,'var(--text3)')}
-          <div>
-            <div style="color:var(--text);font-size:13px;font-weight:500">${s.device_name}</div>
-            <div style="color:var(--text3);font-size:11px">${s.time} · <span style="color:${modeColor}">${action}</span></div>
+      const timeRange=s.time+(s.end_time?` → ${s.end_time}`:'');
+      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:13px 6px;border-bottom:0.5px solid var(--border2)">
+        <div style="display:flex;align-items:center;gap:12px;min-width:0">
+          ${iconSpan('calendar',22,'var(--text3)')}
+          <div style="min-width:0">
+            <div style="color:var(--text);font-size:16px;font-weight:500">${s.device_name}</div>
+            <div style="color:var(--text3);font-size:13px;margin-top:2px">${fmtDays(s.days)} · ${timeRange} · <span style="color:${modeColor};font-weight:500">${action}</span></div>
           </div>
         </div>
-        <span style="color:var(--text2);font-size:12px">${fmtCountdown(next-now)}</span>
+        <span style="color:var(--text2);font-size:14px;flex-shrink:0;margin-left:10px">${event.label} ${fmtCountdown(event.when-now)}</span>
       </div>`;
     }).join('')}
   </div>`;
@@ -754,7 +909,7 @@ async function init(){
   tickClock();
   clockTimer=setInterval(tickClock,1000);
   try{
-    const r=await fetch(`${API}/`);
+    const r=await fetchT(`${API}/`);
     rootInfo=await r.json();
   }catch(e){}
 }
