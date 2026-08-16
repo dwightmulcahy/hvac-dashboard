@@ -165,6 +165,11 @@ function loadDashboardFunctions() {
     },
   };
   sandbox.renderUnits = () => {};
+  // selectTempUnit() also calls refreshVisibleTempInputs() to live-
+  // update the vacation/schedule temp input fields — same reasoning
+  // as renderUnits above, that's DOM orchestration outside the scope
+  // of what these tests verify (button highlighting), not pure logic.
+  sandbox.refreshVisibleTempInputs = () => {};
 
   vm.createContext(sandbox);
   vm.runInContext(combined, sandbox, { filename: "hvac-dashboard.html (extracted)" });
