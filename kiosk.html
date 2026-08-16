@@ -66,6 +66,7 @@ button:active{opacity:0.7}
         <span id="version-badge" style="color:var(--text3);font-size:11px"></span>
         <span id="header-clock" style="color:var(--text2);font-size:13px"></span>
         <span id="vacation-btn" class="icon" style="display:none;color:var(--text2);cursor:pointer" title="Toggle vacation mode"></span>
+        <span id="maintenance-btn" class="icon" style="display:none;color:var(--text2);cursor:pointer" title="Maintenance reminders"></span>
         <span id="relock-btn" class="icon" style="color:var(--text2);cursor:pointer" aria-label="Lock panel"></span>
       </div>
     </div>
@@ -79,6 +80,7 @@ button:active{opacity:0.7}
     <div id="grid-detail"></div>
     <div id="schedules-view"></div>
     <div id="devices-view"></div>
+    <div id="maintenance-view"></div>
     <div id="idle-badge" style="display:none;color:var(--text4);font-size:10px;text-align:center;padding:3px 0"></div>
     <div id="footer-stats"></div>
   </div>
@@ -111,7 +113,7 @@ const SCREENSAVER_IDLE_SECONDS=180;
 const POLL_INTERVAL_MS=12000;
 
 let token=null,currentUser=null;
-let devices=[],settings={},schedules=[],rootInfo={},usageToday={};
+let devices=[],settings={},schedules=[],rootInfo={},usageToday={},maintenanceItems=[];
 let entered='',failedAttempts=0,lockoutUntil=0,lockoutTimer=null;
 let idleTimer=null,idleCountdownTimer=null,mainIdleTimer=null,pollTimer=null,clockTimer=null,saverMoveTimer=null;
 let openDeviceHost=null,currentSub='grid';
@@ -140,7 +142,8 @@ const ICON_PATHS={
   'calendar':'<rect x="4" y="5" width="16" height="16" rx="2"/><path d="M4 10h16M8 3v4M16 3v4"/>',
   'list':'<rect x="4" y="4" width="16" height="4.5" rx="1"/><rect x="4" y="10.5" width="16" height="4.5" rx="1"/><rect x="4" y="17" width="16" height="3" rx="1"/>',
   'wifi-off':'<path d="M3 3l18 18"/><path d="M8.5 16.5a5 5 0 0 1 5-1.3M5 12.5a10 10 0 0 1 3-1.9M19 12.5a10 10 0 0 0 -2.3-1.7M12 19v.01"/>',
-  'suitcase':'<rect x="4" y="8" width="16" height="12" rx="1.5"/><path d="M9 8V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/><path d="M4 13h16"/>'
+  'suitcase':'<rect x="4" y="8" width="16" height="12" rx="1.5"/><path d="M9 8V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/><path d="M4 13h16"/>',
+  'wrench':'<path d="M14.7 6.3a4 4 0 0 0-5.4 4.9L4 16.5V20h3.5l5.3-5.3a4 4 0 0 0 4.9-5.4l-2.8 2.8-2-2z"/>'
 };
 function svgIcon(name,size){
   size=size||18;
@@ -339,6 +342,7 @@ async function unlock(){
   const vacBtn=document.getElementById('vacation-btn');
   vacBtn.innerHTML=svgIcon('suitcase',16);
   vacBtn.style.display=currentUser.role!=='viewer'?'inline-flex':'none';
+  document.getElementById('maintenance-btn').innerHTML=svgIcon('wrench',16);
   show('main-screen');
   showSub('grid');
   document.getElementById('version-badge').textContent=
@@ -435,6 +439,7 @@ function showSub(sub){
   document.getElementById('grid-detail').style.display=sub==='detail'?'block':'none';
   document.getElementById('schedules-view').style.display=sub==='schedules'?'block':'none';
   document.getElementById('devices-view').style.display=sub==='devices'?'block':'none';
+  document.getElementById('maintenance-view').style.display=sub==='maintenance'?'block':'none';
   if(isGrid){clearIdleTimer();openDeviceHost=null;}
   else if(sub==='detail'){armIdleTimer(DETAIL_IDLE_SECONDS);}
   else{armIdleTimer(INFO_IDLE_SECONDS);}
@@ -473,16 +478,18 @@ async function _refreshAllImpl(){
           `${rootInfo.version||''} · ${currentUser.username} · ${currentUser.role.charAt(0).toUpperCase()+currentUser.role.slice(1)}`;
       }catch(e){}
     }
-    const [devRes,setRes,schRes]=await Promise.all([
+    const [devRes,setRes,schRes,maintRes]=await Promise.all([
       fetchT(`${API}/devices`,{headers:authHeaders()}),
       fetchT(`${API}/settings`,{headers:authHeaders()}),
-      fetchT(`${API}/schedules`,{headers:authHeaders()})
+      fetchT(`${API}/schedules`,{headers:authHeaders()}),
+      fetchT(`${API}/maintenance`,{headers:authHeaders()})
     ]);
     if(devRes.status===401){relock();return;}
     const devData=await devRes.json();
     devices=devData.devices||[];
     settings=await setRes.json();
     schedules=(await schRes.json()).schedules||[];
+    try{maintenanceItems=(await maintRes.json()).maintenance||[];}catch(e){}
     try{
       const ur=await fetchT(`${API}/usage/summary?month=${localDateStr()}`,{headers:authHeaders()});
       const ud=await ur.json();
@@ -494,10 +501,12 @@ async function _refreshAllImpl(){
     setStaleIndicator(false);
     renderGrid();
     renderVacationBtn();
+    renderMaintenanceBtn();
     renderFooter();
     if(currentSub==='detail'&&openDeviceHost)renderDetail(openDeviceHost);
     if(currentSub==='schedules')renderSchedulesView();
     if(currentSub==='devices')renderDevicesView();
+    if(currentSub==='maintenance')renderMaintenanceView();
   }catch(e){
     consecutiveFailures++;
     if(consecutiveFailures>=STALE_THRESHOLD){
@@ -538,6 +547,26 @@ function renderVacationBtn(){
   btn.setAttribute('aria-label',`Vacation mode is ${on?'on':'off'}, tap to toggle`);
 }
 
+// Visible to every role (unlike vacation) — knowing "the filter needs
+// cleaning" is useful for anyone in the house, not just whoever can
+// act on it. Hidden entirely when nothing's due, so it doesn't
+// permanently take up header space for a status that's usually clear.
+function renderMaintenanceBtn(){
+  const btn=document.getElementById('maintenance-btn');
+  const overdue=maintenanceItems.some(m=>m.status?.overdue);
+  const dueSoon=maintenanceItems.some(m=>m.status?.due_soon);
+  if(overdue){
+    btn.style.display='inline-flex';btn.style.color='var(--err)';
+    btn.setAttribute('aria-label','Maintenance overdue, tap for details');
+  }else if(dueSoon){
+    btn.style.display='inline-flex';btn.style.color='var(--warn)';
+    btn.setAttribute('aria-label','Maintenance due soon, tap for details');
+  }else{
+    btn.style.display='none';
+  }
+}
+document.getElementById('maintenance-btn').addEventListener('click',()=>{touch();showSub('maintenance');renderMaintenanceView();});
+
 async function toggleVacation(){
   touch();
   const turnOn=!settings.vacation_mode;
@@ -557,12 +586,14 @@ function renderGrid(){
     const border=dim?'var(--border)':MODE_COLOR[mode]+'44';
     const cur=safeFloat(d.state?.current_temperature);
     const tgt=safeFloat(d.state?.target_temperature);
+    const deviceOverdue=maintenanceItems.some(m=>m.device_host===d.host&&m.status?.overdue);
     return `
     <div data-host="${d.host}" class="tile" style="background:${bg};border:0.5px solid ${border};opacity:${dim?0.55:1}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
         <span style="color:var(--text);font-size:14px;font-weight:500">${d.name}</span>
         <div style="display:flex;align-items:center;gap:5px">
           ${d.lock_temp&&!dim?iconSpan('lock',12,'var(--text2)'):''}
+          ${deviceOverdue&&!dim?iconSpan('wrench',12,'var(--err)'):''}
           ${d._max_temp_active&&!dim?'<span style="width:6px;height:6px;border-radius:50%;background:var(--err);display:inline-block"></span>':''}
           <span style="color:${dim?'var(--text2)':MODE_COLOR[mode]};font-size:11px;font-weight:500">${dim?'OFFLINE':mode}</span>
         </div>
@@ -863,7 +894,61 @@ function renderSchedulesView(){
   </div>`;
 }
 
-// ── Devices view (tap ONLINE in footer) ─────────────────────────
+// ── Maintenance view (tap the header wrench icon) ────────────────
+
+function renderMaintenanceView(){
+  document.querySelector('#sub-header span:last-child').textContent='Maintenance';
+  const el=document.getElementById('maintenance-view');
+  const canComplete=currentUser.role!=='viewer';
+
+  if(!maintenanceItems.length){
+    el.innerHTML='<div style="color:var(--text2);font-size:15px;text-align:center;margin-top:40px">No maintenance reminders configured</div>';
+    return;
+  }
+
+  const sorted=[...maintenanceItems].sort((a,b)=>{
+    const rank=m=>m.status?.overdue?0:(m.status?.due_soon?1:2);
+    return rank(a)-rank(b);
+  });
+
+  el.innerHTML=`<div style="max-width:680px;margin:0 auto;width:100%;max-height:340px;overflow:hidden">
+    ${sorted.slice(0,5).map(m=>{
+      const st=m.status||{};
+      let statusText,statusColor;
+      if(st.overdue){statusText='⚠ Overdue';statusColor='var(--err)';}
+      else if(st.due_soon){statusText='Due soon';statusColor='var(--warn)';}
+      else{
+        statusText=m.trigger_type==='runtime_hours'?`${Math.round(st.hours_remaining)}h left`:`${Math.round(st.days_remaining)}d left`;
+        statusColor='var(--text2)';
+      }
+      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:13px 6px;border-bottom:0.5px solid var(--border2)">
+        <div style="display:flex;align-items:center;gap:12px;min-width:0">
+          ${iconSpan('wrench',22,statusColor)}
+          <div style="min-width:0">
+            <div style="color:var(--text);font-size:16px;font-weight:500">${m.name}</div>
+            <div style="color:var(--text3);font-size:13px;margin-top:2px">${m.device_name||'Whole house'} · <span style="color:${statusColor};font-weight:500">${statusText}</span></div>
+          </div>
+        </div>
+        ${canComplete?`<button data-complete="${m.id}" style="flex-shrink:0;margin-left:10px;padding:6px 12px;border-radius:6px;font-size:12px;color:var(--ok);border-color:var(--ok)">✓ Done</button>`:''}
+      </div>`;
+    }).join('')}
+  </div>`;
+
+  if(canComplete){
+    el.querySelectorAll('[data-complete]').forEach(btn=>{
+      btn.addEventListener('click',()=>completeMaintenanceKiosk(btn.dataset.complete));
+    });
+  }
+}
+
+async function completeMaintenanceKiosk(id){
+  touch();armIdleTimer(INFO_IDLE_SECONDS);
+  try{
+    await fetchT(`${API}/maintenance/${id}/complete`,{method:'POST',headers:authHeaders()});
+  }catch(e){}
+  await refreshAll();
+  if(currentSub==='maintenance')renderMaintenanceView();
+}
 
 function renderDevicesView(){
   document.querySelector('#sub-header span:last-child').textContent='All devices';

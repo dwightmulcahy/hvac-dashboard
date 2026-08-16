@@ -84,6 +84,20 @@ function buildMockSchedules() {
 }
 const MOCK_ROOT = { status: "ok", version: "v1.13.0", git_sha: "abc1234" };
 
+// A realistic mix: one device-scoped item overdue on Main LR (the
+// device most other tests already tap into as the first tile), one
+// whole-house item due soon (no device_host — shouldn't attach to
+// any tile badge), and one clean item to prove sort order actually
+// pushes overdue/due-soon ahead of it rather than just listing as-is.
+let MOCK_MAINTENANCE = [
+  { id: "m-clean", name: "Coil check", device_host: "ac3.local", device_name: "Master BR",
+    trigger_type: "runtime_hours", interval_hours: 500, status: { overdue: false, due_soon: false, hours_remaining: 200 } },
+  { id: "m-overdue", name: "Clean filters", device_host: "ac1.local", device_name: "Main LR",
+    trigger_type: "days", interval_days: 90, status: { overdue: true, due_soon: false, days_remaining: -5 } },
+  { id: "m-soon", name: "Annual service", device_host: null, device_name: null,
+    trigger_type: "days", interval_days: 365, status: { overdue: false, due_soon: true, days_remaining: 3 } },
+];
+
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 test("kiosk.html end-to-end functional behavior", async (t) => {
@@ -91,6 +105,7 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   let cmdCalls = [];
   let vacationCalls = [];
   let usageSummaryCalls = [];
+  let maintenanceCompleteCalls = [];
   let simulateNetworkDown = false;
 
   const mockFetch = async (url, opts) => {
@@ -120,6 +135,14 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
       if (dev) Object.assign(dev.state, body.params);
       return { ok: true, status: 200, json: async () => ({ ok: true }) };
     }
+    if (u.includes("/maintenance/") && u.includes("/complete")) {
+      maintenanceCompleteCalls.push(u);
+      const id = u.split("/maintenance/")[1].split("/complete")[0];
+      const item = MOCK_MAINTENANCE.find((m) => m.id === id);
+      if (item) item.status = { ...item.status, overdue: false, due_soon: false };
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    }
+    if (u.includes("/api/maintenance")) return { ok: true, status: 200, json: async () => ({ maintenance: MOCK_MAINTENANCE }) };
     if (u.includes("/api/devices")) return { ok: true, status: 200, json: async () => MOCK_DEVICES };
     if (u.includes("/api/settings")) return { ok: true, status: 200, json: async () => MOCK_SETTINGS };
     if (u.includes("/api/schedules")) return { ok: true, status: 200, json: async () => buildMockSchedules() };
@@ -440,6 +463,96 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
 
   await t.test("tapping it again correctly calls vacation/off, not vacation/on again", () => {
     assert.ok(vacationCalls.some((u) => u.includes("/vacation/off")));
+  });
+
+  // ── Maintenance reminders ────────────────────────────────────
+
+  window.showSub("grid");
+  await wait(20);
+  const maintBtn = $("#maintenance-btn");
+
+  await t.test("maintenance icon is visible and red when an overdue item exists", () => {
+    assert.notEqual(window.getComputedStyle(maintBtn).display, "none");
+    assert.match(maintBtn.getAttribute("aria-label"), /overdue/);
+  });
+
+  maintBtn.dispatchEvent(new window.Event("click", { bubbles: true }));
+  await wait(50);
+
+  await t.test("tapping the maintenance icon opens the maintenance view", () => {
+    assert.equal(window.getComputedStyle($("#maintenance-view")).display, "block");
+    assert.ok($("#sub-header").textContent.includes("Maintenance"));
+  });
+
+  await t.test("items are sorted overdue-first, ahead of a due-soon or clean item", () => {
+    const rowNames = [...$("#maintenance-view").querySelectorAll("div")]
+      .map((d) => d.textContent.trim())
+      .filter((t) => t === "Clean filters" || t === "Coil check" || t === "Annual service");
+    const overdueIdx = rowNames.indexOf("Clean filters");
+    const cleanIdx = rowNames.indexOf("Coil check");
+    assert.ok(overdueIdx !== -1 && cleanIdx !== -1 && overdueIdx < cleanIdx, `expected overdue item before the clean item (order: ${rowNames.join(", ")})`);
+  });
+
+  await t.test("a whole-house item (no device_host) still appears in the list", () => {
+    assert.ok($("#maintenance-view").textContent.includes("Annual service"));
+    assert.ok($("#maintenance-view").textContent.includes("Whole house"));
+  });
+
+  // Check the tile badge WHILE the item is still genuinely overdue —
+  // completing it below clears the flag, which would make this
+  // assertion meaningless if checked afterward.
+  window.showSub("grid");
+  await wait(20);
+
+  await t.test("the device-scoped overdue item (Main LR) shows a wrench badge on its own grid tile, while it's actually overdue", () => {
+    const wrenchPathFragment = "14.7 6.3";
+    const mainLrTile = [...window.document.querySelectorAll(".tile")].find((tile) => tile.textContent.includes("Main LR"));
+    const masterBrTile = [...window.document.querySelectorAll(".tile")].find((tile) => tile.textContent.includes("Master BR"));
+    const kitchenTile = [...window.document.querySelectorAll(".tile")].find((tile) => tile.textContent.includes("Kitchen"));
+    assert.ok(mainLrTile.innerHTML.includes(wrenchPathFragment), "Main LR tile (the one with the overdue item) shows the wrench badge");
+    assert.ok(!masterBrTile.innerHTML.includes(wrenchPathFragment), "Master BR tile (item not overdue) does not show a wrench badge");
+    assert.ok(!kitchenTile.innerHTML.includes(wrenchPathFragment), "Kitchen tile (no maintenance items at all) does not show a wrench badge");
+  });
+
+  window.showSub("maintenance");
+  window.renderMaintenanceView();
+  await wait(20);
+  const doneBtn = $('[data-complete="m-overdue"]');
+  await t.test("a Done button exists for the operator role and targets the right item", () => {
+    assert.ok(doneBtn !== null);
+  });
+
+  doneBtn.dispatchEvent(new window.Event("click", { bubbles: true }));
+  await wait(50);
+
+  await t.test("tapping Done calls the correct /maintenance/{id}/complete endpoint", () => {
+    assert.ok(maintenanceCompleteCalls.some((u) => u.includes("/maintenance/m-overdue/complete")), `calls: ${JSON.stringify(maintenanceCompleteCalls)}`);
+  });
+
+  await t.test("after completing, the maintenance icon reflects the change (no longer red-overdue, since the mock cleared it)", () => {
+    // m-soon (whole-house, due_soon) is still due_soon, so the icon
+    // should now show amber rather than disappearing entirely.
+    assert.notEqual(window.getComputedStyle($("#maintenance-btn")).display, "none");
+    assert.doesNotMatch(maintBtn.getAttribute("aria-label"), /overdue/);
+  });
+
+  // Role gating: viewer sees the reminder list (awareness matters for
+  // everyone) but never a Done button (completing is operator+, same
+  // as the backend enforces on POST /maintenance/{id}/complete).
+  window.relock();
+  "1357".split("").forEach(tap);
+  await wait(100);
+
+  await t.test("maintenance icon is still visible for a viewer role (status is not admin-only)", () => {
+    assert.notEqual(window.getComputedStyle($("#maintenance-btn")).display, "none");
+  });
+
+  $("#maintenance-btn").dispatchEvent(new window.Event("click", { bubbles: true }));
+  await wait(50);
+
+  await t.test("viewer sees the maintenance list but no Done buttons on any item", () => {
+    assert.ok($("#maintenance-view").textContent.includes("Clean filters"));
+    assert.equal($("#maintenance-view").querySelectorAll("[data-complete]").length, 0);
   });
 
   // ── Staleness indicator ──────────────────────────────────────

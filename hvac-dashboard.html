@@ -136,7 +136,7 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
         <div class="menu-divider"></div>
         <div class="menu-item" id="vacation-menu-item" onclick="toggleVacationMode();closeMenu()">🌴 Vacation mode</div>
         <div class="menu-divider"></div>
-        <div class="menu-item" id="menu-settings" onclick="openSettings('general');closeMenu()">⚙ Settings</div>
+        <div class="menu-item" id="menu-settings" onclick="openSettings('general');closeMenu()">⚙ Settings <span id="maintenance-badge" style="display:none;background:var(--err);color:#fff;font-size:9px;font-weight:600;padding:1px 5px;border-radius:9px;font-family:'DM Mono',monospace;margin-left:4px"></span></div>
         <div class="menu-divider"></div>
         <div class="menu-item" id="menu-logout" onclick="doLogout()">Sign out</div>
         <div class="menu-divider"></div>
@@ -373,6 +373,7 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
         <button class="stab" id="stab-devices" onclick="switchTab('devices')">📱 Devices</button>
         <button class="stab" id="stab-rates" onclick="switchTab('rates')">⚡ Rates</button>
         <button class="stab" id="stab-users" onclick="switchTab('users')">👤 Users</button>
+        <button class="stab" id="stab-maintenance" onclick="switchTab('maintenance')">🔧 Maintenance</button>
       </div>
       <button class="btn bico" onclick="closeSettings()" style="font-size:16px;color:var(--text3)">✕</button>
     </div>
@@ -385,6 +386,10 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
       <!-- Users tab -->
       <div id="stab-content-users" style="display:none">
         <div id="settings-users-body"><div style="color:var(--text3);font-size:12px">Loading…</div></div>
+      </div>
+      <!-- Maintenance tab -->
+      <div id="stab-content-maintenance" style="display:none">
+        <div id="settings-maintenance-body"><div style="color:var(--text3);font-size:12px">Loading…</div></div>
       </div>
       <!-- Devices tab -->
       <div id="stab-content-devices" style="display:none">
@@ -857,6 +862,197 @@ async function forcePasswordReset(username){
   else{const d=await r.json();addLog(d.detail||'Failed','err');}
 }
 
+// ── Maintenance reminders ─────────────────────────────────────
+// Unlike Users (admin-only end to end), this tab is viewable by any
+// authenticated role — knowing "the filter needs cleaning" is useful
+// for everyone in the house, not just whoever manages the dashboard.
+// Configuring reminders (add/edit/delete) stays admin-only, matching
+// how schedules/devices editing already works; marking one done is
+// operator+, matching auth.py's operator_patterns for /complete.
+let _editMaintenanceId=null;
+
+async function renderMaintenanceTab(){
+  const body=document.getElementById('settings-maintenance-body');
+  if(!body)return;
+  body.textContent='Loading…';
+  let data;
+  try{const r=await fetch(`${API}/maintenance`);if(!r.ok)throw new Error('HTTP '+r.status);data=await r.json();}
+  catch(e){body.textContent='Failed: '+e.message;return;}
+  _maintenanceItems=data.maintenance||[];
+  updateMaintenanceBadge();
+
+  body.innerHTML='';
+  const canManage=_authRole==='admin';
+  const canComplete=_authRole==='admin'||_authRole==='operator';
+
+  // add/edit form
+  const form=document.createElement('div');
+  form.id='maintenance-form';
+  form.style.cssText='display:none;background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:14px';
+  form.innerHTML='<div id="maintenance-form-error" style="display:none;color:var(--err);font-size:11px;margin-bottom:8px"></div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">'
+    +'<div><div class="clabel" style="margin-bottom:3px">NAME</div><input type="text" id="maint-name" class="inp" style="width:100%"></div>'
+    +'<div><div class="clabel" style="margin-bottom:3px">SCOPE</div>'
+    +'<select id="maint-device" class="inp" style="width:100%">'
+    +'<option value="">Whole house</option>'
+    +devices.map(d=>`<option value="${d.host}" data-name="${d.name}">${d.name}</option>`).join('')
+    +'</select></div></div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">'
+    +'<div><div class="clabel" style="margin-bottom:3px">TRIGGER</div>'
+    +'<select id="maint-trigger" class="inp" style="width:100%" onchange="updateMaintenanceIntervalField()">'
+    +'<option value="days">Calendar days</option><option value="runtime_hours">Runtime hours</option>'
+    +'</select></div>'
+    +'<div><div class="clabel" style="margin-bottom:3px" id="maint-interval-label">INTERVAL (DAYS)</div>'
+    +'<input type="number" id="maint-interval" class="inp" style="width:100%" value="90"></div></div>'
+    +'<div style="margin-bottom:10px"><div class="clabel" style="margin-bottom:3px">NOTES</div>'
+    +'<input type="text" id="maint-notes" class="inp" style="width:100%"></div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end">'
+    +'<button class="btn" onclick="cancelMaintenanceForm()">Cancel</button>'
+    +'<button class="btn" onclick="saveMaintenanceItem()" style="border-color:var(--ok);color:var(--ok)">Save</button>'
+    +'</div>';
+  body.appendChild(form);
+
+  if(canManage){
+    const addRow=document.createElement('div');
+    addRow.style.cssText='display:flex;justify-content:flex-end;margin-bottom:10px';
+    addRow.innerHTML='<button class="btn" onclick="showMaintenanceForm()" style="font-size:11px">+ Add reminder</button>';
+    body.appendChild(addRow);
+  }
+
+  if(!data.maintenance.length){
+    const empty=document.createElement('div');
+    empty.style.cssText='color:var(--text3);font-size:12px;padding:8px 0';
+    empty.textContent='No maintenance reminders configured.';
+    body.appendChild(empty);
+    return;
+  }
+
+  const table=document.createElement('table');
+  table.style.cssText='width:100%;font-size:12px;border-collapse:collapse';
+  const thead=document.createElement('thead');
+  thead.innerHTML='<tr><th style="text-align:left;padding:6px 0;border-bottom:1px solid var(--border)">Reminder</th>'
+    +'<th style="text-align:left;padding:6px 0;border-bottom:1px solid var(--border)">Scope</th>'
+    +'<th style="text-align:left;padding:6px 0;border-bottom:1px solid var(--border)">Status</th>'
+    +'<th style="padding:6px 0;border-bottom:1px solid var(--border)"></th></tr>';
+  table.appendChild(thead);
+  const tbody=document.createElement('tbody');
+  data.maintenance.forEach(function(item){
+    const tr=document.createElement('tr');
+    tr.style.borderBottom='1px solid var(--border)';
+
+    const td1=document.createElement('td');td1.style.padding='8px 0';
+    td1.textContent=item.name;
+    tr.appendChild(td1);
+
+    const td2=document.createElement('td');td2.style.cssText='padding:8px 0;color:var(--text3);font-size:11px';
+    td2.textContent=item.device_name||'Whole house';
+    tr.appendChild(td2);
+
+    const td3=document.createElement('td');td3.style.padding='8px 0';
+    const st=item.status;
+    const label=document.createElement('span');
+    label.style.fontSize='11px';
+    if(st.overdue){label.style.color='var(--err)';label.textContent='⚠ Overdue';}
+    else if(st.due_soon){label.style.color='var(--warn)';label.textContent='Due soon';}
+    else{
+      label.style.color='var(--text2)';
+      label.textContent=item.trigger_type==='runtime_hours'
+        ?`${Math.round(st.hours_remaining)}h left`
+        :`${Math.round(st.days_remaining)}d left`;
+    }
+    td3.appendChild(label);tr.appendChild(td3);
+
+    const td4=document.createElement('td');td4.style.cssText='padding:8px 0;text-align:right;display:flex;gap:4px;justify-content:flex-end';
+    if(canComplete){
+      const doneBtn=document.createElement('button');doneBtn.className='btn';
+      doneBtn.style.cssText='font-size:10px;padding:2px 6px;color:var(--ok);border-color:var(--ok)';
+      doneBtn.textContent='✓ Done';doneBtn.onclick=function(){completeMaintenanceItem(item.id);};
+      td4.appendChild(doneBtn);
+    }
+    if(canManage){
+      const editBtn=document.createElement('button');editBtn.className='btn bico';
+      editBtn.textContent='✎';editBtn.title='Edit';
+      editBtn.onclick=function(){showMaintenanceForm(item);};
+      td4.appendChild(editBtn);
+      const delBtn=document.createElement('button');delBtn.className='btn bico';
+      delBtn.style.color='var(--err)';delBtn.title='Delete';delBtn.textContent='✕';
+      delBtn.onclick=function(){deleteMaintenanceItem(item.id);};
+      td4.appendChild(delBtn);
+    }
+    tr.appendChild(td4);tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);body.appendChild(table);
+}
+
+function updateMaintenanceIntervalField(){
+  const trigger=document.getElementById('maint-trigger').value;
+  const label=document.getElementById('maint-interval-label');
+  if(label)label.textContent=trigger==='runtime_hours'?'INTERVAL (HOURS)':'INTERVAL (DAYS)';
+}
+
+function showMaintenanceForm(item){
+  _editMaintenanceId=item?item.id:null;
+  const form=document.getElementById('maintenance-form');
+  if(!form)return;
+  form.style.display='block';
+  document.getElementById('maint-name').value=item?item.name:'';
+  document.getElementById('maint-device').value=item?(item.device_host||''):'';
+  document.getElementById('maint-trigger').value=item?item.trigger_type:'days';
+  document.getElementById('maint-interval').value=item?(item.trigger_type==='runtime_hours'?item.interval_hours:item.interval_days):90;
+  document.getElementById('maint-notes').value=item?item.notes:'';
+  updateMaintenanceIntervalField();
+  document.getElementById('maintenance-form-error').style.display='none';
+}
+
+function cancelMaintenanceForm(){
+  _editMaintenanceId=null;
+  const form=document.getElementById('maintenance-form');
+  if(form)form.style.display='none';
+}
+
+async function saveMaintenanceItem(){
+  const errEl=document.getElementById('maintenance-form-error');
+  errEl.style.display='none';
+  const name=document.getElementById('maint-name').value.trim();
+  if(!name){errEl.textContent='Name is required';errEl.style.display='block';return;}
+  const deviceSel=document.getElementById('maint-device');
+  const deviceHost=deviceSel.value||null;
+  const deviceName=deviceHost?deviceSel.selectedOptions[0].dataset.name:null;
+  const trigger=document.getElementById('maint-trigger').value;
+  const interval=parseFloat(document.getElementById('maint-interval').value)||90;
+  const notes=document.getElementById('maint-notes').value;
+
+  const payload={
+    name,device_host:deviceHost,device_name:deviceName,trigger_type:trigger,
+    interval_days:trigger==='days'?interval:90,
+    interval_hours:trigger==='runtime_hours'?interval:500,
+    notes,
+  };
+
+  try{
+    const url=_editMaintenanceId?`${API}/maintenance/${_editMaintenanceId}`:`${API}/maintenance`;
+    const method=_editMaintenanceId?'PUT':'POST';
+    const r=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const d=await r.json();
+    if(!r.ok||d.ok===false){errEl.textContent=d.detail||d.error||'Failed to save';errEl.style.display='block';return;}
+    addLog(`Maintenance reminder ${_editMaintenanceId?'updated':'added'}: ${name}`,'ok');
+    cancelMaintenanceForm();
+    renderMaintenanceTab();
+  }catch(e){errEl.textContent=e.message;errEl.style.display='block';}
+}
+
+async function completeMaintenanceItem(id){
+  const r=await fetch(`${API}/maintenance/${id}/complete`,{method:'POST'});
+  if(r.ok){addLog('Maintenance marked complete','ok');renderMaintenanceTab();}
+  else{addLog('Failed to mark complete','err');}
+}
+
+async function deleteMaintenanceItem(id){
+  if(!confirm('Delete this maintenance reminder?'))return;
+  await fetch(`${API}/maintenance/${id}`,{method:'DELETE'});
+  renderMaintenanceTab();
+}
+
 // ── Kiosk PIN management ─────────────────────────────────────
 // PINs are a second credential on the same account (same role, same
 // login-lockout rules as passwords — see auth.py's PIN_LOCKOUT_KEY),
@@ -1028,11 +1224,37 @@ const API=window.location.origin+'/api';
 let devices=[];
 let _usageToday={};
 
+let _maintenanceItems=[];
+
+async function refreshMaintenanceStatus(){
+  try{
+    const r=await fetch(`${API}/maintenance`);
+    if(!r.ok)return;
+    const d=await r.json();
+    _maintenanceItems=d.maintenance||[];
+  }catch(e){/* unreachable — badges just stay at their last known state */}
+  updateMaintenanceBadge();
+}
+
+function updateMaintenanceBadge(){
+  const badge=document.getElementById('maintenance-badge');
+  if(!badge)return;
+  const overdueCount=_maintenanceItems.filter(m=>m.status?.overdue).length;
+  if(overdueCount>0){
+    badge.style.display='inline';
+    badge.textContent=overdueCount>99?'99+':String(overdueCount);
+  }else{badge.style.display='none';}
+}
+
 async function loadDevicesFromAPI(){
   try{
     const r=await fetch(`${API}/devices`);
     if(!r.ok)return;
     const data=await r.json();
+    // hosts with at least one overdue device-scoped maintenance item —
+    // whole-house items (device_host null) don't attach to any tile,
+    // they're covered by the Settings menu's count badge instead
+    const overdueHosts=new Set(_maintenanceItems.filter(m=>m.device_host&&m.status?.overdue).map(m=>m.device_host));
     // merge API response into local array — preserve UI state for existing devices
     const apiDevices=data.devices;
     const merged=apiDevices.map(d=>{
@@ -1058,6 +1280,7 @@ async function loadDevicesFromAPI(){
         retry_queue_depth:d._retry_queue?.length||0,
         consecutive_failures:d._consecutive_failures||0,
         firmware_version:d._firmware_version||d.state?.esphome_version?.split(' ')[0]||null,
+        _maintenanceOverdue:overdueHosts.has(d.host),
       };
     });
     devices=merged;
@@ -1400,6 +1623,7 @@ async function refreshOnTimeToday(){
 
 async function pollAll(){
   document.getElementById('s-time').textContent='…';
+  await refreshMaintenanceStatus();
   await loadDevicesFromAPI();
   await refreshOnTimeToday();
   await fetchServerLogs();
@@ -1908,7 +2132,7 @@ function renderUnits(){
 
   devices.forEach((d,i)=>{
     const tileId=`tile-${i}`;
-    const stateKey=`${d.state?.mode}|${d.state?.target_temperature}|${d.state?.current_temperature}|${d.extras?.outdoor_temp?.value}|${d.busy}|${d.stale}|${d.lock_temp}|${d.retry_queue_depth}|${d.consecutive_failures}`;
+    const stateKey=`${d.state?.mode}|${d.state?.target_temperature}|${d.state?.current_temperature}|${d.extras?.outdoor_temp?.value}|${d.busy}|${d.stale}|${d.lock_temp}|${d.retry_queue_depth}|${d.consecutive_failures}|${d._maintenanceOverdue}`;
     let tile=document.getElementById(tileId);
 
     if(!tile){
@@ -1950,7 +2174,7 @@ function renderUnits(){
 
 function buildTileHTML(d,i){
     const s=d.state;
-    const stateKey=`${s?.mode}|${s?.target_temperature}|${s?.current_temperature}|${d.busy}|${d.stale}|${d.lock_temp}`;
+    const stateKey=`${s?.mode}|${s?.target_temperature}|${s?.current_temperature}|${d.busy}|${d.stale}|${d.lock_temp}|${d._maintenanceOverdue}`;
     if(!s)return`<div id="tile-${i}" data-state-key="${stateKey}" class="tile"><div class="uname"><span class="dot d-off"></span>${d.name}</div><div class="uhost">${d.host}</div><div style="font-size:11px;color:var(--text3);margin-top:6px">⏳ waiting for first poll…</div></div>`;
     if(s.error)return`<div id="tile-${i}" data-state-key="${stateKey}" class="tile"><div class="uname"><span class="dot d-err"></span>${d.name}</div><div class="uhost" style="color:var(--err)">${s.error}</div></div>`;
     if(s.current_temperature==null&&s.mode==='OFF'&&!d.pollTime)return`<div id="tile-${i}" data-state-key="${stateKey}" class="tile"><div class="uname"><span class="dot d-off"></span>${d.name}</div><div class="uhost">${d.host}</div><div style="font-size:11px;color:var(--text3);margin-top:6px">⏳ waiting for first poll…</div></div>`;
@@ -1970,6 +2194,7 @@ function buildTileHTML(d,i){
           ${d.stale?'<span style="font-size:10px;color:var(--warn);font-family:\'DM Mono\',monospace" title="Device not responding">⚠ stale</span>':''}
           ${d.stale&&d.consecutive_failures>1?`<span style="font-size:10px;color:var(--err);font-family:'DM Mono',monospace" title="${d.consecutive_failures} consecutive poll failures">⚠${d.consecutive_failures}</span>`:''}
           ${d.retry_queue_depth?`<span style="font-size:10px;color:var(--warn);font-family:'DM Mono',monospace" title="${d.retry_queue_depth} command(s) queued for retry">↺${d.retry_queue_depth}</span>`:''}
+          ${d._maintenanceOverdue?`<span style="font-size:10px;color:var(--err);cursor:pointer" title="Maintenance overdue — click for details" onclick="openSettings('maintenance')">🔧⚠</span>`:''}
         </div>
         <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
           ${readOnly?'':`<button class="btn bico" onclick="adjustTemp(${i},-1)" ${dis} style="width:24px;height:24px">−</button>`}
@@ -2499,7 +2724,7 @@ function openSettings(tab){
 function closeSettings(){document.getElementById('settings-modal').style.display='none';}
 
 function switchTab(tab){
-  ['general','devices','rates','users'].forEach(t=>{
+  ['general','devices','rates','users','maintenance'].forEach(t=>{
     const btn=document.getElementById('stab-'+t);
     if(btn)btn.classList.toggle('active',t===tab);
     const content=document.getElementById('stab-content-'+t);
@@ -2516,6 +2741,7 @@ function switchTab(tab){
     }
   }
   if(tab==='users')renderUsersTab();
+  if(tab==='maintenance')renderMaintenanceTab();
 }
 
 function populateRatesTab(){
