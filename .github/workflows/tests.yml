@@ -67,7 +67,7 @@ jobs:
           "
 
       - name: Install JS test dependencies
-        run: npm install
+        run: npm ci
 
       - name: Run JS unit tests (dashboard + kiosk)
         run: node --test tests-js/*.test.js
