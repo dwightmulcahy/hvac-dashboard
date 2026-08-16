@@ -111,7 +111,7 @@ const SCREENSAVER_IDLE_SECONDS=180;
 const POLL_INTERVAL_MS=12000;
 
 let token=null,currentUser=null;
-let devices=[],settings={},schedules=[],rootInfo={};
+let devices=[],settings={},schedules=[],rootInfo={},usageToday={};
 let entered='',failedAttempts=0,lockoutUntil=0,lockoutTimer=null;
 let idleTimer=null,idleCountdownTimer=null,mainIdleTimer=null,pollTimer=null,clockTimer=null,saverMoveTimer=null;
 let openDeviceHost=null,currentSub='grid';
@@ -197,6 +197,20 @@ function fmtOnTime(m){
   if(m<60)return`${Math.round(m)}m`;
   const h=Math.floor(m/60),r=Math.round(m%60);
   return r?`${h}h ${r}m`:`${h}h`;
+}
+// Mirrors state.py's _today() — datetime.date.today().isoformat().
+// Deliberately uses local date components (getFullYear/getMonth/
+// getDate), not toISOString() (which converts to UTC first): the
+// server's "today" respects the container's configured timezone
+// (see docker-compose.yml's TZ), and a kiosk physically in the same
+// location should be on the same local clock. Using UTC here could
+// silently pick the wrong day near midnight.
+function localDateStr(d){
+  d=d||new Date();
+  const y=d.getFullYear();
+  const m=String(d.getMonth()+1).padStart(2,'0');
+  const day=String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
 }
 
 // ── Cost / watts estimation — mirrors the formulas in
@@ -469,6 +483,12 @@ async function _refreshAllImpl(){
     devices=devData.devices||[];
     settings=await setRes.json();
     schedules=(await schRes.json()).schedules||[];
+    try{
+      const ur=await fetchT(`${API}/usage/summary?month=${localDateStr()}`,{headers:authHeaders()});
+      const ud=await ur.json();
+      usageToday={};
+      (ud.devices||[]).forEach(d=>{usageToday[d.host]=d.runtime_hours*60;});
+    }catch(e){}
     consecutiveFailures=0;
     document.getElementById('loading-banner').style.display='none';
     setStaleIndicator(false);
@@ -551,7 +571,7 @@ function renderGrid(){
         <span style="color:${dim?'var(--text2)':'var(--text)'};font-size:30px;font-weight:500">${fmtTempCompact(cur)}</span>
         ${!dim&&mode!=='OFF'&&tgt!=null?`<span style="color:var(--text2);font-size:14px">→ ${fmtTempCompact(tgt)}</span>`:''}
       </div>
-      <div style="color:var(--text2);font-size:11px;min-height:13px">${!dim?fmtOnTime(d._on_time_minutes):''}</div>
+      <div style="color:var(--text2);font-size:11px;min-height:13px">${!dim?fmtOnTime(usageToday[d.host]):''}</div>
     </div>`;
   }).join('');
   el.querySelectorAll('.tile').forEach(t=>t.addEventListener('click',()=>{
@@ -660,7 +680,7 @@ function renderDetail(host){
     </div>`:`<div style="color:var(--text3);font-size:11px;text-align:center;margin:4px 0 8px">${iconSpan('eye',12,'currentColor','vertical-align:-1px;margin-right:4px')}View only — sign in as operator to control</div>`}
     <div style="height:1px;background:var(--border2);margin:2px 0 8px"></div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
-      ${statCard('clock',fmtOnTime(d._on_time_minutes)||'Off','ON-TIME',running?'var(--amber)':GRAY)}
+      ${statCard('clock',fmtOnTime(usageToday[d.host])||'Off','ON TODAY',running?'var(--amber)':GRAY)}
       ${statCard('sun',outdoor!=null?fmtTempCompact(outdoor):'—','OUTDOOR','var(--orange)')}
       ${statCard('shield-check',d.max_temp!=null?fmtTempCompact(d.max_temp):'—','GUARD',d._max_temp_active?'var(--err)':GRAY)}
       ${statCard('bolt',running&&watts!=null?watts+'W':'0W','POWER',running?'var(--yellow)':GRAY)}

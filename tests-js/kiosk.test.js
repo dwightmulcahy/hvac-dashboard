@@ -90,6 +90,7 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   let beeperCalls = [];
   let cmdCalls = [];
   let vacationCalls = [];
+  let usageSummaryCalls = [];
   let simulateNetworkDown = false;
 
   const mockFetch = async (url, opts) => {
@@ -122,6 +123,17 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
     if (u.includes("/api/devices")) return { ok: true, status: 200, json: async () => MOCK_DEVICES };
     if (u.includes("/api/settings")) return { ok: true, status: 200, json: async () => MOCK_SETTINGS };
     if (u.includes("/api/schedules")) return { ok: true, status: 200, json: async () => buildMockSchedules() };
+    if (u.includes("/api/usage/summary")) {
+      usageSummaryCalls.push(u);
+      // Deliberately different from Main LR's cumulative
+      // _on_time_minutes fixture (42) — if the kiosk were still
+      // showing the all-time cumulative field instead of fetching
+      // today's actual runtime, this test would see 42m, not 15m.
+      return { ok: true, status: 200, json: async () => ({
+        month: "today",
+        devices: [{ host: "ac1.local", name: "Main LR", runtime_hours: 0.25, est_kwh: 0.1, peak_watts: 900, days_active: 1 }],
+      }) };
+    }
     return { ok: false, status: 404, json: async () => ({}) };
   };
 
@@ -176,6 +188,18 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
     assert.ok(parseInt(window.getComputedStyle(tileTemp).fontSize) > 22);
   });
 
+  await t.test("grid tile on-time shows today's runtime, not the all-time cumulative total", () => {
+    // Regression test: the ON-TIME figure used to show
+    // device._on_time_minutes, which accumulates forever since the
+    // device was first added (weeks of runtime) rather than resetting
+    // daily — genuinely not what "on-time" reads as at a glance on a
+    // wall panel. It now comes from GET /usage/summary scoped to
+    // today's date specifically.
+    const mainLrTile = [...window.document.querySelectorAll(".tile")].find((tile) => tile.textContent.includes("Main LR"));
+    assert.ok(mainLrTile.textContent.includes("15m"), `expected today's 15m runtime, not the cumulative 42m (tile text: "${mainLrTile.textContent.replace(/\s+/g, " ")}")`);
+    assert.ok(!mainLrTile.textContent.includes("42m"));
+  });
+
   // ── Device detail view ───────────────────────────────────────
 
   $(".tile").dispatchEvent(new window.Event("click", { bubbles: true }));
@@ -205,6 +229,14 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
     assert.match(detailHtml, /dBm/);
     const wifiBars = [...$("#grid-detail").querySelectorAll("span")].filter((s) => s.style.width === "5px");
     assert.equal(wifiBars.length, 4);
+  });
+
+  await t.test("detail ON TODAY stat shows today's runtime, correctly labeled, calls usage/summary with today's date", () => {
+    const detailHtml = $("#grid-detail").innerHTML;
+    assert.ok(detailHtml.includes("ON TODAY"), "label should say ON TODAY, not the ambiguous old ON-TIME");
+    assert.ok(detailHtml.includes("15m") && !detailHtml.includes("42m"));
+    const today = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`;
+    assert.ok(usageSummaryCalls.some((u) => u.includes(`month=${today}`)), `usage/summary should be called with today's local date (calls: ${JSON.stringify(usageSummaryCalls)})`);
   });
 
   await t.test("hero temp font size is prominent (>34px)", () => {

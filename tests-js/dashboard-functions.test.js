@@ -125,6 +125,90 @@ test("toF returns null for unparseable input", () => {
   assert.equal(fns.toF("abc"), null);
 });
 
+test("toC converts Fahrenheit to Celsius, rounded", () => {
+  assert.equal(fns.toC(32), 0);
+  assert.equal(fns.toC(212), 100);
+  assert.equal(fns.toC(77), 25);
+});
+
+test("toC returns null for unparseable input", () => {
+  assert.equal(fns.toC("abc"), null);
+});
+
+test("toC and toF are approximate inverses at whole-number boundaries", () => {
+  // both round to whole numbers, so exact round-trip isn't guaranteed
+  // for every value, but well-behaved reference points should hold
+  assert.equal(fns.toC(fns.toF(0)), 0);
+  assert.equal(fns.toC(fns.toF(100)), 100);
+});
+
+// ── Editable temp input helpers ─────────────────────────────
+// (tempUnitLabel, tempToDisplayUnit, tempFromDisplayUnit) — back the
+// editable number inputs (vacation max temp, schedule temp, device
+// max temp), distinct from fmtTemp's read-only display formatting.
+
+test("tempUnitLabel returns °F only when unit is F", () => {
+  fns._tempUnit = "F";
+  assert.equal(fns.tempUnitLabel(), "°F");
+});
+
+test("tempUnitLabel returns °C for both 'C' and 'both'", () => {
+  fns._tempUnit = "C";
+  assert.equal(fns.tempUnitLabel(), "°C");
+  fns._tempUnit = "both";
+  assert.equal(fns.tempUnitLabel(), "°C");
+});
+
+test("tempToDisplayUnit converts to Fahrenheit when unit is F", () => {
+  fns._tempUnit = "F";
+  assert.equal(fns.tempToDisplayUnit(0), 32);
+  assert.equal(fns.tempToDisplayUnit(100), 212);
+});
+
+test("tempToDisplayUnit leaves value in Celsius for 'C' and 'both'", () => {
+  fns._tempUnit = "C";
+  assert.equal(fns.tempToDisplayUnit(32), 32);
+  fns._tempUnit = "both";
+  assert.equal(fns.tempToDisplayUnit(32), 32);
+});
+
+test("tempToDisplayUnit returns empty string for unparseable input", () => {
+  fns._tempUnit = "both";
+  assert.equal(fns.tempToDisplayUnit("abc"), "");
+});
+
+test("tempFromDisplayUnit converts from Fahrenheit back to Celsius when unit is F", () => {
+  fns._tempUnit = "F";
+  assert.equal(fns.tempFromDisplayUnit(32), 0);
+  assert.equal(fns.tempFromDisplayUnit(212), 100);
+});
+
+test("tempFromDisplayUnit treats input as already-Celsius for 'C' and 'both'", () => {
+  fns._tempUnit = "C";
+  assert.equal(fns.tempFromDisplayUnit(32), 32);
+  fns._tempUnit = "both";
+  assert.equal(fns.tempFromDisplayUnit(32), 32);
+});
+
+test("tempFromDisplayUnit returns null for unparseable input", () => {
+  fns._tempUnit = "both";
+  assert.equal(fns.tempFromDisplayUnit("abc"), null);
+});
+
+test("tempToDisplayUnit and tempFromDisplayUnit round-trip correctly in F mode", () => {
+  // regression-style test for the real bug this feature fixes: a
+  // vacation max temp of 32°C, round-tripped through F-mode display
+  // and back, must still land on a sane value close to 32 — NOT be
+  // silently saved as if the displayed Fahrenheit number were itself
+  // Celsius (which is what happened before this fix: a field showing
+  // "90°F" would have saved max_temp=90 to the backend, a nonsensical
+  // 90°C threshold instead of the intended ~32°C).
+  fns._tempUnit = "F";
+  const displayed = fns.tempToDisplayUnit(32); // 90 (°F)
+  const roundTripped = fns.tempFromDisplayUnit(displayed);
+  assert.ok(Math.abs(roundTripped - 32) <= 1); // whole-number rounding tolerance
+});
+
 test("fmtTemp shows only Celsius when _tempUnit is 'C'", () => {
   fns._tempUnit = "C";
   assert.equal(fns.fmtTemp(25.5), "25.5°C");
@@ -180,6 +264,59 @@ test("fmtOnTime formats minutes into d/h/m, omitting zero units", () => {
 test("fmtOnTime treats falsy/negative input as 0m", () => {
   assert.equal(fns.fmtOnTime(null), "0m");
   assert.equal(fns.fmtOnTime(-5), "0m");
+});
+
+// ── localDateStr ──────────────────────────────────────────────
+
+test("localDateStr formats using local date components, not UTC", () => {
+  // Deliberately not toISOString().slice(0,10) — that converts to UTC
+  // first, which would silently pick the wrong day near midnight in
+  // any timezone behind UTC. Mirrors kiosk.html's identical helper.
+  const d = new Date(2026, 7, 16); // month is 0-indexed: 7 = August
+  assert.equal(fns.localDateStr(d), "2026-08-16");
+});
+
+test("localDateStr pads single-digit month and day with a leading zero", () => {
+  const d = new Date(2026, 0, 5); // Jan 5
+  assert.equal(fns.localDateStr(d), "2026-01-05");
+});
+
+test("localDateStr defaults to the current date when called with no argument", () => {
+  const now = new Date();
+  const expected = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  assert.equal(fns.localDateStr(), expected);
+});
+
+// ── buildOnTimeLookup ─────────────────────────────────────────
+
+test("buildOnTimeLookup converts runtime_hours to minutes, keyed by host", () => {
+  const usage = [
+    { host: "ac1.local", runtime_hours: 0.5 },
+    { host: "ac2.local", runtime_hours: 2 },
+  ];
+  const lookup = fns.buildOnTimeLookup(usage);
+  assert.equal(lookup["ac1.local"], 30);
+  assert.equal(lookup["ac2.local"], 120);
+});
+
+test("buildOnTimeLookup treats a missing runtime_hours as 0 minutes, not NaN/undefined", () => {
+  const lookup = fns.buildOnTimeLookup([{ host: "ac1.local" }]);
+  assert.equal(lookup["ac1.local"], 0);
+});
+
+test("buildOnTimeLookup skips entries with no host rather than creating an 'undefined' key", () => {
+  const lookup = fns.buildOnTimeLookup([{ runtime_hours: 5 }, { host: "ac1.local", runtime_hours: 1 }]);
+  assert.deepEqual(Object.keys(lookup), ["ac1.local"]);
+});
+
+test("buildOnTimeLookup handles a missing/empty devices array without throwing", () => {
+  // Comparing against a bare {} here would fail — fns.buildOnTimeLookup
+  // runs inside extract.js's vm sandbox, a separate V8 realm from this
+  // test file, and assert.deepEqual can treat cross-realm objects as
+  // not equal even when structurally identical. Checking a primitive
+  // (key count) sidesteps the realm boundary entirely.
+  assert.equal(Object.keys(fns.buildOnTimeLookup(undefined)).length, 0);
+  assert.equal(Object.keys(fns.buildOnTimeLookup([])).length, 0);
 });
 
 // ── fmtDays ───────────────────────────────────────────────────
@@ -258,6 +395,98 @@ test("fmtHours formats sub-day hours with minutes", () => {
 
 test("fmtHours formats multi-day durations without minutes", () => {
   assert.equal(fns.fmtHours(25), "1d 1h");
+});
+
+// ── fmtAgo ────────────────────────────────────────────────────
+// Used for the users table's "Last Login" column and device
+// last-seen displays. Note: fmtAgo appends 'Z' to the input string
+// before parsing, so timestamps must be given as naive-UTC ISO
+// strings without a trailing 'Z' (matching what _now_iso() on the
+// backend produces) — appending 'Z' again here would double up.
+
+function isoSecondsAgo(seconds) {
+  return new Date(Date.now() - seconds * 1000).toISOString().replace("Z", "");
+}
+
+test("fmtAgo returns an em-dash for missing input", () => {
+  assert.equal(fns.fmtAgo(null), "—");
+  assert.equal(fns.fmtAgo(undefined), "—");
+  assert.equal(fns.fmtAgo(""), "—");
+});
+
+test("fmtAgo returns an em-dash for unparseable input", () => {
+  // Regression test for a real bug found while writing this test:
+  // new Date("garbage") doesn't throw in JS — it silently produces
+  // an Invalid Date, so fmtAgo's try/catch never actually caught this
+  // case. The arithmetic on Invalid Date just propagates NaN through
+  // to the output (e.g. "NaNd ago") instead of falling through to the
+  // catch block. Fixed with an explicit Number.isNaN() check.
+  assert.equal(fns.fmtAgo("not-a-real-timestamp"), "—");
+});
+
+test("fmtAgo formats sub-minute durations in seconds", () => {
+  const result = fns.fmtAgo(isoSecondsAgo(30));
+  assert.match(result, /^\d+s ago$/);
+});
+
+test("fmtAgo formats sub-hour durations in minutes", () => {
+  const result = fns.fmtAgo(isoSecondsAgo(5 * 60));
+  assert.match(result, /^\d+m ago$/);
+});
+
+test("fmtAgo formats sub-day durations in hours", () => {
+  const result = fns.fmtAgo(isoSecondsAgo(2 * 3600));
+  assert.match(result, /^\d+h ago$/);
+});
+
+test("fmtAgo formats multi-day durations in days, not hours", () => {
+  // regression test: fmtAgo used to cap out at hours, so a login
+  // from 3 days ago would show as "72h ago" instead of "3d ago"
+  const result = fns.fmtAgo(isoSecondsAgo(3 * 86400));
+  assert.equal(result, "3d ago");
+});
+
+// ── selectTempUnit ────────────────────────────────────────────
+// Regression tests for a real bug: the buttons call
+// selectTempUnit('C') / selectTempUnit('F') (uppercase, matching
+// _tempUnit's canonical values used everywhere else in the app —
+// see fmtTemp's _tempUnit==='F' / ==='C' checks), but the button-id
+// suffixes are lowercase ('gen-unit-c'/'gen-unit-f'/'gen-unit-both').
+// The original comparison was a bare `unit===u`, so 'C'==='c' and
+// 'F'==='f' were always false — only 'both'==='both' ever matched,
+// which is why only the Both button ever visibly highlighted.
+
+test("selectTempUnit highlights the C button when 'C' is selected", () => {
+  fns.selectTempUnit("C");
+  assert.equal(fns._buttons["gen-unit-c"].style.borderColor, "var(--cool)");
+  assert.equal(fns._buttons["gen-unit-f"].style.borderColor, "var(--border2)");
+  assert.equal(fns._buttons["gen-unit-both"].style.borderColor, "var(--border2)");
+});
+
+test("selectTempUnit highlights the F button when 'F' is selected", () => {
+  fns.selectTempUnit("F");
+  assert.equal(fns._buttons["gen-unit-c"].style.borderColor, "var(--border2)");
+  assert.equal(fns._buttons["gen-unit-f"].style.borderColor, "var(--cool)");
+  assert.equal(fns._buttons["gen-unit-both"].style.borderColor, "var(--border2)");
+});
+
+test("selectTempUnit highlights the Both button when 'both' is selected", () => {
+  fns.selectTempUnit("both");
+  assert.equal(fns._buttons["gen-unit-c"].style.borderColor, "var(--border2)");
+  assert.equal(fns._buttons["gen-unit-f"].style.borderColor, "var(--border2)");
+  assert.equal(fns._buttons["gen-unit-both"].style.borderColor, "var(--cool)");
+});
+
+test("selectTempUnit updates background and text color together with border", () => {
+  fns.selectTempUnit("C");
+  const btn = fns._buttons["gen-unit-c"];
+  assert.equal(btn.style.background, "var(--cool-bg)");
+  assert.equal(btn.style.color, "var(--cool)");
+});
+
+test("selectTempUnit updates the module-level _tempUnit variable", () => {
+  fns.selectTempUnit("F");
+  assert.equal(fns._tempUnit, "F");
 });
 
 // ── LOG_LEVELS / matchesFilter ────────────────────────────────

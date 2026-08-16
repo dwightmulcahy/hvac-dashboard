@@ -1026,6 +1026,7 @@ const API=window.location.origin+'/api';
 
 // ── Devices — backed by API ───────────────────────────────
 let devices=[];
+let _usageToday={};
 
 async function loadDevicesFromAPI(){
   try{
@@ -1047,7 +1048,6 @@ async function loadDevicesFromAPI(){
           esphome_version:{value:d.state?.esphome_version??null},
         },
         loading:false,busy:existing?.busy||false,pollTime:existing?.pollTime||null,
-        _onTimeMinutes:d._on_time_minutes||existing?._onTimeMinutes||0,
         _maxTempActive:d._max_temp_active||false,
         maxTemp:d.max_temp||null,
         watchdog_minutes:d.watchdog_minutes||5,
@@ -1393,9 +1393,15 @@ async function pollDevice(i){
   updateSummary();
 }
 
+async function refreshOnTimeToday(){
+  const summary=await fetchMonthlySummary(localDateStr());
+  _usageToday=buildOnTimeLookup(summary?.devices);
+}
+
 async function pollAll(){
   document.getElementById('s-time').textContent='…';
   await loadDevicesFromAPI();
+  await refreshOnTimeToday();
   await fetchServerLogs();
   renderAll();
   updateSummary();
@@ -1490,6 +1496,20 @@ function fmtWifi(dbm){
   return{bar:'▂___',color:'var(--err)',label:`${v}dBm`};
 }
 
+// Mirrors state.py's _today() — datetime.date.today().isoformat().
+// Deliberately uses local date components (getFullYear/getMonth/
+// getDate), not toISOString() (which converts to UTC first): the
+// server's "today" respects the container's configured timezone, and
+// using UTC here could silently pick the wrong day near midnight.
+// Matches kiosk.html's identical helper.
+function localDateStr(d){
+  d=d||new Date();
+  const y=d.getFullYear();
+  const m=String(d.getMonth()+1).padStart(2,'0');
+  const day=String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+
 function fmtOnTime(mins){
   if(!mins||mins<1)return'0m';
   const h=Math.floor(mins/60);
@@ -1497,6 +1517,21 @@ function fmtOnTime(mins){
   const d=Math.floor(h/24);
   const rh=h%24;
   return[d?d+'d':'',rh?rh+'h':'',m?m+'m':''].filter(Boolean).join(' ')||'0m';
+}
+
+// Turns a GET /usage/summary response's devices array into a
+// {host: minutesToday} lookup. The actual daily-scoped fetch (calling
+// /usage/summary with today's full date to exploit its startswith
+// date-prefix filter, matching kiosk.html's identical trick) lives in
+// refreshOnTimeToday() below, which isn't unit-testable the same way
+// since it touches fetch/state — this transformation step is pure
+// though, so it's covered here alongside the other formatters.
+function buildOnTimeLookup(usageDevices){
+  const lookup={};
+  (usageDevices||[]).forEach(d=>{
+    if(d&&d.host!=null)lookup[d.host]=(d.runtime_hours||0)*60;
+  });
+  return lookup;
 }
 // ── TESTABLE:wifi-ontime:end ──
 
@@ -1961,9 +1996,7 @@ function buildTileHTML(d,i){
         <div class="stat" style="flex:1;text-align:center"><div class="slabel">${d.state?.actual_power_watts!=null?'W':'~W'}</div><div class="sval">${(()=>{const actual=d.state?.actual_power_watts;if(actual!=null)return actual+'W';const w=estWatts(s,x,d.btu,d.seer);return w===0?'<span style="color:var(--text3)">off</span>':w!=null?w+'W':'—';})()}</div></div>
       </div>
       <div style="margin-top:5px;font-size:10px;font-family:'DM Mono',monospace;color:var(--text3);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <span title="Total time AC has been on">on <span style="color:var(--text2)">${fmtOnTime(d._onTimeMinutes||0)}</span>
-          <button onclick="resetOnTime(${i})" ${readOnly?'disabled':''} title="Reset on-time counter" style="background:none;border:none;cursor:${readOnly?'default':'pointer'};color:var(--text3);font-size:9px;padding:0 1px;line-height:1;opacity:${readOnly?'0.4':'1'}" onmouseover="this.style.color='var(--err)'" onmouseout="this.style.color='var(--text3)'">↺</button>
-        </span>
+        <span title="Time this unit has run today">on <span style="color:var(--text2)">${fmtOnTime(_usageToday[d.host]||0)}</span></span>
         ${(()=>{const sig=x.wifi_signal?.value??d.state?.wifi_signal;const w=fmtWifi(sig);return sig!=null?(w?`<span>·</span><span title="${w.label}" style="color:${w.color}">${w.bar}</span>`:`<span>·</span><span style="color:var(--text3);font-size:10px">${sig}dBm</span>`):'';})()}
         ${(()=>{const fv=d.firmware_version||(x.esphome_version?.value?.split(' ')[0]);return fv?`<span>·</span><span style="color:var(--text3)" title="ESPHome firmware version">fw ${fv}</span>`:'';})()}
         ${d.maxTemp!=null?`<span>·</span><span>max <span style="color:${safeFloat(s.current_temperature)>=d.maxTemp?'var(--err)':'var(--text2)'}">${fmtTemp(d.maxTemp)}</span>${d._maxTempActive?' <span style="color:var(--err)">●</span>':''}</span>`:''}
@@ -2145,21 +2178,6 @@ function exportCSV(){
 }
 
 function renderAll(){renderIPList();renderUnits();updateSummary();}
-
-function resetOnTime(i){
-  const d=devices[i];
-  d._onTimeMinutes=0;
-  // persist reset to API
-  fetch(`${API}/devices/${encodeURIComponent(d.host)}`,{
-    method:'PUT',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({host:d.host,name:d.name,btu:d.btu||24000,seer:d.seer||20,
-      max_temp:d.maxTemp||null,beeper:d.beeper||'OFF',watchdog_minutes:d.watchdog_minutes||5,
-      lock_temp:d.lock_temp||false,locked_target_temp:d.locked_target_temp||null,
-      has_ir_emitter:d.has_ir_emitter||false})
-  }).catch(_=>{});
-  addLog(`${d.name}: on-time reset`,'info');
-  renderUnits();
-}
 
 async function otaDevice(i){
   const d=devices[i];
