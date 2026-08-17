@@ -109,7 +109,13 @@ const MODE_BG={COOL:'var(--cool-bg)',HEAT:'var(--heat-bg)',AUTO:'var(--auto-bg)'
 const MODES=['OFF','COOL','HEAT','AUTO'];
 const DETAIL_IDLE_SECONDS=15;
 const INFO_IDLE_SECONDS=30;
-const SCREENSAVER_IDLE_SECONDS=180;
+// 10 minutes, not the original 3 — 3 minutes meant a routine "check
+// the panel, walk to the kitchen, come back" bounced straight to PIN
+// entry, which is real friction for the same person continuing the
+// same task. 10 minutes still catches a genuinely-abandoned unlocked
+// session (the actual security purpose here) without punishing normal
+// household movement in between.
+const SCREENSAVER_IDLE_SECONDS=600;
 const POLL_INTERVAL_MS=12000;
 
 let token=null,currentUser=null;

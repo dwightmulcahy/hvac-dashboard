@@ -122,7 +122,7 @@ Reboot the Pi and confirm, in order:
 3. A correct PIN unlocks into the grid, and the header badge shows a version number and your role
 4. Tapping a tile opens its detail view; the back header returns you to the grid
 5. Leaving a detail view untouched for ~15s auto-returns to the grid
-6. Leaving the whole thing untouched for a few minutes drops it into the dim screensaver; tapping that goes back to the PIN screen, not straight into the grid
+6. Leaving the whole thing untouched for 10 minutes drops it into the dim screensaver; tapping that goes back to the PIN screen, not straight into the grid
 
 If step 1 fails and you land on the desktop instead, double check `~/.config/autostart/kiosk.desktop`'s syntax — a malformed `.desktop` file fails silently rather than erroring visibly.
 
