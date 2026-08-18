@@ -25,6 +25,17 @@ class CommandPayload(BaseModel):
     params: dict
 
 
+class MaintenanceConfig(BaseModel):
+    id: Optional[str] = None
+    name: str
+    device_host: Optional[str] = None
+    trigger_type: str = "days"          # "days" or "runtime_hours"
+    interval_days: Optional[int] = None
+    interval_hours: Optional[float] = None
+    last_done_at: Optional[str] = None
+    notes: Optional[str] = None
+
+
 class ScheduleConfig(BaseModel):
     id: Optional[str] = None
     device_host: str

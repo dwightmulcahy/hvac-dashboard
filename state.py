@@ -36,6 +36,7 @@ _lock = asyncio.Lock()
 DEFAULT_STATE = {
     "devices": [],          # list of device configs
     "schedules": [],        # list of schedule configs
+    "maintenance": [],      # list of maintenance reminder configs
     "settings": {
         "poll_interval": 120,
         "provider": "Coopeguanacaste",
@@ -95,6 +96,18 @@ DEVICE_DEFAULTS = {
     "_firmware_version": None,
     "_consecutive_failures": 0,
     "_fail_notified": False,
+}
+
+MAINTENANCE_DEFAULTS = {
+    "id": "",
+    "name": "",
+    "device_host": None,
+    "trigger_type": "days",
+    "interval_days": 90,
+    "interval_hours": None,
+    "last_done_at": None,
+    "last_done_runtime_minutes": None,
+    "notes": None,
 }
 
 SCHEDULE_DEFAULTS = {

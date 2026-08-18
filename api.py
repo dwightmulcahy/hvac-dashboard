@@ -26,7 +26,7 @@ from auth import router as auth_router, auth_middleware, generate_recovery_key, 
 from worker import _background_worker
 
 from routers import devices_crud, devices_control, devices_discovery
-from routers import schedules, settings, usage, system
+from routers import schedules, settings, usage, system, maintenance
 
 # holds a strong reference to the background worker task so it isn't
 # garbage-collected mid-run (asyncio only keeps a weak reference otherwise)
@@ -95,3 +95,4 @@ app.include_router(schedules.router)
 app.include_router(settings.router)
 app.include_router(usage.router)
 app.include_router(system.router)
+app.include_router(maintenance.router)
