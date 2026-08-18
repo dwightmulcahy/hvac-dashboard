@@ -99,7 +99,7 @@ jobs:
       - name: Lint Python API
         run: |
           pip install pyflakes
-          pyflakes api.py auth.py state.py models.py worker.py routers/*.py
+          pyflakes api.py auth.py state.py models.py worker.py maintenance_logic.py notify.py routers/*.py
 
       - name: Validate nginx config
         run: |

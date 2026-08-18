@@ -34,6 +34,10 @@ See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for how the backend is structured (mo
 - **Nightly dongle reboot** — configurable time-of-day reboot of all dongles
 - **Retry queue** — failed commands queued (capped at 10) and retried on recovery
 - **Watchdog** — per-device configurable alert timeout; logs online/offline transitions with consecutive-failure counts
+- **Maintenance reminders** — days-based (e.g. "filter change every 90 days") or runtime-hours-based (e.g. "coil clean every 500 hours") per device or whole-house; overdue items are logged and optionally pushed to a webhook, with a full completion history kept per item
+
+### Notifications
+- **Generic notification webhook** — set `notification_webhook` (Settings → General) to get a POST for device-offline, maintenance-overdue, and schedule-failure events. Separate from the Watchtower-specific webhook, which only forwards image-update notices.
 
 ### Monitoring
 - API status badge in header (⬤ green/red, checked every 30s)
@@ -65,6 +69,9 @@ See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for how the backend is structured (mo
 - **General** — poll interval, default SEER, default watchdog, vacation max temp
 - **Devices** — add/edit/reorder/delete, BTU, SEER, Max°C guard, alert timeout, save/test/poll per row
 - **Rates** — provider, exchange rate (↻ Live fetch), monthly kWh, runtime hrs, tiered or flat rate
+
+### Kiosk Panel
+Wall-mounted, PIN-locked touchscreen control panel — a separate, purpose-built UI (`kiosk.html`), not a cut-down version of the main dashboard. Fixed 800×480 layout, self-contained SVG icons (no CDN dependency), screensaver with idle timeout, role-aware controls (viewers can view devices and maintenance status but can't send commands or mark maintenance items complete — that needs operator or admin). Ships in the same Docker image; nothing extra to install. See [`KIOSK.md`](./KIOSK.md) for the Raspberry Pi hardware setup.
 
 ---
 
@@ -174,6 +181,15 @@ services:
 | GET | `/api/vacation` | Current vacation mode status |
 | POST | `/api/vacation/{on\|off}` | Enable/disable — turns off all units, pauses schedules |
 
+### Maintenance
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/maintenance` | List reminders with computed status (days or runtime-hours remaining, overdue, due-soon) |
+| POST | `/api/maintenance` | Add reminder — days-based or runtime_hours-based, whole-house or device-scoped (admin only) |
+| PUT | `/api/maintenance/{id}` | Edit reminder (admin only) |
+| DELETE | `/api/maintenance/{id}` | Delete reminder (admin only) |
+| POST | `/api/maintenance/{id}/complete` | Mark done — updates last-done date/runtime and appends to service history (operator or admin) |
+
 ### Usage
 | Method | Endpoint | Description |
 |---|---|---|
@@ -194,6 +210,22 @@ services:
 | POST | `/api/restore` | Restore from backup (merges devices/settings, replaces schedules) |
 | POST | `/api/watchtower-notify` | Watchtower webhook receiver — logs and forwards image updates |
 | DELETE | `/api/reset` | Clear usage data |
+
+---
+
+## Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `DATA_FILE` | `/data/hvac_state.json` | Path to the persisted state file |
+| `LOG_FILE` | `<DATA_FILE>` with `_log.jsonl` suffix | Path to the JSONL automation log |
+| `TZ` | container default | Timezone — affects schedule times, nightly reboot time, log timestamps |
+| `CORS_ALLOWED_ORIGINS` | *(unset — CORS disabled)* | Comma-separated list of origins allowed to call the API cross-origin. The packaged deployment (nginx serves the dashboard and proxies `/api/` from the same origin) never needs this — only set it if you're running the frontend and API on genuinely different origins (a custom reverse proxy, a local dev server). Don't also add CORS headers in a reverse proxy in front of this container if you set this; duplicate `Access-Control-Allow-Origin` headers get rejected outright by browsers. |
+
+`APP_VERSION`, `GIT_SHA`, and `BUILD_DATE` are also read from the
+environment (shown in the About modal and `/api/`), but are injected
+automatically at build time from the git tag — not meant to be set
+manually.
 
 ---
 
@@ -240,8 +272,8 @@ The dashboard uses token-based authentication with three role levels:
 | Role | Access |
 |---|---|
 | **viewer** | Read-only — view dashboard, no commands |
-| **operator** | Send commands (on/off/mode/temp), view all |
-| **admin** | Full access — settings, devices, schedules, users |
+| **operator** | Send commands (on/off/mode/temp), mark maintenance items complete, view all |
+| **admin** | Full access — settings, devices, schedules, users, maintenance reminder CRUD |
 
 Login is rate-limited: 5 failed attempts for the same username+IP within 15 minutes locks that combination out for 15 minutes (HTTP 429).
 
@@ -290,17 +322,17 @@ The recovery key is generated fresh on every container start, is single-use, and
 
 ## Development & Testing
 
-Backend is split across `api.py`, `auth.py`, `state.py`, `models.py`, `worker.py`, and `routers/*.py` — see [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the module map and why it's organized this way.
+Backend is split across `api.py`, `auth.py`, `state.py`, `models.py`, `worker.py`, `maintenance_logic.py`, `notify.py`, and `routers/*.py` — see [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the module map and why it's organized this way.
 
 ```bash
 pip install -r requirements-dev.txt
 pytest
 ```
 
-90 tests covering state persistence, auth, the max-temp guard (including regression tests for real bugs hit during development), schedule logic, full HTTP integration, and backup/restore. See [`TESTING.md`](./TESTING.md) for details on running specific tests, coverage, and the isolation pattern the fixtures rely on.
+404 tests (99% line coverage) covering state persistence, auth, the max-temp guard (including regression tests for real bugs hit during development), schedule logic, maintenance status/overdue detection, CORS configuration, full HTTP integration, and backup/restore. See [`TESTING.md`](./TESTING.md) for details on running specific tests, coverage, and the isolation pattern the fixtures rely on — including the JavaScript test suites for both `hvac-dashboard.html` and `kiosk.html`.
 
 Three GitHub Actions workflows run on push/PR:
-- **`tests.yml`** — pytest suite + pyflakes + dashboard JS syntax check
+- **`tests.yml`** — pytest suite + pyflakes + dashboard/kiosk JS syntax checks + JS unit tests
 - **`ci.yml`** — builds the real Docker image, boots the container, curls live endpoints, validates nginx config, lints all Python files
 - **`docker-release.yml`** — builds and pushes multi-arch images to Docker Hub, triggered only on version tags
 

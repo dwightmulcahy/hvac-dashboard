@@ -22,10 +22,10 @@ pytest tests/test_max_temp.py::test_hysteresis_turns_off_one_degree_below_max
 ## Run with coverage
 
 ```bash
-pytest --cov=api --cov=auth --cov=state --cov=models --cov=worker --cov=routers --cov-report=term-missing
+pytest --cov=api --cov=auth --cov=state --cov=models --cov=worker --cov=routers --cov=maintenance_logic --cov=notify --cov-report=term-missing
 ```
 
-As of the last full pass: **91% overall** (1678 statements, 159 missing), with every file at 81%+. The remaining gaps are mostly `_background_worker`'s outer `while True` loop shell (its sub-functions — polling, scheduling, watchdog — are all tested directly and thoroughly; the loop shell itself is inherently low-value to unit test) and scattered exception-handling edge cases in file I/O and network discovery.
+As of the last full pass: **99% overall** (1882 statements, 2 missing), with every file at 92%+ (`maintenance_logic.py`'s only gap is a defensive `except` branch for a malformed `last_done_at` timestamp). The remaining gaps are mostly `_background_worker`'s outer `while True` loop shell (its sub-functions — polling, scheduling, watchdog, maintenance checks — are all tested directly and thoroughly; the loop shell itself is inherently low-value to unit test) and scattered exception-handling edge cases in file I/O and network discovery.
 
 ## What's covered
 
@@ -49,28 +49,33 @@ As of the last full pass: **91% overall** (1678 statements, 159 missing), with e
 | `tests/test_router_settings_gaps.py` | Live exchange-rate fetch/fallback, verbose-logging toggle log |
 | `tests/test_router_system.py` | Detailed health check with real devices, vacation mode on/off, Watchtower webhook forwarding |
 | `tests/test_router_usage.py` | Usage summary/rolling30/CSV export aggregation, log filtering |
+| `tests/test_router_maintenance.py` | Maintenance CRUD, days-based and runtime_hours-based status computation, `/complete` (incl. append-only service history), operator-vs-admin role gating |
+| `tests/test_worker_maintenance.py` | `_check_maintenance` overdue detection, once-per-transition notify pattern, generic notification-webhook forwarding (incl. failure tolerance) |
+| `tests/test_cors.py` | CORS is closed by default (no `CORS_ALLOWED_ORIGINS`), opt-in via env var, rejects unconfigured origins, supports multiple comma-separated origins |
 | `tests/test_backup_restore.py` | Backup export shape (no internal fields, no users), restore merge strategies (devices merge, schedules replace, settings merge), full round-trip |
-| `tests/test_api_lifespan.py` | Startup log-loading from disk |
+| `tests/test_api_lifespan.py` | Startup log-loading from disk, CORS middleware registration |
 
 ## How isolation works
 
 Every test gets its own throwaway `DATA_FILE`/`LOG_FILE` (via `tmp_path`)
 and a freshly-imported set of modules (`api`, `auth`, `worker`, `state`,
-`models`, and every `routers.*` submodule), so tests never touch your
-real `/data/hvac_state.json` or make real network calls to physical AC
-dongles. Device network calls are mocked per-test with `mocker.patch.object(httpx.AsyncClient, ...)`
+`models`, `maintenance_logic`, `notify`, and every `routers.*`
+submodule), so tests never touch your real `/data/hvac_state.json` or
+make real network calls to physical AC dongles. Device network calls
+are mocked per-test with `mocker.patch.object(httpx.AsyncClient, ...)`
 — see `tests/test_worker_network.py` for the pattern, or use the
 `mock_device_response` fixture in `conftest.py` for tests that don't
 care about the exact device response shape.
 
 **Every module that imports `_state` from `state.py` must be in the
-reload list** in `conftest.py`'s `api_module` fixture. Missing one
-causes a specific, nasty bug: a test can pass in isolation but fail
-depending on what ran before it in the same pytest session, because
-the un-reloaded module keeps referencing a stale `_state` dict from an
-earlier test. This has happened for real, more than once, while
-building out this suite — if you add a new module that imports
-`_state` (a new router, a new worker submodule), add it to that list.
+reload list** in `conftest.py`'s `api_module` fixture (and its
+duplicate in `test_api_lifespan.py`'s `_fresh_import_modules()`).
+Missing one causes a specific, nasty bug: a test can pass in isolation
+but fail depending on what ran before it in the same pytest session,
+because the un-reloaded module keeps referencing a stale `_state` dict
+from an earlier test. This has happened for real, more than once,
+while building out this suite — if you add a new module that imports
+`_state` (a new router, a new worker submodule), add it to both lists.
 
 ## Adding a regression test for a bug
 
@@ -123,10 +128,10 @@ silently leaving a region untested.
 
 Only pure, DOM-independent functions are covered this way — things
 like temperature/cost/day formatting and watt estimation. Functions
-that touch `document`, `fetch`, or `localStorage` directly (rendering,
-event handlers, API calls) aren't unit tested this way; those are
-covered by the syntax check step and by manual testing against a
-running instance.
+that touch `document`, `fetch`, or `localStorage`/`sessionStorage`
+directly (rendering, event handlers, API calls) aren't unit tested
+this way; those are covered by the syntax check step and by manual
+testing against a running instance. Currently 77 tests.
 
 #### Adding a new function to test
 
@@ -156,11 +161,15 @@ DOM implementation (`jsdom`, hence the one dependency this project
 otherwise doesn't have) with a mocked `fetch`, then drives it exactly
 the way a finger on the touchscreen would: dispatching real click
 events on the PIN keypad, grid tiles, and buttons, and asserting on
-what actually rendered. One long, sequential `t.test()` tree — later
-subtests build on state left by earlier ones (already unlocked, a
-detail view already open) rather than each one re-doing the full
-unlock-and-navigate setup from scratch, which would make an already
-multi-second test suite meaningfully slower for no real benefit.
+what actually rendered. One long, sequential `t.test()` tree (56
+subtests currently) — later subtests build on state left by earlier
+ones (already unlocked, a detail view already open) rather than each
+one re-doing the full unlock-and-navigate setup from scratch, which
+would make an already multi-second test suite meaningfully slower for
+no real benefit. This includes end-to-end coverage of the maintenance
+view — overdue badge coloring, the complete-item flow, and viewer-role
+gating (no "Done" button rendered for viewer-role users, matching the
+backend's `/maintenance/{id}/complete` role check).
 
 One thing worth knowing if you're extending this file: `kiosk.html`
 runs several `setInterval` timers forever by design (the on-screen
@@ -187,7 +196,21 @@ matching the existing `4821`/`1357` pattern.
 
 ## CI
 
-`.github/workflows/tests.yml` runs, on every push/PR to `main`,
-`develop`, and `release`: the full pytest suite, `pyflakes`, both
-dashboard and kiosk JS syntax checks, `npm install` (for `kiosk.test.js`'s
-`jsdom` dependency), and the full JS unit test suite.
+Three GitHub Actions workflows:
+
+- **`tests.yml`** — runs on every push/PR to `main`, `develop`, and
+  `release`: the full pytest suite, `pyflakes`, both dashboard and
+  kiosk JS syntax checks, `npm install` (for `kiosk.test.js`'s `jsdom`
+  dependency), and the full JS unit test suite.
+- **`ci.yml`** — runs on push to `main`/`develop` and PRs to
+  `main`/`release`: builds the real Docker image, scans it with Trivy,
+  **actually boots the container and curls `/health`, `/`, and `/api/`**
+  — this is what would catch a startup failure like a missing file in
+  the Dockerfile's `COPY` line or a broken import chain, since those
+  fail silently in a filesystem-only scan — lints all Python files
+  with `pyflakes`, and validates `nginx.conf`.
+- **`docker-release.yml`** — builds and pushes multi-arch images to
+  Docker Hub, triggered only on version tags. Scans with Trivy and
+  gates the push on CRITICAL/HIGH findings, but — unlike `ci.yml` —
+  does not boot the container, since its build is scan-only until the
+  final push step.
