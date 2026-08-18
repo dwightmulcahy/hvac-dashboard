@@ -603,9 +603,14 @@ const MODES=['COOL','HEAT','HEAT_COOL','FAN_ONLY','DRY'];
 const MODE_LABEL={COOL:'cool',HEAT:'heat',HEAT_COOL:'auto',FAN_ONLY:'fan',DRY:'dry'};
 // ── API base ──────────────────────────────────────────────
 // ── Auth ─────────────────────────────────────────────────
-let _authToken = localStorage.getItem('hvac_token') || '';
-let _authRole = localStorage.getItem('hvac_role') || '';
-let _authUser = localStorage.getItem('hvac_user') || '';
+// sessionStorage, not localStorage: the token is a bearer credential —
+// if it were ever read by an injected script (XSS), sessionStorage at
+// least confines the theft to the current tab's lifetime rather than
+// leaving a permanently valid credential sitting in the browser. This
+// does mean logging in again after closing the tab; that's intentional.
+let _authToken = sessionStorage.getItem('hvac_token') || '';
+let _authRole = sessionStorage.getItem('hvac_role') || '';
+let _authUser = sessionStorage.getItem('hvac_user') || '';
 
 // wrap fetch to inject auth header
 const _origFetch = window.fetch.bind(window);
@@ -682,9 +687,9 @@ async function doLogin(){
     _authToken=data.token;
     _authRole=data.role;
     _authUser=data.username;
-    localStorage.setItem('hvac_token',data.token);
-    localStorage.setItem('hvac_role',data.role);
-    localStorage.setItem('hvac_user',data.username);
+    sessionStorage.setItem('hvac_token',data.token);
+    sessionStorage.setItem('hvac_role',data.role);
+    sessionStorage.setItem('hvac_user',data.username);
     hideLoginModal();
     updateAuthUI();
     if(data.must_change_password){
@@ -726,9 +731,9 @@ async function doChangePassword(){
 async function doLogout(){
   await fetch(`${API}/auth/logout`,{method:'POST'}).catch(_=>{});
   _authToken='';_authRole='';_authUser='';
-  localStorage.removeItem('hvac_token');
-  localStorage.removeItem('hvac_role');
-  localStorage.removeItem('hvac_user');
+  sessionStorage.removeItem('hvac_token');
+  sessionStorage.removeItem('hvac_role');
+  sessionStorage.removeItem('hvac_user');
   showLoginModal();
   closeMenu();
 }
@@ -762,8 +767,8 @@ async function checkAuth(){
     if(r.ok){
       const d=await r.json();
       _authRole=d.role;_authUser=d.username;
-      localStorage.setItem('hvac_role',d.role);
-      localStorage.setItem('hvac_user',d.username);
+      sessionStorage.setItem('hvac_role',d.role);
+      sessionStorage.setItem('hvac_user',d.username);
       updateAuthUI();
       if(d.must_change_password){showChangePwModal();return false;}
       return true;

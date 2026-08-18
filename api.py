@@ -12,6 +12,7 @@ All automation runs 24/7 in the container regardless of browser state.
 
 import asyncio
 import logging
+import os
 import signal
 from contextlib import asynccontextmanager
 
@@ -84,7 +85,17 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="HVAC Automation API", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+# Frontend and API are same-origin in the packaged deployment (nginx.conf
+# proxies both / and /api/ from the same host:port), so browsers never
+# need CORS for normal use — the previous allow_origins=["*"] only
+# widened the blast radius of a stolen bearer token (see auth.py's
+# localStorage note) without enabling anything the standard deployment
+# actually uses. Defaults closed; set CORS_ALLOWED_ORIGINS (comma-
+# separated) for split-origin setups (local dev server, custom reverse
+# proxy on a different host/port).
+_cors_origins = [o.strip() for o in os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()]
+if _cors_origins:
+    app.add_middleware(CORSMiddleware, allow_origins=_cors_origins, allow_methods=["*"], allow_headers=["*"])
 app.middleware("http")(auth_middleware)
 
 app.include_router(auth_router)

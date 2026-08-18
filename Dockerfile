@@ -12,7 +12,19 @@ ARG GIT_SHA=unknown
 # at runtime (see the .trivyignore justification for the CVE this
 # leaves unresolved, and the note further below on why we don't
 # delete it directly).
-RUN apt-get update && apt-get install -y --no-install-recommends nginx supervisor curl && \
+#
+# `apt-get upgrade` runs first and separately from the install below:
+# util-linux and its related packages (libblkid1, libmount1, login,
+# mount, etc.) ship as part of the python:3.12-slim base image itself,
+# not something this Dockerfile installs — `apt-get install nginx
+# supervisor curl` alone never touches already-installed packages, so
+# a Debian security fix for one of them (e.g. CVE-2026-53615) sits
+# unapplied until something explicitly upgrades it. Unlike the
+# setuptools CVE in .trivyignore, Debian has a real fix published for
+# these, so upgrading is the correct response — .trivyignore is only
+# for cases with no reachable fix.
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends nginx supervisor curl && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -68,7 +80,7 @@ RUN mkdir -p /var/www/html /app /data
 # Copy app files
 COPY hvac-dashboard.html /var/www/html/index.html
 COPY kiosk.html /var/www/html/kiosk.html
-COPY api.py auth.py state.py models.py worker.py /app/
+COPY api.py auth.py state.py models.py worker.py maintenance_logic.py notify.py /app/
 COPY routers/ /app/routers/
 
 # Inject build version into dashboard

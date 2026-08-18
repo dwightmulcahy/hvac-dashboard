@@ -11,9 +11,10 @@ def _fresh_import_modules():
     router_modules = (
         "routers.devices_crud", "routers.devices_control", "routers.devices_discovery",
         "routers.schedules", "routers.settings", "routers.usage", "routers.system",
+        "routers.maintenance",
         "routers",
     )
-    core_modules = ("api", "auth", "worker", "state", "models")
+    core_modules = ("api", "auth", "worker", "state", "models", "maintenance_logic", "notify")
     for mod in router_modules + core_modules:
         if mod in sys.modules:
             del sys.modules[mod]
