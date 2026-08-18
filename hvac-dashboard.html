@@ -2722,7 +2722,12 @@ function openSettings(tab){
   const wtEl=document.getElementById('gen-watchtower');
   if(wtEl)wtEl.value=gen.watchtower||'';
   const nrEl=document.getElementById('gen-nightly-reboot');
-  if(nrEl)nrEl.value=gen.nightlyReboot||'03:00';
+  // nightlyReboot === '' is a deliberate, valid choice (disables the
+  // nightly reboot — see state.py's nightly_reboot_time default
+  // comment), distinct from undefined (never saved yet, defaults to
+  // 03:00). ||'03:00' would treat both the same and silently
+  // resurrect the default after every explicit clear+save.
+  if(nrEl)nrEl.value=gen.nightlyReboot!==undefined?gen.nightlyReboot:'03:00';
   updateThemeBtns();
 }
 
@@ -2809,7 +2814,7 @@ function saveGeneralSettings(){
   const watchtower=document.getElementById('gen-watchtower')?.value||'';
   const nightlyReboot=document.getElementById('gen-nightly-reboot')?.value||'';
   VACATION_MAX_TEMP_SETTING=vacTemp;
-  localStorage.setItem('hvac_general',JSON.stringify({poll,seer,watchdog,vacTemp,voltage:_voltage,guardStart,guardEnd,verbose:_verbose_logging,tempUnit:_tempUnit}));
+  localStorage.setItem('hvac_general',JSON.stringify({poll,seer,watchdog,vacTemp,voltage:_voltage,guardStart,guardEnd,verbose:_verbose_logging,tempUnit:_tempUnit,watchtower,nightlyReboot}));
   devices.forEach(d=>{d.watchdog_minutes=watchdog;saveDeviceToAPI(d);});
   fetch(`${API}/settings`,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({poll_interval:poll,max_temp_guard_start:guardStart,max_temp_guard_end:guardEnd,
