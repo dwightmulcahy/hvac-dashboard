@@ -1,7 +1,7 @@
 {
   "name": "hvac-dashboard",
   "private": true,
-  "description": "Dev-only manifest — the app itself ships zero client-side dependencies. This exists solely so tests-js/kiosk.test.js can require jsdom; every other JS test file in this project (tests-js/dashboard-functions.test.js) is intentionally dependency-free, extracting pure functions straight out of hvac-dashboard.html via sentinel comments rather than needing a DOM at all. kiosk.html's PIN lock screen, screen navigation, and rendered output are inherently DOM-driven, so testing it for real needs an actual DOM implementation — see tests-js/kiosk.test.js's own header comment for why.",
+  "description": "Dev-only manifest — the app itself ships zero client-side dependencies. This exists solely so the jsdom-based suites (tests-js/kiosk.test.js and tests-js/dashboard-maintenance.test.js) can require jsdom; tests-js/dashboard-functions.test.js is intentionally dependency-free, extracting pure functions straight out of hvac-dashboard.html via sentinel comments rather than needing a DOM at all. kiosk.html's PIN lock screen and hvac-dashboard.html's Settings modal are inherently DOM-driven — form fields, click handlers, rendered table rows — so testing them for real needs an actual DOM implementation; see each test file's own header comment for details.",
   "scripts": {
     "test:js": "node --test tests-js/*.test.js"
   },
