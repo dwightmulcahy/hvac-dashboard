@@ -71,6 +71,22 @@ async def update_device(host: str, cfg: DeviceConfig):
             _state["device_state"].pop(host, None)
             name = device.get("name", host)
             _add_log(f"{name}: host changed to {cfg.host} — retry queue cleared", "info")
+            # runtime_hours-based maintenance reminders reference a
+            # device by host string, not by the device dict itself —
+            # without this, _device_on_time_minutes(old_host) stops
+            # matching any device after the rename, reads as 0
+            # accumulated hours, and the reminder's overdue countdown
+            # silently resets instead of carrying forward (the device
+            # object itself — and its _on_time_minutes accumulator —
+            # is unaffected by the rename; only the maintenance item's
+            # stored reference goes stale).
+            repointed = 0
+            for item in _state["maintenance"]:
+                if item.get("device_host") == host:
+                    item["device_host"] = cfg.host
+                    repointed += 1
+            if repointed:
+                _add_log(f"{name}: {repointed} maintenance reminder(s) repointed to {cfg.host}", "info")
     async with _lock:
         _save_raw(_state)
     return {"ok": True}

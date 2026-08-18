@@ -66,6 +66,104 @@ def test_update_device_host_change_clears_retry_state(client, auth_headers, api_
     assert any("host changed to new.local" in m for m in logs)
 
 
+def test_update_device_host_change_repoints_matching_maintenance_items(client, auth_headers, api_module):
+    api_module._state["devices"].append({
+        "host": "old.local", "name": "Living Room", "btu": 24000, "seer": 20,
+        "_on_time_minutes": 600.0,
+    })
+    api_module._state["maintenance"].append({
+        "id": "m1", "name": "Coil clean", "device_host": "old.local",
+        "trigger_type": "runtime_hours", "interval_hours": 500,
+        "last_done_runtime_minutes": 0.0, "_notified_overdue": False,
+        "completed_log": [],
+    })
+    # an item for a different device shouldn't be touched
+    api_module._state["maintenance"].append({
+        "id": "m2", "name": "Filters", "device_host": "other.local",
+        "trigger_type": "days", "interval_days": 30,
+        "_notified_overdue": False, "completed_log": [],
+    })
+
+    r = client.put(
+        "/devices/old.local", headers=auth_headers,
+        json={"host": "new.local", "name": "Living Room", "btu": 24000, "seer": 20},
+    )
+    assert r.status_code == 200
+
+    m1 = next(i for i in api_module._state["maintenance"] if i["id"] == "m1")
+    m2 = next(i for i in api_module._state["maintenance"] if i["id"] == "m2")
+    assert m1["device_host"] == "new.local"
+    assert m2["device_host"] == "other.local"  # unrelated item untouched
+    logs = [l["msg"] for l in api_module._state["logs"]]
+    assert any("1 maintenance reminder(s) repointed to new.local" in m for m in logs)
+
+
+def test_update_device_host_change_repoints_multiple_maintenance_items(client, auth_headers, api_module):
+    api_module._state["devices"].append({
+        "host": "old.local", "name": "Living Room", "btu": 24000, "seer": 20,
+    })
+    api_module._state["maintenance"].append({
+        "id": "m1", "name": "Coil clean", "device_host": "old.local",
+        "trigger_type": "runtime_hours", "interval_hours": 500,
+        "_notified_overdue": False, "completed_log": [],
+    })
+    api_module._state["maintenance"].append({
+        "id": "m2", "name": "Filter check", "device_host": "old.local",
+        "trigger_type": "days", "interval_days": 30,
+        "_notified_overdue": False, "completed_log": [],
+    })
+
+    client.put(
+        "/devices/old.local", headers=auth_headers,
+        json={"host": "new.local", "name": "Living Room", "btu": 24000, "seer": 20},
+    )
+
+    for item_id in ("m1", "m2"):
+        item = next(i for i in api_module._state["maintenance"] if i["id"] == item_id)
+        assert item["device_host"] == "new.local"
+
+
+def test_update_device_host_change_preserves_runtime_baseline_after_repoint(client, auth_headers, api_module):
+    """The whole point of repointing: after the rename, the item's
+    overdue countdown should continue from where it was, not silently
+    reset to 'never done' because _device_on_time_minutes(old_host)
+    stopped matching anything."""
+    api_module._state["devices"].append({
+        "host": "old.local", "name": "Living Room", "btu": 24000, "seer": 20,
+        "_on_time_minutes": 600.0,  # 10 hours accumulated
+    })
+    api_module._state["maintenance"].append({
+        "id": "m1", "name": "Coil clean", "device_host": "old.local",
+        "trigger_type": "runtime_hours", "interval_hours": 5,
+        "last_done_runtime_minutes": 0.0, "_notified_overdue": False,
+        "completed_log": [],
+    })
+
+    client.put(
+        "/devices/old.local", headers=auth_headers,
+        json={"host": "new.local", "name": "Living Room", "btu": 24000, "seer": 20},
+    )
+
+    items = client.get("/maintenance", headers=auth_headers).json()["maintenance"]
+    item = next(i for i in items if i["id"] == "m1")
+    # 10 hours since baseline, 5-hour interval — still correctly overdue
+    # after the rename, not reset to "0 hours since done"
+    assert item["status"]["overdue"] is True
+    assert item["status"]["hours_since_done"] == 10.0
+
+
+def test_update_device_host_change_with_no_maintenance_items_logs_nothing_extra(client, auth_headers, api_module):
+    api_module._state["devices"].append({
+        "host": "old.local", "name": "Living Room", "btu": 24000, "seer": 20,
+    })
+    client.put(
+        "/devices/old.local", headers=auth_headers,
+        json={"host": "new.local", "name": "Living Room", "btu": 24000, "seer": 20},
+    )
+    logs = [l["msg"] for l in api_module._state["logs"]]
+    assert not any("maintenance reminder(s) repointed" in m for m in logs)
+
+
 def test_update_device_same_host_does_not_clear_retry_state(client, auth_headers, api_module):
     api_module._state["devices"].append({
         "host": "ac1.local", "name": "Living Room", "btu": 24000, "seer": 20,
