@@ -405,6 +405,19 @@ async def list_users(authorization: Optional[str] = Header(None)):
     ]}
 
 
+@router.get("/recovery-key")
+async def get_recovery_key(authorization: Optional[str] = Header(None)):
+    """Admin-only. Surfaces the same key already printed to Docker logs
+    on startup (see api.py's lifespan) so an admin with dashboard
+    access but not container/log access can still retrieve it — no new
+    exposure beyond what already exists for anyone who can run `docker
+    logs`. Still single-use and still regenerated fresh on every
+    container restart; this only changes *where* an admin can read the
+    current one from, not its lifetime or invalidation rules."""
+    _require_role("admin", authorization)
+    return {"recovery_key": _state.get("_recovery_key", "")}
+
+
 @router.post("/users")
 async def add_user(data: dict, authorization: Optional[str] = Header(None)):
     _require_role("admin", authorization)

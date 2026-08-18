@@ -870,6 +870,59 @@ async function renderUsersTab(){
     tr.appendChild(td3);tbody.appendChild(tr);
   });
   table.appendChild(tbody);body.appendChild(table);
+
+  // Recovery key — collapsed by default, fetched only on reveal so it
+  // doesn't sit exposed in the DOM every time an admin opens this tab
+  // (e.g. during a screen share). This tab is already gated to
+  // _authRole==='admin' at the top of this function, and the backend
+  // independently re-checks admin role on the endpoint itself.
+  const rkSection=document.createElement('div');
+  rkSection.style.cssText='margin-top:20px;padding-top:14px;border-top:1px solid var(--border)';
+  rkSection.innerHTML='<div class="clabel" style="margin-bottom:6px">RECOVERY KEY</div>'
+    +'<div style="font-size:11px;color:var(--text3);margin-bottom:8px">Resets the admin password without knowing the old one. Regenerated fresh on every container restart — the same key is also printed to Docker logs at startup.</div>'
+    +'<div id="recovery-key-row" style="display:flex;align-items:center;gap:8px">'
+    +'<button class="btn" id="recovery-key-toggle" onclick="toggleRecoveryKey()" style="font-size:11px">👁 Reveal</button>'
+    +'<code id="recovery-key-value" style="display:none;font-family:\'DM Mono\',monospace;font-size:12px;background:var(--bg3);padding:4px 8px;border-radius:6px;user-select:all"></code>'
+    +'<button class="btn bico" id="recovery-key-copy" style="display:none;font-size:11px" onclick="copyRecoveryKey()" title="Copy">📋</button>'
+    +'</div>';
+  body.appendChild(rkSection);
+}
+
+let _recoveryKeyValue=null;
+async function toggleRecoveryKey(){
+  const valEl=document.getElementById('recovery-key-value');
+  const toggleBtn=document.getElementById('recovery-key-toggle');
+  const copyBtn=document.getElementById('recovery-key-copy');
+  if(valEl.style.display!=='none'){
+    // hide, and drop the cached value — it can be regenerated
+    // server-side (after a recovery-password use, or a container
+    // restart) while this tab stays open, so always re-fetch on the
+    // next reveal rather than risk showing a stale, now-invalid key
+    valEl.style.display='none';copyBtn.style.display='none';
+    toggleBtn.textContent='👁 Reveal';
+    _recoveryKeyValue=null;
+    return;
+  }
+  toggleBtn.disabled=true;toggleBtn.textContent='Loading…';
+  try{
+    const r=await fetch(`${API}/auth/recovery-key`);
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    _recoveryKeyValue=d.recovery_key||'';
+  }catch(e){
+    toggleBtn.disabled=false;toggleBtn.textContent='👁 Reveal';
+    addLog('Failed to load recovery key: '+e.message,'err');
+    return;
+  }
+  toggleBtn.disabled=false;
+  valEl.textContent=_recoveryKeyValue||'(none set)';
+  valEl.style.display='inline';copyBtn.style.display='inline-flex';
+  toggleBtn.textContent='🙈 Hide';
+}
+
+function copyRecoveryKey(){
+  if(!_recoveryKeyValue)return;
+  navigator.clipboard?.writeText(_recoveryKeyValue).then(()=>addLog('Recovery key copied','ok')).catch(()=>{});
 }
 
 async function forcePasswordReset(username){

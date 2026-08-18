@@ -16,6 +16,7 @@ venv/
 data/
 *.json
 !package.json
+!package-lock.json
 
 # OS
 .DS_Store
@@ -25,6 +26,7 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+htmlReport/
 
 # Docker
 *.tar.gz

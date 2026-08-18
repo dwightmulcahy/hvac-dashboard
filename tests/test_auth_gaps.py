@@ -190,6 +190,54 @@ def test_list_users_returns_all(client, auth_headers):
     assert "someone" in usernames
 
 
+def test_get_recovery_key_admin_can_view(client, auth_headers, api_module):
+    r = client.get("/auth/recovery-key", headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json()["recovery_key"] == api_module._state["_recovery_key"]
+
+
+def test_get_recovery_key_operator_forbidden(client, auth_headers):
+    client.post(
+        "/auth/users", headers=auth_headers,
+        json={"username": "op", "password": "operatorpass", "role": "operator"},
+    )
+    r = client.post("/auth/login", json={"username": "op", "password": "operatorpass"})
+    op_headers = {"Authorization": f"Bearer {r.json()['token']}"}
+
+    r = client.get("/auth/recovery-key", headers=op_headers)
+    assert r.status_code == 403
+
+
+def test_get_recovery_key_viewer_forbidden(client, auth_headers):
+    client.post(
+        "/auth/users", headers=auth_headers,
+        json={"username": "view", "password": "viewerpass", "role": "viewer"},
+    )
+    r = client.post("/auth/login", json={"username": "view", "password": "viewerpass"})
+    viewer_headers = {"Authorization": f"Bearer {r.json()['token']}"}
+
+    r = client.get("/auth/recovery-key", headers=viewer_headers)
+    assert r.status_code == 403
+
+
+def test_get_recovery_key_unauthenticated_forbidden(client, auth_headers):
+    # once real users exist, an unauthenticated request must be rejected
+    r = client.get("/auth/recovery-key")
+    assert r.status_code == 401
+
+
+def test_get_recovery_key_reflects_regeneration_after_recover(client, auth_headers, api_module):
+    """A key retrieved before a successful /auth/recover use must not
+    still be valid afterward — recover() calls generate_recovery_key()
+    again, and this endpoint should always reflect the current one."""
+    old_key = client.get("/auth/recovery-key", headers=auth_headers).json()["recovery_key"]
+
+    client.post("/auth/recover", json={"recovery_key": old_key, "new_password": "recovered123"})
+
+    new_key = api_module._state["_recovery_key"]
+    assert new_key != old_key
+
+
 def test_new_user_has_no_last_login_until_they_log_in(client, auth_headers):
     client.post(
         "/auth/users", headers=auth_headers,

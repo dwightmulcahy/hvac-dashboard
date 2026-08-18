@@ -1,5 +1,7 @@
 """Tests for state.py — persistence, rate calc, watt estimate, log file."""
 
+import json
+
 
 def test_fresh_state_has_defaults(state_module):
     assert state_module._state["devices"] == []
@@ -23,6 +25,20 @@ def test_save_excludes_logs_from_json_file(state_module):
     reloaded = state_module._load_raw()
     # logs are persisted separately in the JSONL file, not the main JSON
     assert reloaded["logs"] == []
+
+
+def test_save_excludes_recovery_key_from_disk(state_module, temp_data_file):
+    """The recovery key is documented as living only in memory and the
+    Docker startup log, regenerated fresh every restart — it must never
+    land in hvac_state.json or its daily .bak rotations."""
+    state_module._state["_recovery_key"] = "super-secret-one-time-key"
+    state_module._save_raw(state_module._state)
+
+    raw_on_disk = json.loads(temp_data_file.read_text())
+    assert "_recovery_key" not in raw_on_disk
+
+    # in-memory value is untouched — only the on-disk copy is excluded
+    assert state_module._state["_recovery_key"] == "super-secret-one-time-key"
 
 
 def test_corrupt_state_file_falls_back_to_defaults(state_module, temp_data_file):

@@ -155,8 +155,16 @@ def _load_raw() -> dict:
 def _save_raw(data: dict):
     os.makedirs(os.path.dirname(os.path.abspath(DATA_FILE)), exist_ok=True)
     tmp = DATA_FILE + ".tmp"
-    # exclude logs from JSON state — persisted separately in log file
-    save_data = {k: v for k, v in data.items() if k != "logs"}
+    # exclude logs from JSON state (persisted separately in log file)
+    # and _recovery_key — the recovery key is documented (README.md's
+    # Forgot Password section) as living only in memory and the
+    # Docker startup log, regenerated fresh on every restart. Without
+    # this exclusion it would silently persist into hvac_state.json
+    # (and its daily .bak rotations) on the very next save after
+    # startup, contradicting that promise even though nothing ever
+    # reads it back from disk — generate_recovery_key() unconditionally
+    # overwrites it in memory before the app serves its first request.
+    save_data = {k: v for k, v in data.items() if k not in ("logs", "_recovery_key")}
     with open(tmp, "w") as f:
         json.dump(save_data, f, indent=2)
     os.replace(tmp, DATA_FILE)

@@ -2,7 +2,7 @@
 
 Self-hosted dashboard for controlling and monitoring **Innovair mini-split AC units** via [SMLIGHT SLWF-01pro](https://smartlight.me) ESPHome dongles using the Midea serial protocol. Runs 24/7 in Docker on a QNAP NAS. All automation (scheduling, temperature guards, watchdog) executes server-side regardless of whether a browser is open.
 
-See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for how the backend is structured (module split, dependency graph, why it's organized this way), [`TESTING.md`](./TESTING.md) for running the test suite, and [`KIOSK.md`](./KIOSK.md) for setting up a wall-mounted Raspberry Pi touchscreen panel.
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how the backend is structured (module split, dependency graph, why it's organized this way), [`docs/TESTING.md`](docs/TESTING.md) for running the test suite, and [`docs/KIOSK.md`](docs/KIOSK.md) for setting up a wall-mounted Raspberry Pi touchscreen panel.
 
 ---
 
@@ -71,7 +71,7 @@ See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for how the backend is structured (mo
 - **Rates** — provider, exchange rate (↻ Live fetch), monthly kWh, runtime hrs, tiered or flat rate
 
 ### Kiosk Panel
-Wall-mounted, PIN-locked touchscreen control panel — a separate, purpose-built UI (`kiosk.html`), not a cut-down version of the main dashboard. Fixed 800×480 layout, self-contained SVG icons (no CDN dependency), screensaver with idle timeout, role-aware controls (viewers can view devices and maintenance status but can't send commands or mark maintenance items complete — that needs operator or admin). Ships in the same Docker image; nothing extra to install. See [`KIOSK.md`](./KIOSK.md) for the Raspberry Pi hardware setup.
+Wall-mounted, PIN-locked touchscreen control panel — a separate, purpose-built UI (`frontend/kiosk.html`), not a cut-down version of the main dashboard. Fixed 800×480 layout, self-contained SVG icons (no CDN dependency), screensaver with idle timeout, role-aware controls (viewers can view devices and maintenance status but can't send commands or mark maintenance items complete — that needs operator or admin). Ships in the same Docker image; nothing extra to install. See [`docs/KIOSK.md`](docs/KIOSK.md) for the Raspberry Pi hardware setup.
 
 ---
 
@@ -91,7 +91,7 @@ curl -X POST http://your-host:8080/api/devices \
   -d '{"host":"air-conditioner-c44741.lan","name":"Master BR","btu":24000,"seer":20}'
 ```
 
-Want a wall-mounted touchscreen panel too? Nothing extra to install — `kiosk.html` ships in this same container at `http://your-host:8080/kiosk.html`. See [`KIOSK.md`](./KIOSK.md) for turning a Raspberry Pi + touchscreen into a dedicated panel.
+Want a wall-mounted touchscreen panel too? Nothing extra to install — `frontend/kiosk.html` ships in this same container at `http://your-host:8080/kiosk.html`. See [`docs/KIOSK.md`](docs/KIOSK.md) for turning a Raspberry Pi + touchscreen into a dedicated panel.
 
 ---
 
@@ -291,7 +291,7 @@ Open `··· → Users` (admin only) to add, delete, or change roles for users.
 
 ### Kiosk PINs
 
-For the wall-mounted touchscreen panel (see [`KIOSK.md`](./KIOSK.md)), assign each user a 4-digit PIN from the same Users screen. PIN login uses the same role permissions and the same lockout rules as password login (5 failed attempts locks that PIN's client IP for 15 minutes) — it's a separate credential on the same account, not a separate access tier. PINs must be exactly 4 digits; the kiosk's on-screen keypad won't accept longer ones even though the API allows up to 6.
+For the wall-mounted touchscreen panel (see [`docs/KIOSK.md`](docs/KIOSK.md)), assign each user a 4-digit PIN from the same Users screen. PIN login uses the same role permissions and the same lockout rules as password login (5 failed attempts locks that PIN's client IP for 15 minutes) — it's a separate credential on the same account, not a separate access tier. PINs must be exactly 4 digits; the kiosk's on-screen keypad won't accept longer ones even though the API allows up to 6.
 
 ### Forgot Password
 
@@ -324,14 +324,14 @@ The recovery key is generated fresh on every container start, is single-use, and
 
 ## Development & Testing
 
-Backend is split across `api.py`, `auth.py`, `state.py`, `models.py`, `worker.py`, `maintenance_logic.py`, `notify.py`, and `routers/*.py` — see [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the module map and why it's organized this way.
+Backend is split across `api.py`, `auth.py`, `state.py`, `models.py`, `worker.py`, `maintenance_logic.py`, `notify.py`, and `routers/*.py` — see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the module map and why it's organized this way.
 
 ```bash
 pip install -r requirements-dev.txt
 pytest
 ```
 
-404 tests (99% line coverage) covering state persistence, auth, the max-temp guard (including regression tests for real bugs hit during development), schedule logic, maintenance status/overdue detection, CORS configuration, full HTTP integration, and backup/restore. See [`TESTING.md`](./TESTING.md) for details on running specific tests, coverage, and the isolation pattern the fixtures rely on — including the JavaScript test suites for both `hvac-dashboard.html` and `kiosk.html`.
+404 tests (99% line coverage) covering state persistence, auth, the max-temp guard (including regression tests for real bugs hit during development), schedule logic, maintenance status/overdue detection, CORS configuration, full HTTP integration, and backup/restore. See [`docs/TESTING.md`](docs/TESTING.md) for details on running specific tests, coverage, and the isolation pattern the fixtures rely on — including the JavaScript test suites for both `frontend/hvac-dashboard.html` and `frontend/kiosk.html`.
 
 Three GitHub Actions workflows run on push/PR:
 - **`tests.yml`** — pytest suite + pyflakes + dashboard/kiosk JS syntax checks + JS unit tests

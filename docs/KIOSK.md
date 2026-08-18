@@ -1,14 +1,14 @@
 # Kiosk Touchscreen Setup
 
-Wall-mounted, PIN-locked control panel for a subset of the dashboard — status and quick control for all 6 units, sized for an 800×480 touchscreen. See [`kiosk.html`](./kiosk.html) for what it does and doesn't cover; this doc is about the Raspberry Pi side: turning a Pi + touchscreen into a dedicated panel that always shows it. If you're looking for the automated test suite that exercises `kiosk.html` itself rather than the physical hardware setup, see [`TESTING.md`](./TESTING.md).
+Wall-mounted, PIN-locked control panel for a subset of the dashboard — status and quick control for all 6 units, sized for an 800×480 touchscreen. See [`../frontend/kiosk.html`](../frontend/kiosk.html) for what it does and doesn't cover; this doc is about the Raspberry Pi side: turning a Pi + touchscreen into a dedicated panel that always shows it. If you're looking for the automated test suite that exercises `../frontend/kiosk.html` itself rather than the physical hardware setup, see [`TESTING.md`](TESTING.md).
 
-There's no separate container or install for the kiosk itself. `kiosk.html` ships in the same Docker image as the main dashboard (see [`ARCHITECTURE.md`](./ARCHITECTURE.md)) and is served from the same origin — the Pi's only job is running a browser in kiosk mode, pointed at a URL. Nothing here needs updating when a new dashboard release ships; the Pi just keeps loading whatever's live on the server.
+There's no separate container or install for the kiosk itself. `../frontend/kiosk.html` ships in the same Docker image as the main dashboard (see [`ARCHITECTURE.md`](ARCHITECTURE.md)) and is served from the same origin — the Pi's only job is running a browser in kiosk mode, pointed at a URL. Nothing here needs updating when a new dashboard release ships; the Pi just keeps loading whatever's live on the server.
 
 ---
 
 ## Prerequisite
 
-The main container needs to already be running and reachable on your network — e.g. `http://homenas.lan:8080`. If you haven't set that up yet, start with the main [`README.md`](./README.md).
+The main container needs to already be running and reachable on your network — e.g. `http://homenas.lan:8080`. If you haven't set that up yet, start with the main [`../README.md`](../README.md).
 
 ---
 
@@ -84,7 +84,7 @@ Add `unclutter -idle 2 &` on its own line (or its own autostart entry) if you in
 
 ## 4. Stop the Pi's screen from blanking
 
-Raspberry Pi OS blanks the display after a period of inactivity by default. `kiosk.html` already has its own screensaver (see the main project docs) — you don't want the OS *also* trying to sleep the display, since the two won't agree on timing and you'll end up with either a truly-off screen the touch panel can't wake, or fighting behavior.
+Raspberry Pi OS blanks the display after a period of inactivity by default. `../frontend/kiosk.html` already has its own screensaver (see the main project docs) — you don't want the OS *also* trying to sleep the display, since the two won't agree on timing and you'll end up with either a truly-off screen the touch panel can't wake, or fighting behavior.
 
 ```bash
 sudo raspi-config
@@ -161,7 +161,7 @@ This is optional — skip it if you'd rather keep the setup minimal and just dea
 
 ## Updates
 
-Nothing to do here. `kiosk.html` is served live from the same container as the main dashboard — the moment you deploy a new release, every kiosk pointed at that server picks it up on its next page load (or the next time it's manually reloaded, if you want it sooner). There's no separate kiosk build, image, or version to keep in sync.
+Nothing to do here. `../frontend/kiosk.html` is served live from the same container as the main dashboard — the moment you deploy a new release, every kiosk pointed at that server picks it up on its next page load (or the next time it's manually reloaded, if you want it sooner). There's no separate kiosk build, image, or version to keep in sync.
 
 ---
 
