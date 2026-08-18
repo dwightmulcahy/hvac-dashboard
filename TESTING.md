@@ -1,5 +1,10 @@
 # Testing
 
+Running the test suite for the backend split described in
+[`ARCHITECTURE.md`](./ARCHITECTURE.md) and both frontends (`hvac-dashboard.html`,
+`kiosk.html` — see [`KIOSK.md`](./KIOSK.md) for the latter's hardware
+side). Back to [`README.md`](./README.md) for the project overview.
+
 ## Setup
 
 ```bash
@@ -155,6 +160,8 @@ testing against a running instance. Currently 77 tests.
 are inherently DOM-driven — sentinel extraction can't meaningfully
 test "does tapping 4821 unlock the panel" or "does a locked device
 gray out its +/- buttons," since there's no pure function to pull out.
+(For what this file is and how it's deployed on actual hardware, see
+[`KIOSK.md`](./KIOSK.md) — this section is only about testing it.)
 
 `tests-js/kiosk.test.js` instead loads the real file into an actual
 DOM implementation (`jsdom`, hence the one dependency this project

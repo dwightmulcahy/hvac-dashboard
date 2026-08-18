@@ -1,6 +1,6 @@
 # Kiosk Touchscreen Setup
 
-Wall-mounted, PIN-locked control panel for a subset of the dashboard — status and quick control for all 6 units, sized for an 800×480 touchscreen. See [`kiosk.html`](./kiosk.html) for what it does and doesn't cover; this doc is about the Raspberry Pi side: turning a Pi + touchscreen into a dedicated panel that always shows it.
+Wall-mounted, PIN-locked control panel for a subset of the dashboard — status and quick control for all 6 units, sized for an 800×480 touchscreen. See [`kiosk.html`](./kiosk.html) for what it does and doesn't cover; this doc is about the Raspberry Pi side: turning a Pi + touchscreen into a dedicated panel that always shows it. If you're looking for the automated test suite that exercises `kiosk.html` itself rather than the physical hardware setup, see [`TESTING.md`](./TESTING.md).
 
 There's no separate container or install for the kiosk itself. `kiosk.html` ships in the same Docker image as the main dashboard (see [`ARCHITECTURE.md`](./ARCHITECTURE.md)) and is served from the same origin — the Pi's only job is running a browser in kiosk mode, pointed at a URL. Nothing here needs updating when a new dashboard release ships; the Pi just keeps loading whatever's live on the server.
 

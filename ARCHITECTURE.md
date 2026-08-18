@@ -6,6 +6,12 @@ a 404-test pytest suite (99% line coverage). This doc explains the
 shape of it so the next person touching this code (including
 future-you) doesn't have to re-derive it from scratch.
 
+This doc covers the Python backend only. The two frontends —
+`hvac-dashboard.html` and the wall-mounted `kiosk.html` — are both
+single-file, no-build-step HTML apps served directly by the backend;
+see [`KIOSK.md`](./KIOSK.md) for the kiosk's Raspberry Pi hardware
+setup and [`TESTING.md`](./TESTING.md) for how both are tested.
+
 ## Module map
 
 ```

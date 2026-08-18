@@ -91,6 +91,8 @@ curl -X POST http://your-host:8080/api/devices \
   -d '{"host":"air-conditioner-c44741.lan","name":"Master BR","btu":24000,"seer":20}'
 ```
 
+Want a wall-mounted touchscreen panel too? Nothing extra to install — `kiosk.html` ships in this same container at `http://your-host:8080/kiosk.html`. See [`KIOSK.md`](./KIOSK.md) for turning a Raspberry Pi + touchscreen into a dedicated panel.
+
 ---
 
 ## Docker Hub
