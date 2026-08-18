@@ -59,6 +59,7 @@ DEFAULT_STATE = {
         "verbose_logging": False,
         "temp_unit": "both",          # "C", "F", or "both"
         "watchtower_webhook": "",     # optional webhook URL for update notifications
+        "notification_webhook": "",   # optional webhook URL for device-offline / maintenance-overdue / schedule-failure alerts
         "nightly_reboot_time": "03:00",  # HH:MM to reboot all dongles, "" to disable
     },
     "usage": {
@@ -108,6 +109,8 @@ MAINTENANCE_DEFAULTS = {
     "last_done_at": None,
     "last_done_runtime_minutes": None,
     "notes": None,
+    "_notified_overdue": False,   # set by worker._check_maintenance, cleared on completion/no-longer-overdue — prevents re-notifying every loop cycle
+    "completed_log": [],          # [{completed_at, runtime_hours_at_completion}] service history, last 50
 }
 
 SCHEDULE_DEFAULTS = {

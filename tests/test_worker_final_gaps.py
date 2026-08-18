@@ -273,13 +273,14 @@ def test_record_usage_tolerates_unparseable_outdoor_temp(worker_module):
 # ── _check_watchdog: malformed _last_seen ──────────────────────────
 
 
-def test_check_watchdog_tolerates_malformed_last_seen(worker_module):
+@pytest.mark.asyncio
+async def test_check_watchdog_tolerates_malformed_last_seen(worker_module):
     device = {
         "host": "ac1.local", "name": "Test", "watchdog_minutes": 5,
         "_last_seen": "not-a-valid-timestamp",
         "_stale": False,
     }
-    worker_module._check_watchdog(device)
+    await worker_module._check_watchdog(device)
     assert device["_stale"] is False
 
 

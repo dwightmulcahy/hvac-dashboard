@@ -422,13 +422,15 @@ def test_record_usage_ignores_unparseable_temps_for_averages(worker_module):
 # ── _check_watchdog ───────────────────────────────────────────
 
 
-def test_check_watchdog_noop_when_no_last_seen(worker_module):
+@pytest.mark.asyncio
+async def test_check_watchdog_noop_when_no_last_seen(worker_module):
     device = {"host": "ac1.local", "name": "Test", "watchdog_minutes": 5}
-    worker_module._check_watchdog(device)
+    await worker_module._check_watchdog(device)
     assert device.get("_stale") is None
 
 
-def test_check_watchdog_marks_stale_past_threshold(worker_module, monkeypatch):
+@pytest.mark.asyncio
+async def test_check_watchdog_marks_stale_past_threshold(worker_module, monkeypatch):
     import datetime as real_datetime
 
     class FrozenDateTime(real_datetime.datetime):
@@ -444,14 +446,15 @@ def test_check_watchdog_marks_stale_past_threshold(worker_module, monkeypatch):
         "_stale": False,
     }
     worker_module._state["device_state"]["ac1.local"] = {}
-    worker_module._check_watchdog(device)
+    await worker_module._check_watchdog(device)
 
     assert device["_stale"] is True
     logs = [l["msg"] for l in worker_module._state["logs"]]
     assert any("no response for" in m for m in logs)
 
 
-def test_check_watchdog_does_not_mark_stale_within_threshold(worker_module, monkeypatch):
+@pytest.mark.asyncio
+async def test_check_watchdog_does_not_mark_stale_within_threshold(worker_module, monkeypatch):
     import datetime as real_datetime
 
     class FrozenDateTime(real_datetime.datetime):
@@ -466,5 +469,5 @@ def test_check_watchdog_does_not_mark_stale_within_threshold(worker_module, monk
         "_last_seen": "2026-01-01T12:00:00",
         "_stale": False,
     }
-    worker_module._check_watchdog(device)
+    await worker_module._check_watchdog(device)
     assert device["_stale"] is False

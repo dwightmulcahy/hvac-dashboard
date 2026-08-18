@@ -18,54 +18,15 @@ reminder's status is always current relative to *now* rather than
 whatever it was the last time something happened to write state.json.
 """
 
-import datetime
 import uuid
 
 from fastapi import APIRouter
 
-from state import MAINTENANCE_DEFAULTS, _lock, _state, _save_raw, _add_log, _now_iso, _utcnow
+from state import MAINTENANCE_DEFAULTS, _lock, _state, _save_raw, _add_log, _now_iso
 from models import MaintenanceConfig
+from maintenance_logic import _device_on_time_minutes, _maintenance_status
 
 router = APIRouter(tags=["maintenance"])
-
-
-def _device_on_time_minutes(host: str) -> float:
-    device = next((d for d in _state["devices"] if d["host"] == host), None)
-    return device.get("_on_time_minutes", 0.0) if device else 0.0
-
-
-def _maintenance_status(item: dict) -> dict:
-    """Pure given _state (reads current device on-time for
-    runtime-based items) — no side effects, safe to call on every read."""
-    now = _utcnow()
-    trigger = item.get("trigger_type", "days")
-
-    if trigger == "runtime_hours" and item.get("device_host"):
-        current = _device_on_time_minutes(item["device_host"])
-        baseline = item.get("last_done_runtime_minutes") or 0.0
-        hours_since = max(0.0, (current - baseline) / 60)
-        interval = item.get("interval_hours") or 1
-        remaining = interval - hours_since
-        return {
-            "hours_since_done": round(hours_since, 1),
-            "hours_remaining": round(remaining, 1),
-            "overdue": remaining <= 0,
-            "due_soon": 0 < remaining <= max(1, interval * 0.1),
-        }
-
-    last_done = item.get("last_done_at")
-    try:
-        last_dt = datetime.datetime.fromisoformat(last_done) if last_done else now
-    except (ValueError, TypeError):
-        last_dt = now
-    interval = item.get("interval_days") or 1
-    due_at = last_dt + datetime.timedelta(days=interval)
-    remaining_days = (due_at - now).total_seconds() / 86400
-    return {
-        "days_remaining": round(remaining_days, 1),
-        "overdue": remaining_days <= 0,
-        "due_soon": 0 < remaining_days <= max(1, interval * 0.1),
-    }
 
 
 @router.get("/maintenance")
@@ -114,9 +75,20 @@ async def complete_maintenance(item_id: str):
     item = next((m for m in _state["maintenance"] if m["id"] == item_id), None)
     if not item:
         return {"ok": False, "error": "not found"}
-    item["last_done_at"] = _now_iso()
+    completed_at = _now_iso()
+    runtime_minutes = _device_on_time_minutes(item["device_host"]) if item.get("device_host") else None
+    item["last_done_at"] = completed_at
     if item.get("device_host"):
-        item["last_done_runtime_minutes"] = _device_on_time_minutes(item["device_host"])
+        item["last_done_runtime_minutes"] = runtime_minutes
+    # service history — append-only, capped at last 50 entries
+    item.setdefault("completed_log", []).insert(0, {
+        "completed_at": completed_at,
+        "runtime_hours_at_completion": round(runtime_minutes / 60, 1) if runtime_minutes is not None else None,
+    })
+    item["completed_log"] = item["completed_log"][:50]
+    # a completion always clears any pending overdue notification —
+    # the worker will re-set this on its next cycle if still overdue
+    item["_notified_overdue"] = False
     async with _lock:
         _save_raw(_state)
     _add_log(f"Maintenance completed: {item['name']}", "ok")

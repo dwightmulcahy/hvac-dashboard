@@ -66,18 +66,19 @@ def auth_module(temp_data_file):
 
 @pytest.fixture
 def worker_module(temp_data_file):
-    """Fresh, isolated import of worker.py alone (plus the state.py it
-    depends on). Use this for unit tests of schedule-command building,
-    the max-temp guard, and other worker internals that don't need the
-    full FastAPI app.
+    """Fresh, isolated import of worker.py alone (plus the state.py,
+    maintenance_logic.py, and notify.py it depends on). Use this for
+    unit tests of schedule-command building, the max-temp guard,
+    maintenance-overdue detection, and other worker internals that
+    don't need the full FastAPI app.
     """
     sys.path.insert(0, ".")
-    for mod in ("worker", "state"):
+    for mod in ("worker", "maintenance_logic", "notify", "state"):
         if mod in sys.modules:
             del sys.modules[mod]
     import worker as worker_mod
     yield worker_mod
-    for mod in ("worker", "state"):
+    for mod in ("worker", "maintenance_logic", "notify", "state"):
         if mod in sys.modules:
             del sys.modules[mod]
 
@@ -95,6 +96,24 @@ def schedules_router_module(temp_data_file):
     from routers import schedules as schedules_mod
     yield schedules_mod
     for mod in ("routers.schedules", "routers", "state"):
+        if mod in sys.modules:
+            del sys.modules[mod]
+
+
+@pytest.fixture
+def maintenance_router_module(temp_data_file):
+    """Fresh, isolated import of routers/maintenance.py alone (plus the
+    state.py and maintenance_logic.py it depends on). Use this for unit
+    tests of status computation and CRUD that don't need the full
+    FastAPI app.
+    """
+    sys.path.insert(0, ".")
+    for mod in ("routers.maintenance", "routers", "maintenance_logic", "state"):
+        if mod in sys.modules:
+            del sys.modules[mod]
+    from routers import maintenance as maintenance_mod
+    yield maintenance_mod
+    for mod in ("routers.maintenance", "routers", "maintenance_logic", "state"):
         if mod in sys.modules:
             del sys.modules[mod]
 
@@ -124,9 +143,10 @@ def api_module(temp_data_file, monkeypatch):
     router_modules = (
         "routers.devices_crud", "routers.devices_control", "routers.devices_discovery",
         "routers.schedules", "routers.settings", "routers.usage", "routers.system",
+        "routers.maintenance",
         "routers",
     )
-    core_modules = ("api", "auth", "worker", "state", "models")
+    core_modules = ("api", "auth", "worker", "state", "models", "maintenance_logic", "notify")
     for mod in router_modules + core_modules:
         if mod in sys.modules:
             del sys.modules[mod]

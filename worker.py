@@ -25,6 +25,8 @@ from state import (
     _state, _lock, _save_raw, _add_log, _verbose,
     _utcnow, _now_iso, _today, _ts, _est_watts,
 )
+from maintenance_logic import _maintenance_status
+from notify import notify
 
 log = logging.getLogger("hvac")
 
@@ -415,7 +417,7 @@ def _record_usage(device: dict, ds: dict, interval_mins: float):
 
 # ── Watchdog ──────────────────────────────────────────────
 
-def _check_watchdog(device: dict):
+async def _check_watchdog(device: dict):
     """Mark device stale if last_seen exceeds watchdog_minutes threshold."""
     last_seen = device.get("_last_seen")
     if not last_seen:
@@ -429,9 +431,30 @@ def _check_watchdog(device: dict):
             device["_stale"] = True
             ds = _state["device_state"].get(device["host"], {})
             ds["stale"] = True
-            _add_log(f"{device['name']}: ⚠ no response for {int(elapsed)}m (watchdog: {threshold}m)", "warn")
+            msg = f"{device['name']}: ⚠ no response for {int(elapsed)}m (watchdog: {threshold}m)"
+            _add_log(msg, "warn")
+            await notify(msg, title="HVAC Device Offline")
     except Exception:
         pass
+
+
+async def _check_maintenance():
+    """Log + notify once per overdue transition (mirrors the watchdog's
+    was_stale pattern via the `_notified_overdue` flag) so this doesn't
+    re-fire every background-loop cycle. Runs against whole-house items
+    too (device_host is None), not just device-scoped ones."""
+    for item in _state["maintenance"]:
+        status = _maintenance_status(item)
+        overdue = status.get("overdue", False)
+        already_notified = item.get("_notified_overdue", False)
+        if overdue and not already_notified:
+            item["_notified_overdue"] = True
+            name = item.get("name", "Maintenance item")
+            msg = f"🔧 Maintenance overdue: {name}"
+            _add_log(msg, "warn")
+            await notify(msg, title="HVAC Maintenance Overdue")
+        elif not overdue and already_notified:
+            item["_notified_overdue"] = False
 
 
 
@@ -579,7 +602,9 @@ async def _check_schedules():
                 _add_log(f"{name}: schedule command failed — queued for retry: {cmd}", "warn")
 
         if not all_ok:
-            _add_log(f"{name}: schedule @ {sch['time']} partially failed — {len(device['_retry_queue'])} cmd(s) queued", "warn")
+            msg = f"{name}: schedule @ {sch['time']} partially failed — {len(device['_retry_queue'])} cmd(s) queued"
+            _add_log(msg, "warn")
+            await notify(msg, title="HVAC Schedule Failed")
 
         sch["last_run"] = f"{today} {_ts()}"
 
@@ -762,7 +787,7 @@ async def _background_worker():
             for device in _state["devices"]:
                 await _poll_device(device)
                 await _check_max_temp(device)
-                _check_watchdog(device)
+                await _check_watchdog(device)
                 await asyncio.sleep(0.5)  # jitter between devices
 
             # Check schedules (once per minute)
@@ -770,6 +795,7 @@ async def _background_worker():
             if hhmm != last_schedule_check:
                 last_schedule_check = hhmm
                 await _check_schedules()
+                await _check_maintenance()
 
             # Auto-update exchange rate daily at 06:00
             today = datetime.date.today().isoformat()
