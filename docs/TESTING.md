@@ -3,7 +3,7 @@
 Running the test suite for the backend split described in
 [`ARCHITECTURE.md`](./ARCHITECTURE.md) and both frontends (`hvac-dashboard.html`,
 `kiosk.html` — see [`KIOSK.md`](./KIOSK.md) for the latter's hardware
-side). Back to [`README.md`](./README.md) for the project overview.
+side). Back to [`README.md`](../README.md) for the project overview.
 
 ## Setup
 

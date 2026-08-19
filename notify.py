@@ -8,7 +8,7 @@ opted into via the `notification_webhook` setting: device offline,
 maintenance overdue, schedule command failures.
 
 Only depends on state.py and httpx, so it can be imported from worker.py
-without violating the one-way dependency graph in ARCHITECTURE.md.
+without violating the one-way dependency graph in docs/ARCHITECTURE.md.
 """
 
 import httpx

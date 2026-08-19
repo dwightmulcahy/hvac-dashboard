@@ -5,7 +5,7 @@ Pure logic shared between routers/maintenance.py (computes status on
 every GET) and worker.py (computes status once per background-loop
 cycle to detect overdue items and fire notifications). Split out into
 its own module — rather than living in either caller — so worker.py
-never has to import from routers/ (see ARCHITECTURE.md's one-way
+never has to import from routers/ (see docs/ARCHITECTURE.md's one-way
 dependency graph: state.py ← maintenance_logic.py ← {worker, routers}).
 
 Only depends on state.py, so it can never be part of a circular import.

@@ -31,7 +31,7 @@ const path = require("path");
 const fs = require("fs");
 const { JSDOM } = require("jsdom");
 
-const html = fs.readFileSync(path.join(__dirname, "..", "kiosk.html"), "utf8");
+const html = fs.readFileSync(path.join(__dirname, "..", "frontend", "kiosk.html"), "utf8");
 
 const MOCK_DEVICES = {
   devices: [

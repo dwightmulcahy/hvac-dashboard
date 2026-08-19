@@ -25,7 +25,7 @@ jobs:
         run: pip install -r requirements-dev.txt
 
       - name: Run pyflakes (fast syntax/unused-var check)
-        run: pip install pyflakes && pyflakes api.py auth.py state.py models.py worker.py routers/*.py
+        run: pip install pyflakes && pyflakes api.py auth.py state.py models.py worker.py maintenance_logic.py notify.py routers/*.py
 
       - name: Run pytest
         run: pytest tests/ -v --tb=short
@@ -40,7 +40,7 @@ jobs:
         run: |
           python3 -c "
           import subprocess
-          html = open('hvac-dashboard.html').read()
+          html = open('frontend/hvac-dashboard.html').read()
           start = html.index('<script>') + 8
           end = html.rindex('</script>')
           open('/tmp/check_script.js', 'w').write(html[start:end])
@@ -55,7 +55,7 @@ jobs:
         run: |
           python3 -c "
           import subprocess
-          html = open('kiosk.html').read()
+          html = open('frontend/kiosk.html').read()
           start = html.index('<script>') + 8
           end = html.rindex('</script>')
           open('/tmp/check_kiosk.js', 'w').write(html[start:end])

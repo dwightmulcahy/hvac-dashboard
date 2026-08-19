@@ -28,7 +28,7 @@ const path = require("path");
 const fs = require("fs");
 const { JSDOM } = require("jsdom");
 
-const html = fs.readFileSync(path.join(__dirname, "..", "hvac-dashboard.html"), "utf8");
+const html = fs.readFileSync(path.join(__dirname, "..", "frontend", "hvac-dashboard.html"), "utf8");
 
 const MOCK_DEVICE = {
   host: "ac1.local", name: "Main LR", btu: 24000, seer: 20, max_temp: null, beeper: "OFF",

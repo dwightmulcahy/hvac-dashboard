@@ -41,7 +41,7 @@ const END_RE = (name) => `// ── TESTABLE:${name}:end ──`;
 const START_MARKER = (name) => `// ── TESTABLE:${name}:start ──`;
 
 function readDashboardScript() {
-  const htmlPath = path.join(__dirname, "..", "hvac-dashboard.html");
+  const htmlPath = path.join(__dirname, "..", "frontend", "hvac-dashboard.html");
   const html = fs.readFileSync(htmlPath, "utf8");
   const start = html.indexOf("<script>") + "<script>".length;
   const end = html.lastIndexOf("</script>");
