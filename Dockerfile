@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 # Build args — injected by GitHub Actions from git tag
 ARG APP_VERSION=dev
