@@ -11,7 +11,7 @@
 
 Self-hosted dashboard for controlling and monitoring **Innovair mini-split AC units** via [SMLIGHT SLWF-01pro](https://smartlight.me) ESPHome dongles using the Midea serial protocol. Runs 24/7 in Docker on a QNAP NAS. All automation (scheduling, temperature guards, watchdog) executes server-side regardless of whether a browser is open.
 
-See [`ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for how the backend is structured (module split, dependency graph, why it's organized this way), [`TESTING.md`](./docs/TESTING.md) for running the test suite, and [`KIOSK.md`](./docs/KIOSK.md) for setting up a wall-mounted Raspberry Pi touchscreen panel.
+See [`ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for how the backend is structured (module split, dependency graph, why it's organized this way), [`TESTING.md`](./docs/TESTING.md) for running the test suite, [`KIOSK.md`](./docs/KIOSK.md) for setting up a wall-mounted Raspberry Pi touchscreen panel, and [`CHANGELOG.md`](./CHANGELOG.md) for what changed in each release (auto-generated from commit history — see [Release Process](#release-process) below).
 
 ---
 
@@ -359,6 +359,10 @@ git push origin release --tags
 ```
 
 GitHub Actions builds multi-arch (`amd64` + `arm64`) images and pushes to Docker Hub with tags `latest`, `1.2.0`, `1.2`, `1`. Version is injected from the git tag via `APP_VERSION` build arg.
+
+Once the image is built, scanned, and pushed, the same workflow creates a [GitHub Release](../../releases) for the tag — this is also what makes tags show up as Releases in the sidebar rather than just tags. Its body is auto-generated from commit history by [git-cliff](https://git-cliff.org) (config: `cliff.toml`), grouping commits by type (Features, Bug Fixes, Dependencies, etc.) based on the [conventional commit](https://www.conventionalcommits.org) prefix — `feat:`, `fix:`, `docs:`, and so on — each commit was made with. `CHANGELOG.md` is the same content covering the full project history; it's a static file checked into the repo, not regenerated automatically on every release, so it'll need a manual `git-cliff -o CHANGELOG.md` + commit after tagging if you want it to stay current.
+
+This workflow only ever creates a Release for a *new* tag going forward — it doesn't retroactively backfill Releases for tags that already existed before it was added. For that, `scripts/backfill-releases.sh` is a one-time script that walks every existing tag and creates the matching Release from that tag's own changelog section (requires `gh` and `git-cliff` installed locally, authenticated with `gh auth login`). Safe to re-run — tags that already have a Release are skipped, not duplicated.
 
 ### Required Secrets
 | Secret | Description |

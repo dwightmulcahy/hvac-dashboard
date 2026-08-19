@@ -10,12 +10,18 @@ jobs:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
     permissions:
-      contents: read          # actions/checkout
+      contents: write          # actions/checkout, and creating the GitHub Release below
       security-events: write  # upload Trivy SARIF results to the Security tab
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          # git-cliff needs the full commit + tag history to build the
+          # changelog — the default shallow checkout (depth 1) only has
+          # the single commit this tag points at, which would produce
+          # an empty changelog every time
+          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -133,3 +139,36 @@ jobs:
             GIT_SHA=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Only runs once the image above has actually built, scanned
+      # clean, and pushed — a GitHub Release existing is meant to mean
+      # "this version is really out there," so it shouldn't appear for
+      # a tag whose build failed or got blocked by the vulnerability
+      # gate earlier in this job.
+      #
+      # cliff.toml's grouping (Features/Bug Fixes/Dependencies/etc.)
+      # was built from — and tested against — this repo's actual
+      # commit history, not left at git-cliff's generic defaults; see
+      # that file's own header comment for specifics (e.g. why it
+      # needs to know about a custom `improvement:` commit type this
+      # project uses alongside the standard conventional-commit ones).
+      - name: Generate changelog for this release
+        id: git-cliff
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.version }}
+          body: ${{ steps.git-cliff.outputs.content }}
+          # semver pre-release suffixes (v1.15.0-rc.1, -beta.2, etc.)
+          # get flagged as a GitHub prerelease automatically; anything
+          # else is a normal release
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}

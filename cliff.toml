@@ -1,0 +1,86 @@
+# git-cliff config for HVAC Dashboard
+# https://git-cliff.org/docs/configuration
+#
+# Commit type groupings below were built from this repo's *actual*
+# git history (150 commits, 29 tags), not a generic template — run
+# `git log --oneline --all | grep -oE '^[a-f0-9]+ [a-z]+(\([a-z-]+\))?:'`
+# to see the full inventory if adding a new type. Two things this repo
+# does that git-cliff's own default config doesn't account for:
+#   - a custom `improvement:` type, used alongside `feat:`/`fix:`
+#   - a `doc:` (singular) typo variant that's crept in alongside `docs:`
+# Both are handled explicitly below rather than falling through to
+# the catch-all "Other" bucket.
+
+[changelog]
+header = """
+# Changelog
+All notable changes to this project are documented here, generated
+from conventional commit messages via [git-cliff](https://git-cliff.org).
+"""
+body = """
+{% if version %}\
+    ## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+    ## [Unreleased]
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+    ### {{ group | striptags | trim | upper_first }}
+    {% for commit in commits %}
+        - {% if commit.scope %}*({{ commit.scope }})* {% endif %}\
+            {% if commit.breaking %}[**breaking**] {% endif %}\
+            {{ commit.message | upper_first | trim }}\
+            {% if commit.remote.pr_number %} ([#{{ commit.remote.pr_number }}]({{ self::remote_url() }}/pull/{{ commit.remote.pr_number }})){% endif %}
+    {% endfor %}
+{% endfor %}
+{%- macro remote_url() -%}
+    https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}
+{%- endmacro -%}
+"""
+trim = true
+render_always = true
+footer = ""
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+require_conventional = false
+split_commits = false
+protect_breaking_commits = false
+filter_commits = false
+fail_on_unmatched_commit = false
+use_branch_tags = false
+topo_order = false
+topo_order_commits = true
+sort_commits = "oldest"
+recurse_submodules = false
+tag_pattern = "v[0-9]*"
+
+commit_preprocessors = [
+  # normalize the "doc:"/"doc(scope):" typo to "docs:"/"docs(scope):"
+  # so it lands in the Documentation group instead of the catch-all —
+  # both the bare and scoped forms have shown up in real history here
+  { pattern = '^doc(\(|:)', replace = "docs$1" },
+]
+
+commit_parsers = [
+  # dependabot's own commits carry a scope of deps/ci/docker (see
+  # .github/dependabot.yml's commit-message.prefix config) — pull
+  # these into their own section before the generic feat/fix/chore
+  # rules below would otherwise catch them, since a reader scanning
+  # release notes for "what did I actually get" cares about this
+  # differently than a handwritten chore
+  { message = "^chore\\(deps\\)", group = "<!-- 8 -->📦 Dependencies" },
+  { message = "^chore\\(ci\\)", group = "<!-- 8 -->📦 Dependencies" },
+  { message = "^chore\\(docker\\)", group = "<!-- 8 -->📦 Dependencies" },
+
+  { message = "^feat", group = "<!-- 0 -->🚀 Features" },
+  { message = "^fix", group = "<!-- 1 -->🐛 Bug Fixes" },
+  { message = "^improvement", group = "<!-- 2 -->✨ Improvements" },
+  { message = "^perf", group = "<!-- 3 -->⚡ Performance" },
+  { message = "^refactor", group = "<!-- 4 -->🚜 Refactor" },
+  { message = "^docs", group = "<!-- 5 -->📚 Documentation" },
+  { message = "^test", group = "<!-- 6 -->🧪 Testing" },
+  { message = "^revert", group = "<!-- 9 -->◀️ Revert" },
+  { message = "^chore|^ci", group = "<!-- 7 -->⚙️ Chores" },
+  { message = ".*", group = "<!-- 10 -->💼 Other" },
+]
