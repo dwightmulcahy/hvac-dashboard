@@ -282,6 +282,10 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
       <input type="password" id="login-pw" class="inp" style="width:100%" autocomplete="current-password" placeholder="password"
         onkeydown="if(event.key==='Enter')doLogin()">
     </div>
+    <label style="display:flex;align-items:center;gap:6px;margin-bottom:16px;font-size:12px;color:var(--text2);cursor:pointer">
+      <input type="checkbox" id="login-remember" style="width:14px;height:14px">
+      Remember me on this device
+    </label>
     <button class="btn" onclick="doLogin()" style="width:100%;border-color:var(--ok);color:var(--ok);padding:8px">Sign in</button>
     <div style="text-align:center;margin-top:12px">
       <span onclick="showRecoveryModal()" style="font-size:11px;color:var(--text3);cursor:pointer;text-decoration:underline">Forgot password?</span>
@@ -695,6 +699,7 @@ function hideLoginModal(){
 async function doLogin(){
   const user=document.getElementById('login-user').value.trim();
   const pw=document.getElementById('login-pw').value;
+  const remember=document.getElementById('login-remember')?.checked||false;
   const errEl=document.getElementById('login-error');
   errEl.style.display='none';
   try{
@@ -715,6 +720,17 @@ async function doLogin(){
     sessionStorage.setItem('hvac_token',data.token);
     sessionStorage.setItem('hvac_role',data.role);
     sessionStorage.setItem('hvac_user',data.username);
+    if(remember){
+      // best-effort: a failed remember-me mint should never block the
+      // actual login that already succeeded
+      try{
+        const rr=await _origFetch(`${API}/auth/remember`,{method:'POST',headers:{'Authorization':`Bearer ${data.token}`}});
+        if(rr.ok){
+          const rd=await rr.json();
+          localStorage.setItem('hvac_remember_token',rd.remember_token);
+        }
+      }catch(_){}
+    }
     hideLoginModal();
     updateAuthUI();
     if(data.must_change_password){
@@ -754,7 +770,15 @@ async function doChangePassword(){
 }
 
 async function doLogout(){
-  await fetch(`${API}/auth/logout`,{method:'POST'}).catch(_=>{});
+  const rememberToken=localStorage.getItem('hvac_remember_token');
+  // explicit logout also forgets this device — "remember me" survives
+  // a browser restart silently, but not someone deliberately signing
+  // out. Cleared client-side unconditionally below even if this
+  // network call fails, since the intent ("stop remembering me") is
+  // what matters, not whether the server-side revocation succeeded.
+  await fetch(`${API}/auth/logout`,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({remember_token:rememberToken||undefined})}).catch(_=>{});
+  localStorage.removeItem('hvac_remember_token');
   _authToken='';_authRole='';_authUser='';
   sessionStorage.removeItem('hvac_token');
   sessionStorage.removeItem('hvac_role');
@@ -788,7 +812,13 @@ async function checkAuth(){
   // if no users configured, skip auth
   try{
     const r=await _origFetch(`${API}/auth/me`,{headers:{'Authorization':`Bearer ${_authToken}`}});
-    if(r.status===401){showLoginModal();return false;}
+    if(r.status===401){
+      // no valid session — try silently re-establishing one from a
+      // persisted remember-token before falling back to the login form
+      if(await tryRememberLogin())return true;
+      showLoginModal();
+      return false;
+    }
     if(r.ok){
       const d=await r.json();
       _authRole=d.role;_authUser=d.username;
@@ -800,6 +830,45 @@ async function checkAuth(){
     }
   }catch(_){}
   return true; // network error — proceed optimistically
+}
+
+// "Remember me" — see auth.py's own comment above
+// _create_remember_token for the full design rationale. This is
+// called from exactly one place (checkAuth's 401 branch above) as a
+// silent attempt to re-establish a session before showing the login
+// form; it never runs on a fresh login itself, only on a return visit
+// with no valid in-memory session.
+async function tryRememberLogin(){
+  const rememberToken=localStorage.getItem('hvac_remember_token');
+  if(!rememberToken)return false;
+  try{
+    const r=await _origFetch(`${API}/auth/login-remember`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({remember_token:rememberToken})
+    });
+    if(!r.ok){
+      // expired, already-used, or revoked (password change, force
+      // reset, explicit logout elsewhere) — stop presenting it
+      localStorage.removeItem('hvac_remember_token');
+      return false;
+    }
+    const data=await r.json();
+    _authToken=data.token;
+    _authRole=data.role;
+    _authUser=data.username;
+    sessionStorage.setItem('hvac_token',data.token);
+    sessionStorage.setItem('hvac_role',data.role);
+    sessionStorage.setItem('hvac_user',data.username);
+    localStorage.setItem('hvac_remember_token',data.remember_token); // rotated — replaces the one just spent
+    updateAuthUI();
+    if(data.must_change_password){showChangePwModal();return false;}
+    return true;
+  }catch(_){
+    // network error — don't wipe a possibly-still-valid remember
+    // token over a transient failure; just fall through to a normal
+    // login this visit and try again next time
+    return false;
+  }
 }
 
 // ── Auth user management (admin only) ────────────────────
