@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 # Build args — injected by GitHub Actions from git tag
 ARG APP_VERSION=dev
@@ -15,7 +15,7 @@ ARG GIT_SHA=unknown
 #
 # `apt-get upgrade` runs first and separately from the install below:
 # util-linux and its related packages (libblkid1, libmount1, login,
-# mount, etc.) ship as part of the python:3.12-slim base image itself,
+# mount, etc.) ship as part of the python:3.14-slim base image itself,
 # not something this Dockerfile installs — `apt-get install nginx
 # supervisor curl` alone never touches already-installed packages, so
 # a Debian security fix for one of them (e.g. CVE-2026-53615) sits

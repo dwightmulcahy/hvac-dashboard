@@ -6,7 +6,7 @@
 [![codecov](https://codecov.io/gh/dwightmulcahy/hvac-dashboard/branch/main/graph/badge.svg)](https://codecov.io/gh/dwightmulcahy/hvac-dashboard)
 [![Docker Pulls](https://img.shields.io/docker/pulls/dwightmulcahy/hvac-dashboard)](https://hub.docker.com/r/dwightmulcahy/hvac-dashboard)
 [![Docker Image Size](https://img.shields.io/docker/image-size/dwightmulcahy/hvac-dashboard/latest)](https://hub.docker.com/r/dwightmulcahy/hvac-dashboard)
-[![Python 3.12](https://img.shields.io/badge/python-3.12-blue)](https://www.python.org/)
+[![Python 3.14](https://img.shields.io/badge/python-3.14-blue)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/github/license/dwightmulcahy/hvac-dashboard)](./LICENSE)
 
 Self-hosted dashboard for controlling and monitoring **Innovair mini-split AC units** via [SMLIGHT SLWF-01pro](https://smartlight.me) ESPHome dongles using the Midea serial protocol. Runs 24/7 in Docker on a QNAP NAS. All automation (scheduling, temperature guards, watchdog) executes server-side regardless of whether a browser is open.

@@ -27,13 +27,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
           cache: "pip"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@v3
 
       # provenance/sbom disabled — this build is scan-only (never
       # pushed), and buildx's attestation behavior with load:true has
@@ -70,7 +70,7 @@ jobs:
           exit-code: "0"
 
       - name: Upload Trivy scan results to Security tab
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@v3
         if: always()
         continue-on-error: true
         with:
