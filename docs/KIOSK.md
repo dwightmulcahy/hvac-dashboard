@@ -14,7 +14,9 @@ The main container needs to already be running and reachable on your network —
 
 ## Hardware
 
-- **Raspberry Pi 4 (2GB+)** or newer. A Pi Zero 2 W can technically run Chromium but feels sluggish for anything beyond a static page; a 4 is the comfortable floor.
+- **Raspberry Pi 4 (2GB+)** is the comfortable choice — snappy boot, no visible lag on the screensaver/grid transitions.
+- **Raspberry Pi 3 B/B+ (1GB)** also works. This is Raspberry Pi's own documented minimum for running Chromium at all (older/lower-RAM models refuse to launch it outright), and `kiosk.html` is light enough — fixed low resolution, no video or canvas rendering, a 12-second polling interval rather than continuous updates — that the general "Chromium needs a Pi 4" advice floating around doesn't really apply here the way it does for heavier kiosk use cases (digital signage, video walls). Expect a slower boot-to-kiosk time and a beat of visible lag on cold load and screensaver transitions, not sluggishness throughout. A Pi 3 A (512MB) is more marginal — stick to the B/B+ if you're choosing between Pi 3 variants.
+- **A Pi Zero 2 W** technically runs Chromium too, but feels sluggish for anything beyond a static page — same-generation CPU as the Pi 3 but half the RAM (512MB). Only worth it if a 3 or 4 genuinely isn't an option.
 - **An 800×480 touchscreen.** The layout is fixed at this resolution — the official 7" Raspberry Pi touchscreen matches it, as do most generic HDMI+USB-touch panels sold at this size. Larger panels will letterbox rather than stretch (see [Troubleshooting](#troubleshooting)).
 - microSD card (16GB+), 5V/3A USB-C power supply.
 
@@ -35,6 +37,25 @@ Boot the Pi, SSH in, and update it:
 sudo apt update && sudo apt full-upgrade -y
 sudo reboot
 ```
+
+---
+
+## Quick install (recommended)
+
+Steps 2 through 5 below — installing Chromium, setting it to auto-launch fullscreen, disabling screen blanking, and rotation — plus the Chromium watchdog near the bottom of this page, are all handled by one script. After flashing and SSH'ing in above, this replaces everything from here through step 5 (including its own system update, so you can skip re-running `apt full-upgrade` if you already did it above):
+
+```bash
+DASHBOARD_URL=http://homenas.lan:8080/kiosk.html \
+  curl -sSL https://raw.githubusercontent.com/dwightmulcahy/hvac-dashboard/main/scripts/kiosk-setup.sh | bash
+```
+
+Replace `DASHBOARD_URL` with your actual server address. Add `ROTATE=2` (0/1/2/3, matching [step 5](#5-touchscreen-orientation)'s values) before `curl` if the panel is mounted rotated.
+
+**Run this as your normal login user (e.g. `pi`), not with `sudo`** — it needs to write into that user's own `~/.config`, and calls `sudo` itself for the handful of steps that actually need root. Safe to re-run (e.g. after changing `DASHBOARD_URL` or `ROTATE`) — every step checks before writing, so re-running won't duplicate anything.
+
+Once it finishes: go set PINs ([step 6](#6-assign-pins)), then `sudo reboot` and verify ([step 7](#7-verify)).
+
+The sections below (2 through 5, and the watchdog section) are what the script above is actually doing — read them if you want to understand the mechanics, need to adjust something it doesn't cover, or would rather do it by hand.
 
 ---
 
@@ -129,6 +150,8 @@ If step 1 fails and you land on the desktop instead, double check `~/.config/aut
 ---
 
 ## Keeping Chromium itself running
+
+Covered by [Quick install](#quick-install-recommended) above if you used the script. The rest of this section is the manual version, or for understanding what the script set up.
 
 Chromium is generally stable, but for a device nobody's going to babysit, it's worth having something notice if it ever exits and relaunch it rather than leaving the panel dark. A small systemd user service works:
 

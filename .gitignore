@@ -15,6 +15,7 @@ venv/
 coverage.xml
 htmlcov/
 htmlReport/
+node_modules/
 
 # Data
 data/
