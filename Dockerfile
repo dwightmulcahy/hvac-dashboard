@@ -1,4 +1,4 @@
-FROM python:3.14-slim
+FROM python:3.12-slim
 
 # Build args — injected by GitHub Actions from git tag
 ARG APP_VERSION=dev
@@ -56,15 +56,35 @@ RUN pip install --upgrade pip setuptools wheel --no-cache-dir && \
     # setuptools) at runtime, not just install time. This CVE is
     # instead risk-accepted via .trivyignore — see that file for the
     # justification.
-    rm -rf /usr/local/lib/python3.12/site-packages/pip \
-           /usr/local/lib/python3.12/site-packages/pip-*.dist-info \
-           /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.12
+    #
+    # IMPORTANT: this path is intentionally NOT hardcoded to a
+    # specific Python minor version (previously
+    # /usr/local/lib/python3.12/site-packages/pip). A Trivy scan once
+    # found pip's vendored msgpack still present in the final image
+    # despite this exact removal step already existing — the base
+    # image's actual site-packages directory didn't match the
+    # hardcoded 3.12 path (observed as python3.14 in that scan), so
+    # `rm -rf` silently matched nothing and pip was never actually
+    # deleted. `rm -rf` doesn't error on a no-match glob, so this
+    # failed completely silently — nothing in the build log indicated
+    # anything had gone wrong. The python3 -c call below resolves the
+    # real path from the interpreter that's actually running, so this
+    # can't drift out of sync with whatever Python version the base
+    # image ships, ever again.
+    PYTHON_SITE_PACKAGES=$(python3 -c "import site; print(site.getsitepackages()[0])") && \
+    echo "Removing pip from: $PYTHON_SITE_PACKAGES" && \
+    rm -rf "$PYTHON_SITE_PACKAGES/pip" "$PYTHON_SITE_PACKAGES"/pip-*.dist-info \
+           /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.*
 
-# Diagnostic (temporary): print every remaining copy of setuptools/
-# msgpack found anywhere in the image, to confirm pip's vendored
-# msgpack copy is actually gone and the (intentionally kept) apt
-# setuptools copy is the only remaining match.
-RUN echo "=== setuptools/msgpack locations in final image ===" && \
+# Diagnostic (temporary): print the actual Python version in this
+# image plus every remaining copy of setuptools/msgpack found
+# anywhere, to confirm pip's vendored msgpack copy is actually gone
+# and the (intentionally kept) apt setuptools copy is the only
+# remaining match. The version line exists specifically so a future
+# base-image Python bump is visible directly in the build log instead
+# of only being discoverable via a failing Trivy scan days later.
+RUN echo "=== Python version in this image ===" && python3 --version && \
+    echo "=== setuptools/msgpack locations in final image ===" && \
     find / -xdev \( -iname "*setuptools*" -o -iname "*msgpack*" \) 2>/dev/null | grep -v '^/proc' || true
 
 # Remove default nginx config
