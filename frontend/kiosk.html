@@ -52,7 +52,7 @@ button:active{opacity:0.7}
   </div>
 
   <div id="screensaver" class="screen">
-    <div id="saver-content" style="position:absolute;display:flex;flex-direction:column;align-items:center;transition:top 1.8s ease,left 1.8s ease">
+    <div id="saver-content" style="position:absolute;display:flex;flex-direction:column;align-items:center;transition:top 1.8s ease,left 1.8s ease,opacity 2s ease">
       <span id="saver-clock" style="color:#3a3d45;font-size:72px;font-weight:500"></span>
       <span id="saver-sub" style="color:#2c2e35;font-size:15px;margin-top:12px"></span>
       <span style="color:#23252b;font-size:12px;margin-top:34px">tap to unlock</span>
@@ -120,6 +120,7 @@ const POLL_INTERVAL_MS=12000;
 
 let token=null,currentUser=null;
 let devices=[],settings={},schedules=[],rootInfo={},usageToday={},maintenanceItems=[];
+let lastUpdatedAt=null;
 let entered='',failedAttempts=0,lockoutUntil=0,lockoutTimer=null;
 let idleTimer=null,idleCountdownTimer=null,mainIdleTimer=null,pollTimer=null,clockTimer=null,saverMoveTimer=null;
 let openDeviceHost=null,currentSub='grid';
@@ -167,12 +168,24 @@ function show(id){
 function fmtClock(){
   return new Date().toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
 }
+// "updated Xs ago" — piggybacks the existing per-second clock tick
+// rather than a separate timer. Deliberately keeps counting up (and
+// showing) through a stale/degraded period rather than freezing or
+// hiding — "updated 47s ago" growing in place is a more honest signal
+// of exactly how out of date the data is than the stale banner alone,
+// which only fires once a threshold is crossed.
+function fmtAgo(date){
+  if(!date)return '';
+  const s=Math.max(0,Math.round((Date.now()-date.getTime())/1000));
+  if(s<60)return `${s}s ago`;
+  return `${Math.round(s/60)}m ago`;
+}
 function tickClock(){
   const t=fmtClock();
   const a=document.getElementById('lock-clock');if(a)a.textContent=t;
   const b=document.getElementById('saver-clock');if(b)b.textContent=t;
   const c=document.getElementById('header-clock');
-  if(c)c.textContent=`${t} · outdoor ${fmtOutdoorShort()}`;
+  if(c)c.textContent=`${t} · outdoor ${fmtOutdoorShort()}${lastUpdatedAt?' · updated '+fmtAgo(lastUpdatedAt):''}`;
 }
 
 function safeFloat(v){const n=parseFloat(v);return isNaN(n)?null:n;}
@@ -397,10 +410,41 @@ function showScreensaver(){
   clearIdleTimer();clearMainIdleTimer();stopPolling();
   const online=devices.filter(d=>!d._stale).length;
   document.getElementById('saver-sub').textContent=`outdoor ${fmtOutdoorShort()} · ${online}/${devices.length} online`;
+  applyQuietDimming();
   show('screensaver');
   moveSaverContent();
   clearInterval(saverMoveTimer);
-  saverMoveTimer=setInterval(moveSaverContent,SAVER_MOVE_INTERVAL_MS);
+  // Re-checks quiet-hours dimming on the same tick as the burn-in
+  // repositioning — the panel may sit in screensaver mode for hours
+  // straight through a quiet-hours boundary, so this needs to
+  // re-evaluate periodically, not just once on entry.
+  saverMoveTimer=setInterval(()=>{moveSaverContent();applyQuietDimming();},SAVER_MOVE_INTERVAL_MS);
+}
+
+// Quiet hours only dim the *screensaver* (shown after
+// SCREENSAVER_IDLE_SECONDS of no interaction), never the active UI —
+// dimming a screen someone is actively using at night would work
+// against them, while the screensaver is exactly the state where
+// nobody's looking closely and a lower ambient brightness helps.
+function isQuietHours(cfg,now){
+  cfg=cfg||settings;
+  if(!cfg.kiosk_quiet_hours_enabled)return false;
+  const start=cfg.kiosk_quiet_start||'22:00';
+  const end=cfg.kiosk_quiet_end||'07:00';
+  const [sh,sm]=start.split(':').map(Number);
+  const [eh,em]=end.split(':').map(Number);
+  if(isNaN(sh)||isNaN(sm)||isNaN(eh)||isNaN(em))return false;
+  const startMin=sh*60+sm,endMin=eh*60+em;
+  if(startMin===endMin)return false;
+  now=now||new Date();
+  const nowMin=now.getHours()*60+now.getMinutes();
+  // overnight window (e.g. 22:00→07:00) wraps past midnight; a
+  // same-day window (e.g. 13:00→18:00) does not
+  return startMin<endMin?(nowMin>=startMin&&nowMin<endMin):(nowMin>=startMin||nowMin<endMin);
+}
+function applyQuietDimming(){
+  const el=document.getElementById('saver-content');
+  if(el)el.style.opacity=isQuietHours()?'0.32':'1';
 }
 document.getElementById('screensaver').addEventListener('click',relock);
 
@@ -503,6 +547,7 @@ async function _refreshAllImpl(){
       (ud.devices||[]).forEach(d=>{usageToday[d.host]=d.runtime_hours*60;});
     }catch(e){}
     consecutiveFailures=0;
+    lastUpdatedAt=new Date();
     document.getElementById('loading-banner').style.display='none';
     setStaleIndicator(false);
     renderGrid();

@@ -65,3 +65,23 @@ def test_update_settings_no_log_when_verbose_logging_unchanged(client, auth_head
     client.put("/settings", headers=auth_headers, json={"poll_interval": 90})
     logs = [l["msg"] for l in api_module._state["logs"]]
     assert not any("Verbose logging" in m for m in logs)
+
+
+def test_update_settings_persists_kiosk_quiet_hours(client, auth_headers, api_module):
+    client.put("/settings", headers=auth_headers, json={
+        "kiosk_quiet_hours_enabled": True,
+        "kiosk_quiet_start": "21:30",
+        "kiosk_quiet_end": "06:45",
+    })
+    settings = api_module._state["settings"]
+    assert settings["kiosk_quiet_hours_enabled"] is True
+    assert settings["kiosk_quiet_start"] == "21:30"
+    assert settings["kiosk_quiet_end"] == "06:45"
+
+
+def test_get_settings_includes_kiosk_quiet_hours_defaults(client, auth_headers):
+    r = client.get("/settings", headers=auth_headers)
+    body = r.json()
+    assert body["kiosk_quiet_hours_enabled"] is False
+    assert body["kiosk_quiet_start"] == "22:00"
+    assert body["kiosk_quiet_end"] == "07:00"

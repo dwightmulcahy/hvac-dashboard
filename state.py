@@ -61,6 +61,9 @@ DEFAULT_STATE = {
         "watchtower_webhook": "",     # optional webhook URL for update notifications
         "notification_webhook": "",   # optional webhook URL for device-offline / maintenance-overdue / schedule-failure alerts
         "nightly_reboot_time": "03:00",  # HH:MM to reboot all dongles, "" to disable
+        "kiosk_quiet_hours_enabled": False,
+        "kiosk_quiet_start": "22:00",   # HH:MM — dims the kiosk's screensaver during this window
+        "kiosk_quiet_end": "07:00",     # (wraps past midnight if end < start, e.g. 22:00-07:00)
     },
     "usage": {
         "daily": {},        # {"2026-07-01": {"host": {runtime_min, est_kwh, ...}}}

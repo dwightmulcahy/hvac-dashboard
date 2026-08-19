@@ -7,6 +7,9 @@ def test_fresh_state_has_defaults(state_module):
     assert state_module._state["devices"] == []
     assert state_module._state["settings"]["poll_interval"] == 120
     assert state_module._state["settings"]["vacation_mode"] is False
+    assert state_module._state["settings"]["kiosk_quiet_hours_enabled"] is False
+    assert state_module._state["settings"]["kiosk_quiet_start"] == "22:00"
+    assert state_module._state["settings"]["kiosk_quiet_end"] == "07:00"
 
 
 def test_save_and_reload_state(state_module):

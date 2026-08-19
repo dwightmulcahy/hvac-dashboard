@@ -694,6 +694,61 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
     assert.ok(cmdCalls.some((c) => c.body.params.mode === "HEAT"));
   });
 
+  // ── Quiet-hours screensaver dimming (isQuietHours) ────────────
+  // Pure logic, tested directly via window.isQuietHours(now) rather
+  // than by waiting out the real SCREENSAVER_IDLE_SECONDS or mocking
+  // Date globally — the function takes an optional `now` for exactly
+  // this reason.
+
+  await t.test("disabled by default — never quiet regardless of time", () => {
+    const cfg = { kiosk_quiet_hours_enabled: false, kiosk_quiet_start: "22:00", kiosk_quiet_end: "07:00" };
+    assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 23, 0)), false);
+  });
+
+  await t.test("overnight window: inside the window on both sides of midnight", () => {
+    const cfg = { kiosk_quiet_hours_enabled: true, kiosk_quiet_start: "22:00", kiosk_quiet_end: "07:00" };
+    assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 23, 30)), true); // 11:30pm
+    assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 5, 0)), true);   // 5:00am
+  });
+
+  await t.test("overnight window: outside the window during the day", () => {
+    const cfg = { kiosk_quiet_hours_enabled: true, kiosk_quiet_start: "22:00", kiosk_quiet_end: "07:00" };
+    assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 14, 0)), false); // 2:00pm
+  });
+
+  await t.test("overnight window: boundaries are start-inclusive, end-exclusive", () => {
+    const cfg = { kiosk_quiet_hours_enabled: true, kiosk_quiet_start: "22:00", kiosk_quiet_end: "07:00" };
+    assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 22, 0)), true);  // exactly start
+    assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 7, 0)), false); // exactly end
+  });
+
+  await t.test("same-day window (not spanning midnight) works too", () => {
+    const cfg = { kiosk_quiet_hours_enabled: true, kiosk_quiet_start: "13:00", kiosk_quiet_end: "18:00" };
+    assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 15, 0)), true);
+    assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 20, 0)), false);
+  });
+
+  await t.test("identical start and end is treated as no quiet window at all", () => {
+    const cfg = { kiosk_quiet_hours_enabled: true, kiosk_quiet_start: "10:00", kiosk_quiet_end: "10:00" };
+    assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 10, 0)), false);
+  });
+
+  await t.test("malformed time strings fail closed (never quiet) rather than throwing", () => {
+    const cfg = { kiosk_quiet_hours_enabled: true, kiosk_quiet_start: "not-a-time", kiosk_quiet_end: "07:00" };
+    assert.doesNotThrow(() => window.isQuietHours(cfg, new Date()));
+    assert.equal(window.isQuietHours(cfg, new Date()), false);
+  });
+
+  // ── Last-updated indicator (fmtAgo) ───────────────────────────
+
+  await t.test("fmtAgo formats seconds and minutes, and handles no-data gracefully", () => {
+    const now = Date.now();
+    assert.equal(window.fmtAgo(null), "");
+    assert.equal(window.fmtAgo(new Date(now)), "0s ago");
+    assert.equal(window.fmtAgo(new Date(now - 5000)), "5s ago");
+    assert.equal(window.fmtAgo(new Date(now - 125000)), "2m ago");
+  });
+
   // kiosk.html runs several setInterval timers forever by design
   // (the on-screen clock, background polling) — correct for a real
   // kiosk left open permanently, but without an explicit teardown

@@ -489,6 +489,20 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
               </div>
             </div>
             <div style="grid-column:1/-1">
+              <div class="clabel" style="margin-bottom:4px;display:flex;align-items:center;gap:8px">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:normal;text-transform:none;letter-spacing:0">
+                  <input type="checkbox" id="gen-kiosk-quiet-enabled" style="width:14px;height:14px">
+                  KIOSK QUIET HOURS
+                </label>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="time" id="gen-kiosk-quiet-start" class="inp" style="width:110px" value="22:00">
+                <span style="color:var(--text3)">to</span>
+                <input type="time" id="gen-kiosk-quiet-end" class="inp" style="width:110px" value="07:00">
+                <span style="font-size:11px;color:var(--text3)">dims the kiosk's screensaver during this window — overnight windows (e.g. 22:00→07:00) wrap past midnight</span>
+              </div>
+            </div>
+            <div style="grid-column:1/-1">
               <div class="clabel" style="margin-bottom:4px;display:flex;align-items:center;gap:5px">
                 WATCHTOWER WEBHOOK URL
                 <a href="https://watchtower.nickfedor.com/" target="_blank" rel="noopener"
@@ -2845,6 +2859,12 @@ function openSettings(tab){
   // 03:00). ||'03:00' would treat both the same and silently
   // resurrect the default after every explicit clear+save.
   if(nrEl)nrEl.value=gen.nightlyReboot!==undefined?gen.nightlyReboot:'03:00';
+  const kqEnEl=document.getElementById('gen-kiosk-quiet-enabled');
+  if(kqEnEl)kqEnEl.checked=gen.kioskQuietEnabled||false;
+  const kqsEl=document.getElementById('gen-kiosk-quiet-start');
+  if(kqsEl)kqsEl.value=gen.kioskQuietStart!==undefined?gen.kioskQuietStart:'22:00';
+  const kqeEl=document.getElementById('gen-kiosk-quiet-end');
+  if(kqeEl)kqeEl.value=gen.kioskQuietEnd!==undefined?gen.kioskQuietEnd:'07:00';
   updateThemeBtns();
 }
 
@@ -2930,13 +2950,17 @@ function saveGeneralSettings(){
   const guardEnd=parseInt(guardEndVal.split(':')[0])||22;
   const watchtower=document.getElementById('gen-watchtower')?.value||'';
   const nightlyReboot=document.getElementById('gen-nightly-reboot')?.value||'';
+  const kioskQuietEnabled=document.getElementById('gen-kiosk-quiet-enabled')?.checked||false;
+  const kioskQuietStart=document.getElementById('gen-kiosk-quiet-start')?.value||'22:00';
+  const kioskQuietEnd=document.getElementById('gen-kiosk-quiet-end')?.value||'07:00';
   VACATION_MAX_TEMP_SETTING=vacTemp;
-  localStorage.setItem('hvac_general',JSON.stringify({poll,seer,watchdog,vacTemp,voltage:_voltage,guardStart,guardEnd,verbose:_verbose_logging,tempUnit:_tempUnit,watchtower,nightlyReboot}));
+  localStorage.setItem('hvac_general',JSON.stringify({poll,seer,watchdog,vacTemp,voltage:_voltage,guardStart,guardEnd,verbose:_verbose_logging,tempUnit:_tempUnit,watchtower,nightlyReboot,kioskQuietEnabled,kioskQuietStart,kioskQuietEnd}));
   devices.forEach(d=>{d.watchdog_minutes=watchdog;saveDeviceToAPI(d);});
   fetch(`${API}/settings`,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({poll_interval:poll,max_temp_guard_start:guardStart,max_temp_guard_end:guardEnd,
       vacation_max_temp:vacTemp,verbose_logging:_verbose_logging,temp_unit:_tempUnit,
-      watchtower_webhook:watchtower,nightly_reboot_time:nightlyReboot})}).catch(_=>{});
+      watchtower_webhook:watchtower,nightly_reboot_time:nightlyReboot,
+      kiosk_quiet_hours_enabled:kioskQuietEnabled,kiosk_quiet_start:kioskQuietStart,kiosk_quiet_end:kioskQuietEnd})}).catch(_=>{});
   addLog(`General settings saved — watchdog ${watchdog}m, guard ${guardStart}:00–${guardEnd}:00, ${_voltage}V`,'ok');
   showToast('Settings saved','ok');
   closeSettings();
