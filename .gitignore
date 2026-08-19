@@ -11,12 +11,15 @@ dist/
 build/
 .venv/
 venv/
+.coverage
+coverage.xml
+htmlcov/
+htmlReport/
 
 # Data
 data/
 *.json
 !package.json
-!package-lock.json
 
 # OS
 .DS_Store
@@ -26,7 +29,6 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
-htmlReport/
 
 # Docker
 *.tar.gz

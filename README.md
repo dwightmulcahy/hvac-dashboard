@@ -1,5 +1,14 @@
 # HVAC Dashboard
 
+[![Tests](https://github.com/dwightmulcahy/hvac-dashboard/actions/workflows/tests.yml/badge.svg)](https://github.com/dwightmulcahy/hvac-dashboard/actions/workflows/tests.yml)
+[![CI](https://github.com/dwightmulcahy/hvac-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/dwightmulcahy/hvac-dashboard/actions/workflows/ci.yml)
+[![Docker Release](https://github.com/dwightmulcahy/hvac-dashboard/actions/workflows/docker-release.yml/badge.svg)](https://github.com/dwightmulcahy/hvac-dashboard/actions/workflows/docker-release.yml)
+[![codecov](https://codecov.io/gh/dwightmulcahy/hvac-dashboard/branch/main/graph/badge.svg)](https://codecov.io/gh/dwightmulcahy/hvac-dashboard)
+[![Docker Pulls](https://img.shields.io/docker/pulls/dwightmulcahy/hvac-dashboard)](https://hub.docker.com/r/dwightmulcahy/hvac-dashboard)
+[![Docker Image Size](https://img.shields.io/docker/image-size/dwightmulcahy/hvac-dashboard/latest)](https://hub.docker.com/r/dwightmulcahy/hvac-dashboard)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/github/license/dwightmulcahy/hvac-dashboard)](./LICENSE)
+
 Self-hosted dashboard for controlling and monitoring **Innovair mini-split AC units** via [SMLIGHT SLWF-01pro](https://smartlight.me) ESPHome dongles using the Midea serial protocol. Runs 24/7 in Docker on a QNAP NAS. All automation (scheduling, temperature guards, watchdog) executes server-side regardless of whether a browser is open.
 
 See [`ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for how the backend is structured (module split, dependency graph, why it's organized this way), [`TESTING.md`](./docs/TESTING.md) for running the test suite, and [`KIOSK.md`](./docs/KIOSK.md) for setting up a wall-mounted Raspberry Pi touchscreen panel.
@@ -376,4 +385,4 @@ Dwight Mulcahy
 
 ## License
 
-MIT
+[MIT](./LICENSE)
