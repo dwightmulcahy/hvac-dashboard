@@ -493,11 +493,27 @@ async def _check_max_temp(device: dict):
         except Exception:
             target = max_temp - 2
         _add_log(f"{name}: 🌡 {indoor}°C ≥ max {max_temp}°C — auto cool to {target}°C (was {cur_mode})", "warn")
+        # mode and temperature are sent as two separate device commands,
+        # so they can fail independently — the dashboard's own history
+        # of this exact failure mode (mode command succeeds, temperature
+        # command silently fails, unit stays at its old high setpoint
+        # doing nothing while the dashboard optimistically claims
+        # success) is why each one below is checked and recovered from
+        # on its own, not just as a combined ok1-and-ok2 pass/fail.
         ok1 = await _send_cmd(host, {"mode": "COOL"})
-        ok2 = await _send_cmd(host, {"target_temperature": target})
         if ok1:
             ds["mode"] = "COOL"
+        else:
+            device.setdefault("_retry_queue", []).append({"mode": "COOL"})
+            _add_log(f"{name}: max-temp guard — mode command failed, queued for retry", "warn")
+
+        ok2 = await _send_cmd(host, {"target_temperature": target})
+        if ok2:
             ds["target_temperature"] = str(target)
+        else:
+            device.setdefault("_retry_queue", []).append({"target_temperature": target})
+            _add_log(f"{name}: max-temp guard — temperature command failed, queued for retry", "warn")
+
         if not ok1 and not ok2:
             device["_max_temp_active"] = False
     elif indoor < (max_temp - 1) and active:
@@ -511,6 +527,9 @@ async def _check_max_temp(device: dict):
             ok = await _send_cmd(host, {"mode": "OFF"})
             if ok:
                 ds["mode"] = "OFF"
+            else:
+                device.setdefault("_retry_queue", []).append({"mode": "OFF"})
+                _add_log(f"{name}: max-temp guard recovery — off command failed, queued for retry", "warn")
         else:
             # restore previous mode and temp
             _add_log(f"{name}: 🌡 {indoor}°C < max {max_temp}°C — restoring {prev_mode}" +
@@ -518,10 +537,16 @@ async def _check_max_temp(device: dict):
             ok1 = await _send_cmd(host, {"mode": prev_mode})
             if ok1:
                 ds["mode"] = prev_mode
+            else:
+                device.setdefault("_retry_queue", []).append({"mode": prev_mode})
+                _add_log(f"{name}: max-temp guard recovery — mode restore failed, queued for retry", "warn")
             if prev_temp:
                 ok2 = await _send_cmd(host, {"target_temperature": float(prev_temp)})
                 if ok2:
                     ds["target_temperature"] = str(prev_temp)
+                else:
+                    device.setdefault("_retry_queue", []).append({"target_temperature": float(prev_temp)})
+                    _add_log(f"{name}: max-temp guard recovery — temperature restore failed, queued for retry", "warn")
 
 # ── Scheduler ─────────────────────────────────────────────
 

@@ -4,8 +4,16 @@ Covers the exact bugs found and fixed during development:
 - hysteresis (turn off at max-1, not max, to prevent rapid cycling)
 - guard hours only blocking the trigger, not the recovery/auto-off
 - _max_temp_active persistence surviving across calls
+- mode and temperature commands failing independently of each other
+  (a real production case: the mode command reached the dongle and
+  succeeded, but the temperature command silently failed — the tile
+  showed the unit had switched to COOL, but the target temperature
+  it displayed was still the old high setpoint, not the guard's
+  target, with nothing anywhere indicating the second command had
+  failed)
 """
 
+import httpx
 import pytest
 
 
@@ -150,3 +158,116 @@ async def test_guard_hours_never_block_the_auto_off_recovery(worker_module, mock
     assert device["_max_temp_active"] is False
     ds = worker_module._state["device_state"]["ac1.local"]
     assert ds["mode"] == "OFF"
+
+
+# ── mode/temperature command independence ─────────────────────
+# Regression tests for a real production case: the dashboard showed a
+# device at its old high target temperature (matching max_temp almost
+# exactly) despite the log clearly stating "auto cool to <lower temp>"
+# — the mode command had succeeded but the temperature command failed,
+# and the original code only tracked ok1 (mode) for both fields.
+
+
+class _FakeResponse:
+    def __init__(self, status_code=200):
+        self.status_code = status_code
+
+    def json(self):
+        return {}
+
+
+def _mock_mode_ok_temp_fails(mocker):
+    """mode command succeeds, target_temperature command always 404s —
+    reproduces the exact split-failure scenario from production."""
+    async def fake_post(self, url, *a, **kw):
+        if "target_temperature" in url:
+            return _FakeResponse(status_code=404)
+        return _FakeResponse(status_code=200)
+    mocker.patch.object(httpx.AsyncClient, "post", fake_post)
+
+
+def _mock_temp_ok_mode_fails(mocker):
+    """Inverse: temperature command succeeds, mode command always 404s."""
+    async def fake_post(self, url, *a, **kw):
+        if "target_temperature" in url:
+            return _FakeResponse(status_code=200)
+        return _FakeResponse(status_code=404)
+    mocker.patch.object(httpx.AsyncClient, "post", fake_post)
+
+
+@pytest.mark.asyncio
+async def test_trigger_mode_succeeds_temp_fails_does_not_optimistically_update_temp(worker_module, mocker, open_guard_hours):
+    _mock_mode_ok_temp_fails(mocker)
+    device = _device(max_temp=29.0)
+    _set_device_state(worker_module, "ac1.local", mode="OFF", current_temperature="29.5", target_temperature="30")
+    await worker_module._check_max_temp(device)
+
+    ds = worker_module._state["device_state"]["ac1.local"]
+    # mode command succeeded — this should reflect it
+    assert ds["mode"] == "COOL"
+    # temperature command failed — must NOT optimistically claim the
+    # new (lower) target; this is the exact bug: the dashboard showed
+    # a temperature that was never actually accepted by the device
+    assert ds["target_temperature"] == "30"
+    # guard should still be considered active — mode DID succeed
+    assert device["_max_temp_active"] is True
+
+
+@pytest.mark.asyncio
+async def test_trigger_temp_command_failure_is_queued_for_retry(worker_module, mocker, open_guard_hours):
+    _mock_mode_ok_temp_fails(mocker)
+    device = _device(max_temp=29.0)
+    _set_device_state(worker_module, "ac1.local", mode="OFF", current_temperature="29.5", target_temperature="30")
+    await worker_module._check_max_temp(device)
+
+    assert {"target_temperature": 27.0} in device.get("_retry_queue", [])
+
+
+@pytest.mark.asyncio
+async def test_trigger_temp_command_failure_is_logged_visibly(worker_module, mocker, open_guard_hours):
+    _mock_mode_ok_temp_fails(mocker)
+    device = _device(max_temp=29.0)
+    _set_device_state(worker_module, "ac1.local", mode="OFF", current_temperature="29.5", target_temperature="30")
+    await worker_module._check_max_temp(device)
+
+    logs = [l["msg"] for l in worker_module._state["logs"]]
+    assert any("temperature command failed, queued for retry" in m for m in logs)
+
+
+@pytest.mark.asyncio
+async def test_trigger_mode_command_failure_does_not_optimistically_update_mode(worker_module, mocker, open_guard_hours):
+    _mock_temp_ok_mode_fails(mocker)
+    device = _device(max_temp=29.0)
+    _set_device_state(worker_module, "ac1.local", mode="OFF", current_temperature="29.5", target_temperature="30")
+    await worker_module._check_max_temp(device)
+
+    ds = worker_module._state["device_state"]["ac1.local"]
+    # temperature command succeeded — this should reflect it
+    assert ds["target_temperature"] == "27.0"
+    # mode command failed — must NOT optimistically claim COOL; this
+    # is the original bug in the other direction (the pre-fix code
+    # only ever checked ok1/mode before updating *either* field)
+    assert ds["mode"] == "OFF"
+    assert {"mode": "COOL"} in device.get("_retry_queue", [])
+
+
+@pytest.mark.asyncio
+async def test_recovery_restore_mode_fails_is_queued_and_logged(worker_module, mocker):
+    async def fake_post(self, url, *a, **kw):
+        return _FakeResponse(status_code=404)
+    mocker.patch.object(httpx.AsyncClient, "post", fake_post)
+
+    device = _device(max_temp=29.0)
+    device["_max_temp_active"] = True
+    device["_pre_autocool_mode"] = "HEAT"
+    device["_pre_autocool_temp"] = "22"
+    _set_device_state(worker_module, "ac1.local", mode="COOL", current_temperature="26.0", target_temperature="27")
+    await worker_module._check_max_temp(device)
+
+    ds = worker_module._state["device_state"]["ac1.local"]
+    # both commands failed — neither field should have been touched
+    assert ds["mode"] == "COOL"
+    assert {"mode": "HEAT"} in device.get("_retry_queue", [])
+    logs = [l["msg"] for l in worker_module._state["logs"]]
+    assert any("mode restore failed, queued for retry" in m for m in logs)
+    assert any("temperature restore failed, queued for retry" in m for m in logs)
