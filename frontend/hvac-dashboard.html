@@ -1988,8 +1988,16 @@ async function testAllDevices(){
   resultsEl.style.display='block';
   resultsEl.innerHTML='';
   const hdr=document.createElement('div');
-  hdr.style.cssText='color:var(--text3);margin-bottom:8px;font-size:11px';
-  hdr.textContent='Testing '+devices.length+' device(s)…';
+  hdr.style.cssText='display:flex;align-items:center;justify-content:space-between;color:var(--text3);margin-bottom:8px;font-size:11px';
+  const hdrLabel=document.createElement('span');
+  hdrLabel.textContent='Testing '+devices.length+' device(s)…';
+  const closeBtn=document.createElement('button');
+  closeBtn.className='btn bico';
+  closeBtn.style.cssText='font-size:13px;color:var(--text3);padding:0 4px';
+  closeBtn.title='Close';
+  closeBtn.textContent='✕';
+  closeBtn.onclick=closeTestAllResults;
+  hdr.appendChild(hdrLabel);hdr.appendChild(closeBtn);
   resultsEl.appendChild(hdr);
 
   const rows={};
@@ -2042,10 +2050,17 @@ async function testAllDevices(){
     }
   });
 
-  hdr.textContent='Tested '+devices.length+' device(s): '+okCount+' online, '+failCount+' failed';
+  hdrLabel.textContent='Tested '+devices.length+' device(s): '+okCount+' online, '+failCount+' failed';
   addLog('Test all: '+okCount+' online, '+failCount+' failed','ok');
   await loadDevicesFromAPI();
   renderIPList();
+}
+
+function closeTestAllResults(){
+  const resultsEl=document.getElementById('test-all-results');
+  if(!resultsEl)return;
+  resultsEl.style.display='none';
+  resultsEl.innerHTML='';
 }
 
 let _discovering=false;
@@ -2079,11 +2094,20 @@ async function discoverDevices(){
     }
     resultsEl.innerHTML='';
     const hdr=document.createElement('div');
-    hdr.style.cssText='color:var(--text3);margin-bottom:8px;font-size:11px';
-    hdr.textContent='Found '+data.found.length+' device(s) in '+data.subnet+':';
+    hdr.style.cssText='display:flex;align-items:center;justify-content:space-between;color:var(--text3);margin-bottom:8px;font-size:11px';
+    const hdrLabel=document.createElement('span');
+    hdrLabel.textContent='Found '+data.found.length+' device(s) in '+data.subnet+':';
+    const closeBtn=document.createElement('button');
+    closeBtn.className='btn bico';
+    closeBtn.style.cssText='font-size:13px;color:var(--text3);padding:0 4px';
+    closeBtn.title='Close';
+    closeBtn.textContent='✕';
+    closeBtn.onclick=closeDiscoverResults;
+    hdr.appendChild(hdrLabel);hdr.appendChild(closeBtn);
     resultsEl.appendChild(hdr);
     data.found.forEach(function(d){
       const row=document.createElement('div');
+      row.dataset.discoverIp=d.ip;
       row.style.cssText='display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)';
       const nameEl=document.createElement('span');
       nameEl.style.cssText='flex:1;min-width:0';
@@ -2106,7 +2130,7 @@ async function discoverDevices(){
         addBtn.className='btn';
         addBtn.style.cssText='font-size:10px;padding:2px 8px;border-color:var(--ok);color:var(--ok)';
         addBtn.textContent='+ Add';
-        addBtn.onclick=function(){addDeviceFromDiscovery(d.ip,d.suggested_name);};
+        addBtn.onclick=function(){addDeviceFromDiscovery(d.ip,d.suggested_name,row);};
         status.appendChild(addBtn);
       }
       row.appendChild(nameEl);row.appendChild(ip);row.appendChild(temp);row.appendChild(fw);row.appendChild(status);
@@ -2126,7 +2150,14 @@ async function discoverDevices(){
   }
 }
 
-async function addDeviceFromDiscovery(ip,suggestedName){
+function closeDiscoverResults(){
+  const resultsEl=document.getElementById('discover-results');
+  if(!resultsEl)return;
+  resultsEl.style.display='none';
+  resultsEl.innerHTML='';
+}
+
+async function addDeviceFromDiscovery(ip,suggestedName,row){
   const name=suggestedName||('AC ('+ip+')');
   const r=await fetch(`${API}/devices`,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({host:ip,name:name,btu:12000,seer:20})});
@@ -2134,7 +2165,21 @@ async function addDeviceFromDiscovery(ip,suggestedName){
     addLog('Device "'+name+'" added at '+ip,'ok');
     await loadDevicesFromAPI();
     renderIPList();
-    discoverDevices();
+    // Update just this one row in place — re-running discoverDevices()
+    // here would trigger a full network rescan just to refresh a
+    // status label, which is slow and pointless when we already know
+    // exactly which device changed state. Also avoids the discover
+    // panel staying open and reflowing #ip-list (the drag-and-drop
+    // reorder list sits directly below it) every time someone adds
+    // a device from the results.
+    const targetRow=row||document.querySelector(`#discover-results [data-discover-ip="${CSS.escape(ip)}"]`);
+    if(targetRow){
+      const statusCell=targetRow.lastElementChild;
+      if(statusCell){
+        statusCell.style.color='var(--text3)';
+        statusCell.textContent='✓ configured';
+      }
+    }
   }
 }
 
@@ -2937,7 +2982,13 @@ function openSettings(tab){
   updateThemeBtns();
 }
 
-function closeSettings(){document.getElementById('settings-modal').style.display='none';}
+function closeSettings(){
+  document.getElementById('settings-modal').style.display='none';
+  // stale results (from a scan/test minutes/hours ago) showing up
+  // again on next reopen would be confusing — start fresh each time
+  closeDiscoverResults();
+  closeTestAllResults();
+}
 
 function switchTab(tab){
   ['general','devices','rates','users','maintenance'].forEach(t=>{
