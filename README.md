@@ -232,6 +232,7 @@ services:
 | `LOG_FILE` | `<DATA_FILE>` with `_log.jsonl` suffix | Path to the JSONL automation log |
 | `TZ` | container default | Timezone — affects schedule times, nightly reboot time, log timestamps |
 | `CORS_ALLOWED_ORIGINS` | *(unset — CORS disabled)* | Comma-separated list of origins allowed to call the API cross-origin. The packaged deployment (nginx serves the dashboard and proxies `/api/` from the same origin) never needs this — only set it if you're running the frontend and API on genuinely different origins (a custom reverse proxy, a local dev server). Don't also add CORS headers in a reverse proxy in front of this container if you set this; duplicate `Access-Control-Allow-Origin` headers get rejected outright by browsers. |
+| `LOG_FORMAT` | `text` | `text` (human-readable, e.g. `2026-08-26 08:53:11 [INFO] ...`) or `json` (one structured JSON object per log line — method/path/status/duration on every request via the access-log middleware, plus every other log call). Set `json` if you're shipping container logs to Loki, ELK, CloudWatch, or similar; leave as `text` for tailing `docker logs` directly. |
 
 `APP_VERSION`, `GIT_SHA`, and `BUILD_DATE` are also read from the
 environment (shown in the About modal and `/api/`), but are injected
@@ -333,17 +334,17 @@ The recovery key is generated fresh on every container start, is single-use, and
 
 ## Development & Testing
 
-Backend is split across `api.py`, `auth.py`, `state.py`, `models.py`, `worker.py`, `maintenance_logic.py`, `notify.py`, and `routers/*.py` — see [`ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the module map and why it's organized this way.
+Backend is split across `api.py`, `auth.py`, `state.py`, `models.py`, `worker.py`, `maintenance_logic.py`, `notify.py`, `logging_config.py`, and `routers/*.py` — see [`ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the module map and why it's organized this way.
 
 ```bash
 pip install -r requirements-dev.txt
 pytest
 ```
 
-404 tests (99% line coverage) covering state persistence, auth, the max-temp guard (including regression tests for real bugs hit during development), schedule logic, maintenance status/overdue detection, CORS configuration, full HTTP integration, and backup/restore. See [`TESTING.md`](./docs/TESTING.md) for details on running specific tests, coverage, and the isolation pattern the fixtures rely on — including the JavaScript test suites for both `hvac-dashboard.html` and `kiosk.html`.
+454 tests (99% line coverage) covering state persistence, auth, the max-temp guard (including regression tests for real bugs hit during development), schedule logic, maintenance status/overdue detection, CORS configuration, structured/access logging, full HTTP integration, and backup/restore. See [`TESTING.md`](./docs/TESTING.md) for details on running specific tests, coverage, and the isolation pattern the fixtures rely on — including the JavaScript test suites for both `hvac-dashboard.html` and `kiosk.html`.
 
 Three GitHub Actions workflows run on push/PR:
-- **`tests.yml`** — pytest suite + pyflakes + dashboard/kiosk JS syntax checks + JS unit tests
+- **`tests.yml`** — pytest suite + ruff (lint) + dashboard/kiosk JS syntax checks + eslint/prettier + JS unit tests
 - **`ci.yml`** — builds the real Docker image, boots the container, curls live endpoints, validates nginx config, lints all Python files
 - **`docker-release.yml`** — builds and pushes multi-arch images to Docker Hub, triggered only on version tags
 

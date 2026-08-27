@@ -1,0 +1,64 @@
+[tool.ruff]
+line-length = 120
+# Deliberately one version behind the Dockerfile's actual runtime
+# (python:3.14-slim, see Dockerfile line 1) rather than matching it
+# exactly. ruff's target-version=py314 has a confirmed, currently-open
+# formatter bug (astral-sh/ruff#23090, #24041, #25901 — all still open
+# as of this writing): `ruff format` with target-version="py314"
+# rewrites valid `except (A, B):` multi-exception syntax into invalid
+# Python-2-style `except A, B:`, a silent SyntaxError-producing
+# corruption. This codebase has at least one such clause
+# (maintenance_logic.py's `except (ValueError, TypeError):`), so this
+# isn't a theoretical concern for us specifically. py313 avoids the
+# bug entirely and changes nothing meaningful for *linting* this
+# codebase (it doesn't use anything exclusive to 3.14's new syntax).
+# Revisit once those upstream issues are closed.
+target-version = "py313"
+
+[tool.ruff.lint]
+# Curated selection, not ruff's own default (413 rules as of v0.16) —
+# this is a mature, pre-existing codebase being retrofitted with
+# linting, not a fresh project. Enabling ruff's full modern default
+# set here would surface hundreds of stylistic findings unrelated to
+# actual bugs. This selection covers real correctness issues (F, B)
+# plus low-noise, genuinely useful modernization/consistency checks
+# (E/W, I, UP) — expand deliberately, not by removing this comment
+# and switching to ruff's ALL/default set.
+select = ["F", "E", "W", "I", "UP", "B"]
+
+ignore = [
+    # FastAPI's dependency-injection style is to call Depends()/Body()/
+    # Query()/Header() etc. directly in a parameter default — that's
+    # the framework's actual API, not the mutable-default-argument bug
+    # B008 exists to catch. A FastAPI codebase will have many of these
+    # by design; flagging them is a false positive on this framework,
+    # not a real finding.
+    "B008",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Test files intentionally use patterns ruff would otherwise flag as
+# unused imports/variables in production code — fixtures, mocker
+# patches, and assert-only imports are normal there. E741 is ignored
+# here specifically because `for l in ... logs` (l = one log entry) is
+# an established, consistent convention across dozens of tests, not
+# accidental sloppiness — renaming it project-wide is unnecessary
+# churn for a purely cosmetic ambiguity concern. E501/B011 cover a
+# handful of long descriptive test-function names and the
+# `assert False, "expected X"` idiom inside try/except blocks, both
+# harmless in test-only code.
+"tests/*.py" = ["F401", "F841", "E741", "E501", "B011"]
+
+[tool.ruff.format]
+# Not enabled as an enforced CI gate (see ci.yml) — only `ruff check`
+# runs there. Reformatting a mature, already-tested, ~8,000-line
+# codebase in one pass produces a single enormous diff that's hard to
+# review and carries real risk (see the target-version comment above
+# for a formatter bug that's already bitten this exact codebase's
+# multi-exception clauses once already). This section exists so
+# `ruff format` is available and consistently configured for anyone
+# who wants to run it locally or format new files going forward,
+# without forcing a retroactive reformat as a side effect of adding
+# the config.
+quote-style = "double"
+indent-style = "space"

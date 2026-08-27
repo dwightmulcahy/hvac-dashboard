@@ -14,7 +14,7 @@ def _fresh_import_modules():
         "routers.maintenance",
         "routers",
     )
-    core_modules = ("api", "auth", "worker", "state", "models", "maintenance_logic", "notify")
+    core_modules = ("api", "auth", "worker", "state", "models", "maintenance_logic", "notify", "logging_config")
     for mod in router_modules + core_modules:
         if mod in sys.modules:
             del sys.modules[mod]
@@ -38,8 +38,9 @@ def test_lifespan_loads_persisted_logs_from_disk(temp_data_file):
         }) + "\n")
 
     router_modules, core_modules = _fresh_import_modules()
-    import api as api_mod
     from fastapi.testclient import TestClient
+
+    import api as api_mod
 
     with TestClient(api_mod.app):
         msgs = [l["msg"] for l in api_mod._state["logs"]]
@@ -55,8 +56,9 @@ def test_sigterm_handler_logs_and_saves_state(temp_data_file):
     like FastAPI's TestClient don't use, so there's no reliable way to
     exercise it end-to-end through real signal delivery in tests."""
     router_modules, core_modules = _fresh_import_modules()
-    import api as api_mod
     from fastapi.testclient import TestClient
+
+    import api as api_mod
 
     try:
         with TestClient(api_mod.app):
