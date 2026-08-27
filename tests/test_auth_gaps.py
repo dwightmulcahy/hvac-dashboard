@@ -5,7 +5,6 @@ test_auth.py (unit tests of the core functions) and test_endpoints.py
 
 import datetime
 
-
 # ── _check_login_lockout: expiry ─────────────────────────────
 
 
@@ -236,6 +235,153 @@ def test_get_recovery_key_reflects_regeneration_after_recover(client, auth_heade
 
     new_key = api_module._state["_recovery_key"]
     assert new_key != old_key
+
+
+# ── "Remember me" ─────────────────────────────────────────────
+
+
+def test_remember_mints_a_token_for_the_current_user(client, auth_headers, api_module):
+    r = client.post("/auth/remember", headers=auth_headers)
+    assert r.status_code == 200
+    raw = r.json()["remember_token"]
+    assert raw
+
+    records = api_module._state["users"]["admin"].get("remember_tokens", [])
+    assert len(records) == 1
+    # the raw token is never stored — only its hash
+    assert records[0]["token_hash"] != raw
+
+
+def test_remember_requires_auth(client):
+    r = client.post("/auth/remember")
+    assert r.status_code == 401
+
+
+def test_login_remember_exchanges_token_for_a_real_session(client, auth_headers):
+    raw = client.post("/auth/remember", headers=auth_headers).json()["remember_token"]
+
+    r = client.post("/auth/login-remember", json={"remember_token": raw})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["username"] == "admin"
+    assert body["role"] == "admin"
+    assert body["token"]
+    assert body["remember_token"]
+
+    # the returned session token is a genuinely working session
+    me = client.get("/auth/me", headers={"Authorization": f"Bearer {body['token']}"})
+    assert me.status_code == 200
+    assert me.json()["username"] == "admin"
+
+
+def test_login_remember_rotates_the_token_single_use(client, auth_headers):
+    raw = client.post("/auth/remember", headers=auth_headers).json()["remember_token"]
+
+    first = client.post("/auth/login-remember", json={"remember_token": raw})
+    assert first.status_code == 200
+    new_raw = first.json()["remember_token"]
+    assert new_raw != raw
+
+    # the original (now-spent) token no longer works
+    replay = client.post("/auth/login-remember", json={"remember_token": raw})
+    assert replay.status_code == 401
+
+    # but the newly-issued one does
+    second = client.post("/auth/login-remember", json={"remember_token": new_raw})
+    assert second.status_code == 200
+
+
+def test_login_remember_rejects_unknown_token(client):
+    r = client.post("/auth/login-remember", json={"remember_token": "totally-made-up"})
+    assert r.status_code == 401
+
+
+def test_login_remember_rejects_missing_token(client):
+    r = client.post("/auth/login-remember", json={})
+    assert r.status_code == 401
+
+
+def test_login_remember_rejects_expired_token(client, auth_headers, api_module, monkeypatch):
+    raw = client.post("/auth/remember", headers=auth_headers).json()["remember_token"]
+    # force the stored record into the past
+    record = api_module._state["users"]["admin"]["remember_tokens"][0]
+    record["expires"] = "2000-01-01T00:00:00"
+
+    r = client.post("/auth/login-remember", json={"remember_token": raw})
+    assert r.status_code == 401
+
+
+def test_change_password_revokes_all_remember_tokens(client, auth_headers, api_module):
+    client.post("/auth/remember", headers=auth_headers)
+    client.post("/auth/remember", headers=auth_headers)
+    assert len(api_module._state["users"]["admin"]["remember_tokens"]) == 2
+
+    client.post("/auth/change-password", headers=auth_headers,
+                json={"old_password": "admin", "new_password": "newpassword123"})
+
+    assert api_module._state["users"]["admin"]["remember_tokens"] == []
+
+
+def test_force_reset_revokes_all_remember_tokens(client, auth_headers, api_module):
+    client.post(
+        "/auth/users", headers=auth_headers,
+        json={"username": "someone", "password": "longenough123", "role": "viewer"},
+    )
+    r = client.post("/auth/login", json={"username": "someone", "password": "longenough123"})
+    someone_headers = {"Authorization": f"Bearer {r.json()['token']}"}
+    client.post("/auth/remember", headers=someone_headers)
+    assert len(api_module._state["users"]["someone"]["remember_tokens"]) == 1
+
+    client.post("/auth/users/someone/force-reset", headers=auth_headers)
+
+    assert api_module._state["users"]["someone"]["remember_tokens"] == []
+
+
+def test_logout_with_remember_token_revokes_it(client, auth_headers, api_module):
+    raw = client.post("/auth/remember", headers=auth_headers).json()["remember_token"]
+
+    client.post("/auth/logout", headers=auth_headers, json={"remember_token": raw})
+
+    assert api_module._state["users"]["admin"]["remember_tokens"] == []
+    replay = client.post("/auth/login-remember", json={"remember_token": raw})
+    assert replay.status_code == 401
+
+
+def test_logout_without_remember_token_leaves_other_devices_remembered(client, auth_headers, api_module):
+    raw = client.post("/auth/remember", headers=auth_headers).json()["remember_token"]
+
+    # a plain logout (no remember_token in the body) shouldn't touch
+    # any remembered devices at all — only an explicit one does
+    client.post("/auth/logout", headers=auth_headers)
+
+    assert len(api_module._state["users"]["admin"]["remember_tokens"]) == 1
+    r = client.post("/auth/login-remember", json={"remember_token": raw})
+    assert r.status_code == 200
+
+
+def test_list_users_reports_remembered_device_count(client, auth_headers):
+    client.post("/auth/remember", headers=auth_headers)
+    client.post("/auth/remember", headers=auth_headers)
+
+    r = client.get("/auth/users", headers=auth_headers)
+    admin = next(u for u in r.json()["users"] if u["username"] == "admin")
+    assert admin["remembered_devices"] == 2
+
+
+def test_delete_user_implicitly_removes_their_remember_tokens(client, auth_headers, api_module):
+    client.post(
+        "/auth/users", headers=auth_headers,
+        json={"username": "someone", "password": "longenough123", "role": "viewer"},
+    )
+    r = client.post("/auth/login", json={"username": "someone", "password": "longenough123"})
+    someone_headers = {"Authorization": f"Bearer {r.json()['token']}"}
+    raw = client.post("/auth/remember", headers=someone_headers).json()["remember_token"]
+
+    client.delete("/auth/users/someone", headers=auth_headers)
+
+    assert "someone" not in api_module._state["users"]
+    r = client.post("/auth/login-remember", json={"remember_token": raw})
+    assert r.status_code == 401
 
 
 def test_new_user_has_no_last_login_until_they_log_in(client, auth_headers):

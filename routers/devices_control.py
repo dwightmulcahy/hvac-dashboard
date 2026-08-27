@@ -2,15 +2,14 @@
 beeper. Everything here sends a live request to a physical dongle."""
 
 import asyncio
-from typing import Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, Header, HTTPException
 
-from state import _lock, _state, _save_raw, _add_log
 from auth import _get_token_info
-from worker import _poll_device, _check_max_temp, _send_cmd, _send_switch
 from models import CommandPayload
+from state import _add_log, _lock, _save_raw, _state
+from worker import _check_max_temp, _poll_device, _send_cmd, _send_switch
 
 router = APIRouter(tags=["devices"])
 
@@ -35,7 +34,7 @@ async def poll_device_now(host: str):
 
 
 @router.post("/devices/{host:path}/cmd")
-async def send_device_cmd(host: str, payload: CommandPayload, authorization: Optional[str] = Header(None)):
+async def send_device_cmd(host: str, payload: CommandPayload, authorization: str | None = Header(None)):
     info = _get_token_info(authorization)
     user = info["username"] if info else "api"
     device = next((d for d in _state["devices"] if d["host"] == host), None)
@@ -82,7 +81,9 @@ async def set_lock_temp(host: str, data: dict):
     return {"ok": True, "lock_temp": device["lock_temp"], "locked_target_temp": device.get("locked_target_temp")}
 
 
-async def _press_ir_button(host: str, device: dict, name: str, friendly_path: str, underscore_path: str, action_label: str):
+async def _press_ir_button(
+    host: str, device: dict, name: str, friendly_path: str, underscore_path: str, action_label: str
+):
     """Shared logic for IR-emitter-dependent button presses (display
     toggle, swing step). Both are defined identically in the device
     firmware (slwf-base.yaml) as template buttons calling a

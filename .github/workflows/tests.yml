@@ -13,25 +13,32 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+
+      - name: Extract Python version from Dockerfile
+        id: pyver
+        run: |
+          VERSION=$(grep -oP '(?<=FROM python:)[0-9]+\.[0-9]+' Dockerfile)
+          echo "Dockerfile uses Python $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.14"
+          python-version: ${{ steps.pyver.outputs.version }}
           cache: "pip"
 
       - name: Install Python dependencies
         run: pip install -r requirements-dev.txt
 
-      - name: Run pyflakes (fast syntax/unused-var check)
-        run: pip install pyflakes && pyflakes api.py auth.py state.py models.py worker.py maintenance_logic.py notify.py routers/*.py
+      - name: Run ruff (lint — includes pyflakes' checks plus more)
+        run: ruff check .
 
       - name: Run pytest with coverage
         run: |
           pytest tests/ -v --tb=short \
             --cov=api --cov=auth --cov=state --cov=models --cov=worker \
-            --cov=maintenance_logic --cov=notify --cov=routers \
+            --cov=maintenance_logic --cov=notify --cov=logging_config --cov=routers \
             --cov-report=xml --cov-report=term-missing
 
       - name: Upload coverage to Codecov
@@ -79,6 +86,12 @@ jobs:
 
       - name: Install JS test dependencies
         run: npm ci
+
+      - name: Lint JS test files (eslint)
+        run: npm run lint:js
+
+      - name: Check JS test file formatting (prettier)
+        run: npm run format:js:check
 
       - name: Run JS unit tests (dashboard + kiosk)
         run: node --test tests-js/*.test.js

@@ -11,7 +11,7 @@ def _utcnow():
     """Local stand-in for state._utcnow() — api_module doesn't re-export
     it, and pulling in a second `state` import here would fight with
     the api_module fixture's own module-reload lifecycle."""
-    return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    return datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
 
 
 # ── CRUD basics ──────────────────────────────────────────────

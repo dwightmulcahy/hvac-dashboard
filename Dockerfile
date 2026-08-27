@@ -1,4 +1,11 @@
 FROM python:3.14-slim
+# ^ ci.yml and tests.yml both extract this version number (via
+# `grep -oP '(?<=FROM python:)[0-9]+\.[0-9]+'`) to set up the same
+# Python version for linting/testing — keep this line's exact format
+# (FROM python:X.Y-slim, no extra text before the version) so that
+# regex keeps matching. This is what closed the "Python version
+# declared in 3 different places, drifting independently" problem;
+# don't reintroduce a hardcoded version string in either workflow file.
 
 # Build args — injected by GitHub Actions from git tag
 ARG APP_VERSION=dev
@@ -100,7 +107,18 @@ RUN mkdir -p /var/www/html /app /data
 # Copy app files
 COPY frontend/hvac-dashboard.html /var/www/html/index.html
 COPY frontend/kiosk.html /var/www/html/kiosk.html
-COPY api.py auth.py state.py models.py worker.py maintenance_logic.py notify.py /app/
+# Glob rather than an enumerated file list on purpose — this exact
+# line has been the site of two separate real bugs (maintenance_logic.py
+# /notify.py once, logging_config.py the second time), both the same
+# root cause: a new top-level module gets created and wired into
+# api.py's imports, works perfectly under pytest (which imports
+# directly from the repo root via sys.path, never touching this line
+# at all), and the container silently ships broken because nobody
+# remembered this COPY line needed the new filename added too. A glob
+# means there's nothing to remember — any .py file that belongs at
+# the repo root (never test files; those live under tests/, which this
+# doesn't recurse into) ships automatically.
+COPY *.py /app/
 COPY routers/ /app/routers/
 
 # Inject build version into dashboard

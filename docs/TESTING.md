@@ -27,10 +27,10 @@ pytest tests/test_max_temp.py::test_hysteresis_turns_off_one_degree_below_max
 ## Run with coverage
 
 ```bash
-pytest --cov=api --cov=auth --cov=state --cov=models --cov=worker --cov=routers --cov=maintenance_logic --cov=notify --cov-report=term-missing
+pytest --cov=api --cov=auth --cov=state --cov=models --cov=worker --cov=routers --cov=maintenance_logic --cov=notify --cov=logging_config --cov-report=term-missing
 ```
 
-As of the last full pass: **99% overall** (1882 statements, 2 missing), with every file at 92%+ (`maintenance_logic.py`'s only gap is a defensive `except` branch for a malformed `last_done_at` timestamp). The remaining gaps are mostly `_background_worker`'s outer `while True` loop shell (its sub-functions — polling, scheduling, watchdog, maintenance checks — are all tested directly and thoroughly; the loop shell itself is inherently low-value to unit test) and scattered exception-handling edge cases in file I/O and network discovery.
+As of the last full pass: **99% overall** (1995 statements, 2 missing), with every file at 92%+ (`maintenance_logic.py`'s only gap is a defensive `except` branch for a malformed `last_done_at` timestamp). The remaining gaps are mostly `_background_worker`'s outer `while True` loop shell (its sub-functions — polling, scheduling, watchdog, maintenance checks — are all tested directly and thoroughly; the loop shell itself is inherently low-value to unit test) and scattered exception-handling edge cases in file I/O and network discovery.
 
 ## What's covered
 
@@ -89,6 +89,54 @@ log entries, timezone mismatches, schedule timing drift, max-temp
 hysteresis not firing, etc.). When you fix one, add a test that would
 have caught it — `test_max_temp.py` has good examples of this pattern
 (each test's docstring explains which real bug it guards against).
+
+---
+
+## Linting and formatting
+
+Python is linted with [ruff](https://docs.astral.sh/ruff/) (config:
+`pyproject.toml`), enforced in CI via `ruff check .` — this replaced a
+bare `pyflakes` call that only caught unused imports/variables; ruff's
+selected rule set (`F`, `E`, `W`, `I`, `UP`, `B` — see the config file's
+own comment for why this specific selection and not ruff's full
+default) catches meaningfully more without the noise a fresh-project
+default ruleset would produce on a mature, pre-existing codebase.
+
+```bash
+ruff check .          # what CI runs
+ruff check . --fix    # auto-fix what's safely fixable
+```
+
+`ruff format` is configured (same file) but **not** run in CI or
+enforced anywhere — reformatting ~8,000 lines of already-working,
+already-tested code in one pass would produce an enormous diff with no
+correctness benefit, and `ruff format`'s `target-version = "py314"`
+has a confirmed, currently-open upstream bug that corrupts multi-
+exception `except (A, B):` clauses (this codebase has one, in
+`maintenance_logic.py`) — see `pyproject.toml`'s own comment for the
+specific issue numbers. `target-version` is pinned to `"py313"`
+specifically to avoid it. It's available to run by hand:
+
+```bash
+ruff format --check .   # see what would change, without changing it
+ruff format .           # apply it — fine for a file you're already
+                         # substantially rewriting for another reason
+```
+
+JS tooling is `eslint` + `prettier`, both enforced in CI, deliberately
+scoped to `tests-js/*.js` only — not `frontend/*.html`. Those two files
+ship embedded JS with no build step by design (see `package.json`'s
+own description for the full reasoning); running a formatter across
+~4,000 lines of already-shipped production markup in one pass would
+produce exactly the same "enormous low-value diff" problem `ruff
+format` has on the Python side, for the same reason.
+
+```bash
+npm run lint:js           # eslint (what CI runs)
+npm run lint:js:fix       # auto-fix what's safely fixable
+npm run format:js:check   # prettier (what CI runs)
+npm run format:js         # apply formatting
+```
 
 ---
 
@@ -241,16 +289,16 @@ assert against those instead.
 Three GitHub Actions workflows:
 
 - **`tests.yml`** — runs on every push/PR to `main`, `develop`, and
-  `release`: the full pytest suite, `pyflakes`, both dashboard and
-  kiosk JS syntax checks, `npm install` (for the jsdom-based suites'
-  dependency), and the full JS unit test suite.
+  `release`: the full pytest suite, `ruff check` (Python lint), both
+  dashboard and kiosk JS syntax checks, `npm ci`, `eslint`/`prettier
+  --check` on `tests-js/`, and the full JS unit test suite.
 - **`ci.yml`** — runs on push to `main`/`develop` and PRs to
   `main`/`release`: builds the real Docker image, scans it with Trivy,
   **actually boots the container and curls `/health`, `/`, and `/api/`**
   — this is what would catch a startup failure like a missing file in
   the Dockerfile's `COPY` line or a broken import chain, since those
   fail silently in a filesystem-only scan — lints all Python files
-  with `pyflakes`, and validates `nginx.conf`.
+  with `ruff check`, and validates `nginx.conf`.
 - **`docker-release.yml`** — builds and pushes multi-arch images to
   Docker Hub, triggered only on version tags. Scans with Trivy and
   gates the push on CRITICAL/HIGH findings, but — unlike `ci.yml` —

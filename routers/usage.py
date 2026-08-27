@@ -3,18 +3,17 @@
 import csv
 import datetime
 import io
-from typing import Optional
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from state import _state, _lock, _save_raw, _clear_log_file, _month
+from state import _clear_log_file, _lock, _month, _save_raw, _state
 
 router = APIRouter(tags=["usage"])
 
 
 @router.get("/usage/summary")
-async def usage_summary(month: Optional[str] = None):
+async def usage_summary(month: str | None = None):
     target = month or _month()
     usage = _state["usage"]
     result = {}
@@ -81,7 +80,7 @@ async def usage_rolling30():
 
 
 @router.get("/usage/export-csv")
-async def export_csv(month: Optional[str] = None):
+async def export_csv(month: str | None = None):
     """Export monthly usage as CSV."""
     target = month or _month()
     usage = _state["usage"]
@@ -119,12 +118,12 @@ async def clear_logs():
 
 
 @router.get("/logs")
-async def get_logs(level: Optional[str] = None, limit: int = 100):
+async def get_logs(level: str | None = None, limit: int = 100):
     logs = _state["logs"]
     level_order = {"err": 3, "warn": 2, "ok": 1, "info": 0}
     if level and level.endswith("+"):
         min_level = level_order.get(level[:-1], 0)
-        logs = [l for l in logs if level_order.get(l["level"], 0) >= min_level]
+        logs = [entry for entry in logs if level_order.get(entry["level"], 0) >= min_level]
     elif level and level != "all":
-        logs = [l for l in logs if l["level"] == level]
+        logs = [entry for entry in logs if entry["level"] == level]
     return {"logs": logs[:limit]}
