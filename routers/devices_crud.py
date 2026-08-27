@@ -2,8 +2,8 @@
 
 from fastapi import APIRouter
 
-from state import DEVICE_DEFAULTS, _lock, _state, _save_raw, _add_log
 from models import DeviceConfig
+from state import DEVICE_DEFAULTS, _add_log, _lock, _save_raw, _state
 
 router = APIRouter(tags=["devices"])
 

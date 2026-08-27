@@ -19,15 +19,39 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+from logging_config import AccessLogMiddleware, configure_logging
+
+# Must run before importing auth/routers/state/worker below, not just
+# before this module's own first log call — state.py runs
+# `_state = _load_raw()` at *module import time* (not lazily inside a
+# function), and _load_raw() logs immediately on a fresh install
+# ("No state file found — starting fresh"). Importing state.py (even
+# transitively, via auth/routers/worker) before configure_logging()
+# runs means that one line escapes the format this sets up entirely,
+# falling back to Python logging's default handler instead. Confirmed
+# by testing LOG_FORMAT=json end-to-end: that line printed as plain
+# text while every subsequent line was correctly JSON until this
+# import was reordered.
+# LOG_FORMAT=json switches to structured JSON output — see
+# logging_config.py's own docstring for the reasoning on why text
+# stays the default.
+configure_logging()
 log = logging.getLogger("hvac")
 
-from state import _lock, _state, _load_log_file, _save_raw, _add_log
-from auth import router as auth_router, auth_middleware, generate_recovery_key, _ensure_default_admin
-from worker import _background_worker
-
-from routers import devices_crud, devices_control, devices_discovery
-from routers import schedules, settings, usage, system, maintenance
+from auth import _ensure_default_admin, auth_middleware, generate_recovery_key  # noqa: E402
+from auth import router as auth_router  # noqa: E402
+from routers import (  # noqa: E402
+    devices_control,
+    devices_crud,
+    devices_discovery,
+    maintenance,
+    schedules,
+    settings,
+    system,
+    usage,
+)
+from state import _add_log, _load_log_file, _lock, _save_raw, _state  # noqa: E402
+from worker import _background_worker  # noqa: E402
 
 # holds a strong reference to the background worker task so it isn't
 # garbage-collected mid-run (asyncio only keeps a weak reference otherwise)
@@ -97,6 +121,10 @@ _cors_origins = [o.strip() for o in os.environ.get("CORS_ALLOWED_ORIGINS", "").s
 if _cors_origins:
     app.add_middleware(CORSMiddleware, allow_origins=_cors_origins, allow_methods=["*"], allow_headers=["*"])
 app.middleware("http")(auth_middleware)
+# added last so it wraps outermost — sees every request/response,
+# including ones auth_middleware rejects with 401/403, rather than
+# only the ones that reach a route handler
+app.add_middleware(AccessLogMiddleware)
 
 app.include_router(auth_router)
 app.include_router(devices_crud.router)

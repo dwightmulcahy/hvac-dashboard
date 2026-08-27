@@ -15,7 +15,13 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { loadDashboardFunctions, readDashboardScript, listAllSentinelRegions, checkAllSentinelsConsumed, REGIONS } = require("./extract.js");
+const {
+  loadDashboardFunctions,
+  readDashboardScript,
+  listAllSentinelRegions,
+  checkAllSentinelsConsumed,
+  REGIONS,
+} = require("./extract.js");
 
 const fns = loadDashboardFunctions();
 
@@ -28,12 +34,16 @@ test("every TESTABLE sentinel region in the dashboard is covered by REGIONS", ()
   const src = readDashboardScript();
   const present = listAllSentinelRegions(src);
   for (const name of present) {
-    assert.ok(REGIONS.includes(name), `TESTABLE:${name} exists in hvac-dashboard.html but isn't in extract.js's REGIONS list`);
+    assert.ok(
+      REGIONS.includes(name),
+      `TESTABLE:${name} exists in hvac-dashboard.html but isn't in extract.js's REGIONS list`,
+    );
   }
 });
 
 test("checkAllSentinelsConsumed throws for an unknown region", () => {
-  const fakeSource = "// ── TESTABLE:totally-new-region:start ──\ncode\n// ── TESTABLE:totally-new-region:end ──";
+  const fakeSource =
+    "// ── TESTABLE:totally-new-region:start ──\ncode\n// ── TESTABLE:totally-new-region:end ──";
   assert.throws(() => checkAllSentinelsConsumed(fakeSource), /totally-new-region/);
 });
 
@@ -85,7 +95,12 @@ test("estWatts returns 0 when mode is FAN_ONLY", () => {
 });
 
 test("estWatts returns null when btu is missing", () => {
-  const w = fns.estWatts({ mode: "COOL", current_temperature: "28", target_temperature: "22" }, {}, null, 20);
+  const w = fns.estWatts(
+    { mode: "COOL", current_temperature: "28", target_temperature: "22" },
+    {},
+    null,
+    20,
+  );
   assert.equal(w, null);
 });
 
@@ -97,7 +112,8 @@ test("estWatts returns a positive number for a normal cooling scenario", () => {
   const w = fns.estWatts(
     { mode: "COOL", current_temperature: "28", target_temperature: "22" },
     { outdoor_temp: { value: 33 } },
-    24000, 20
+    24000,
+    20,
   );
   assert.ok(w > 0);
   assert.ok(w <= fns.maxWatts(24000, 20)); // never exceeds the unit's rated max
@@ -105,10 +121,16 @@ test("estWatts returns a positive number for a normal cooling scenario", () => {
 
 test("estWatts load factor increases with larger indoor/target delta", () => {
   const small = fns.estWatts(
-    { mode: "COOL", current_temperature: "24", target_temperature: "23" }, {}, 24000, 20
+    { mode: "COOL", current_temperature: "24", target_temperature: "23" },
+    {},
+    24000,
+    20,
   );
   const large = fns.estWatts(
-    { mode: "COOL", current_temperature: "30", target_temperature: "20" }, {}, 24000, 20
+    { mode: "COOL", current_temperature: "30", target_temperature: "20" },
+    {},
+    24000,
+    20,
   );
   assert.ok(large > small);
 });
@@ -305,7 +327,10 @@ test("buildOnTimeLookup treats a missing runtime_hours as 0 minutes, not NaN/und
 });
 
 test("buildOnTimeLookup skips entries with no host rather than creating an 'undefined' key", () => {
-  const lookup = fns.buildOnTimeLookup([{ runtime_hours: 5 }, { host: "ac1.local", runtime_hours: 1 }]);
+  const lookup = fns.buildOnTimeLookup([
+    { runtime_hours: 5 },
+    { host: "ac1.local", runtime_hours: 1 },
+  ]);
   assert.deepEqual(Object.keys(lookup), ["ac1.local"]);
 });
 
@@ -346,7 +371,7 @@ test("fmtDays sorts unordered input before matching presets", () => {
 test("fmtActions joins power/mode/temp with middle dots", () => {
   assert.equal(
     fns.fmtActions({ power: "on", mode: "COOL", temp: 24 }),
-    "power on · mode cool · temp 24°C"
+    "power on · mode cool · temp 24°C",
   );
 });
 
@@ -516,7 +541,7 @@ test("matchesFilter 'X+' matches X and anything more severe", () => {
 
 test("effectiveRateUsd matches hand-computed tier math for the current RATE_DEFAULTS", () => {
   const { monthlyKwh, exchangeRate, tiers } = fns.RATE_DEFAULTS;
-  const tier = tiers.find(t => monthlyKwh <= t.upTo) || tiers[tiers.length - 1];
+  const tier = tiers.find((t) => monthlyKwh <= t.upTo) || tiers[tiers.length - 1];
   const expected = tier.colonesPerKwh / exchangeRate;
   assert.equal(fns.effectiveRateUsd(), expected);
 });

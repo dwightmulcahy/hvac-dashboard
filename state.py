@@ -20,7 +20,6 @@ import json
 import logging
 import os
 import shutil
-from typing import Optional
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("hvac")
@@ -59,7 +58,8 @@ DEFAULT_STATE = {
         "verbose_logging": False,
         "temp_unit": "both",          # "C", "F", or "both"
         "watchtower_webhook": "",     # optional webhook URL for update notifications
-        "notification_webhook": "",   # optional webhook URL for device-offline / maintenance-overdue / schedule-failure alerts
+        # optional webhook URL for device-offline / maintenance-overdue / schedule-failure alerts
+        "notification_webhook": "",
         "nightly_reboot_time": "03:00",  # HH:MM to reboot all dongles, "" to disable
         "kiosk_quiet_hours_enabled": False,
         "kiosk_quiet_start": "22:00",   # HH:MM — dims the kiosk's screensaver during this window
@@ -85,7 +85,8 @@ DEVICE_DEFAULTS = {
     "watchdog_minutes": 5,
     "lock_temp": False,
     "locked_target_temp": None,
-    "has_ir_emitter": False,  # gates IR-dependent features (display toggle, etc.) — most units don't have one soldered on
+    # gates IR-dependent features (display toggle, etc.) — most units don't have one soldered on
+    "has_ir_emitter": False,
     "_max_temp_active": False,
     "_pre_autocool_mode": None,
     "_pre_autocool_temp": None,
@@ -112,7 +113,8 @@ MAINTENANCE_DEFAULTS = {
     "last_done_at": None,
     "last_done_runtime_minutes": None,
     "notes": None,
-    "_notified_overdue": False,   # set by worker._check_maintenance, cleared on completion/no-longer-overdue — prevents re-notifying every loop cycle
+    # set by worker._check_maintenance, cleared on completion/no-longer-overdue — prevents re-notifying every loop cycle
+    "_notified_overdue": False,
     "completed_log": [],          # [{completed_at, runtime_hours_at_completion}] service history, last 50
 }
 
@@ -207,7 +209,7 @@ def _utcnow() -> datetime.datetime:
     """Naive UTC datetime — behaves identically to the deprecated
     datetime.datetime.utcnow(), safe drop-in replacement everywhere
     we already store/compare naive-UTC ISO strings."""
-    return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    return datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
 
 
 def _now_iso() -> str:
@@ -245,7 +247,7 @@ def _effective_rate() -> float:
     return s["tiers"][-1]["colones_per_kwh"] / xr
 
 
-def _est_watts(device_state: dict, btu: int, seer: int) -> Optional[float]:
+def _est_watts(device_state: dict, btu: int, seer: int) -> float | None:
     s = device_state
     mode = s.get("mode", "OFF")
     if mode in ("OFF", "FAN_ONLY"):

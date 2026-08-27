@@ -4,7 +4,7 @@ import datetime
 
 from fastapi import APIRouter
 
-from state import DEVICE_DEFAULTS, _lock, _state, _load_raw, _save_raw, _add_log, _now_iso
+from state import DEVICE_DEFAULTS, _add_log, _load_raw, _lock, _now_iso, _save_raw, _state
 from worker import _fetch_exchange_rate
 
 router = APIRouter(tags=["settings"])

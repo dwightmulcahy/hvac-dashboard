@@ -2,13 +2,12 @@
 
 import asyncio
 import ipaddress
-from typing import Optional
 
 import httpx
 from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
-from state import _state, _add_log
+from state import _add_log, _state
 
 router = APIRouter(tags=["devices"])
 
@@ -40,7 +39,7 @@ async def ota_upload(host: str, firmware: UploadFile):
 
 
 @router.get("/discover")
-async def discover_devices(subnet: Optional[str] = None):
+async def discover_devices(subnet: str | None = None):
     """Scan network for ESPHome devices running Midea climate control."""
     if not subnet:
         for d in _state["devices"]:
@@ -57,7 +56,7 @@ async def discover_devices(subnet: Optional[str] = None):
     try:
         network = ipaddress.ip_network(subnet, strict=False)
     except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid subnet: {subnet}")
+        raise HTTPException(status_code=400, detail=f"Invalid subnet: {subnet}") from None
 
     _add_log(f"🔍 Scanning {subnet} for ESPHome devices…", "info")
     found = []
@@ -112,7 +111,8 @@ async def discover_devices(subnet: Optional[str] = None):
                         pass
                     # smart default name: prefer resolved hostname, else MAC suffix, else IP
                     if hostname and not hostname.replace(".", "").isdigit():
-                        suggested_name = hostname.split(".")[0].replace("air-conditioner-", "AC ").replace("-", " ").title()
+                        clean_hostname = hostname.split(".")[0].replace("air-conditioner-", "AC ")
+                        suggested_name = clean_hostname.replace("-", " ").title()
                     elif mac_suffix:
                         suggested_name = f"AC {mac_suffix}"
                     else:

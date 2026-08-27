@@ -35,22 +35,76 @@ const html = fs.readFileSync(path.join(__dirname, "..", "frontend", "kiosk.html"
 
 const MOCK_DEVICES = {
   devices: [
-    { host: "ac1.local", name: "Main LR", btu: 24000, seer: 20, max_temp: 30, beeper: "ON",
-      lock_temp: false, locked_target_temp: null, _stale: false, _max_temp_active: false,
-      _on_time_minutes: 42, _firmware_version: "2026.7.0",
-      state: { mode: "COOL", current_temperature: "24", target_temperature: "22", outdoor_temp: 31, wifi_signal: -48, actual_power_watts: 900 } },
-    { host: "ac2.local", name: "Kitchen", btu: 18000, seer: 20, max_temp: null, beeper: "OFF",
-      lock_temp: false, locked_target_temp: null, _stale: true, _max_temp_active: false,
-      _on_time_minutes: 0, _firmware_version: null,
-      state: {} },
-    { host: "ac3.local", name: "Master BR", btu: 24000, seer: 20, max_temp: null, beeper: "OFF",
-      lock_temp: true, locked_target_temp: 21, _stale: false, _max_temp_active: false,
-      _on_time_minutes: 10, _firmware_version: "2026.7.0",
-      state: { mode: "COOL", current_temperature: "23", target_temperature: "21", outdoor_temp: 31, wifi_signal: -55, actual_power_watts: 500 } },
+    {
+      host: "ac1.local",
+      name: "Main LR",
+      btu: 24000,
+      seer: 20,
+      max_temp: 30,
+      beeper: "ON",
+      lock_temp: false,
+      locked_target_temp: null,
+      _stale: false,
+      _max_temp_active: false,
+      _on_time_minutes: 42,
+      _firmware_version: "2026.7.0",
+      state: {
+        mode: "COOL",
+        current_temperature: "24",
+        target_temperature: "22",
+        outdoor_temp: 31,
+        wifi_signal: -48,
+        actual_power_watts: 900,
+      },
+    },
+    {
+      host: "ac2.local",
+      name: "Kitchen",
+      btu: 18000,
+      seer: 20,
+      max_temp: null,
+      beeper: "OFF",
+      lock_temp: false,
+      locked_target_temp: null,
+      _stale: true,
+      _max_temp_active: false,
+      _on_time_minutes: 0,
+      _firmware_version: null,
+      state: {},
+    },
+    {
+      host: "ac3.local",
+      name: "Master BR",
+      btu: 24000,
+      seer: 20,
+      max_temp: null,
+      beeper: "OFF",
+      lock_temp: true,
+      locked_target_temp: 21,
+      _stale: false,
+      _max_temp_active: false,
+      _on_time_minutes: 10,
+      _firmware_version: "2026.7.0",
+      state: {
+        mode: "COOL",
+        current_temperature: "23",
+        target_temperature: "21",
+        outdoor_temp: 31,
+        wifi_signal: -55,
+        actual_power_watts: 500,
+      },
+    },
   ],
 };
-const MOCK_SETTINGS = { exchangeRate: 455, monthlyKwh: 400, dailyHrs: 8, tiered: true, tiers: [{ upTo: 999999, colonesPerKwh: 70 }] };
-const fmtHM = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+const MOCK_SETTINGS = {
+  exchangeRate: 455,
+  monthlyKwh: 400,
+  dailyHrs: 8,
+  tiered: true,
+  tiers: [{ upTo: 999999, colonesPerKwh: 70 }],
+};
+const fmtHM = (d) =>
+  `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 
 // Schedules are computed fresh each time /api/schedules is actually
 // fetched, not once at file load — an earlier version of this test
@@ -62,8 +116,24 @@ const fmtHM = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMin
 // logic computed its own fresh new Date(). Not a kiosk.html bug —
 // a flakiness bug in the test's own fixture construction.
 const STATIC_SCHEDULES = [
-  { device_name: "Kitchen", time: "21:00", days: [0, 1, 2, 3, 4, 5, 6], enabled: true, mode: "COOL", temp: 22, power: "on" },
-  { device_name: "Main LR", time: "07:00", days: [1, 2, 3, 4, 5], enabled: true, mode: null, temp: null, power: "off" },
+  {
+    device_name: "Kitchen",
+    time: "21:00",
+    days: [0, 1, 2, 3, 4, 5, 6],
+    enabled: true,
+    mode: "COOL",
+    temp: 22,
+    power: "on",
+  },
+  {
+    device_name: "Main LR",
+    time: "07:00",
+    days: [1, 2, 3, 4, 5],
+    enabled: true,
+    mode: null,
+    temp: null,
+    power: "off",
+  },
   { device_name: "Disabled One", time: "05:00", days: [0], enabled: false },
 ];
 function buildMockSchedules() {
@@ -78,7 +148,16 @@ function buildMockSchedules() {
       // matching (already covered separately below), and every-day
       // sidesteps the exact same real-time day-boundary race described
       // above rather than reintroducing it.
-      { device_name: "Currently Active", time: activeStart, end_time: activeEnd, days: [0, 1, 2, 3, 4, 5, 6], enabled: true, mode: "COOL", temp: 21, power: "on" },
+      {
+        device_name: "Currently Active",
+        time: activeStart,
+        end_time: activeEnd,
+        days: [0, 1, 2, 3, 4, 5, 6],
+        enabled: true,
+        mode: "COOL",
+        temp: 21,
+        power: "on",
+      },
     ],
   };
 }
@@ -89,23 +168,44 @@ const MOCK_ROOT = { status: "ok", version: "v1.13.0", git_sha: "abc1234" };
 // whole-house item due soon (no device_host — shouldn't attach to
 // any tile badge), and one clean item to prove sort order actually
 // pushes overdue/due-soon ahead of it rather than just listing as-is.
-let MOCK_MAINTENANCE = [
-  { id: "m-clean", name: "Coil check", device_host: "ac3.local", device_name: "Master BR",
-    trigger_type: "runtime_hours", interval_hours: 500, status: { overdue: false, due_soon: false, hours_remaining: 200 } },
-  { id: "m-overdue", name: "Clean filters", device_host: "ac1.local", device_name: "Main LR",
-    trigger_type: "days", interval_days: 90, status: { overdue: true, due_soon: false, days_remaining: -5 } },
-  { id: "m-soon", name: "Annual service", device_host: null, device_name: null,
-    trigger_type: "days", interval_days: 365, status: { overdue: false, due_soon: true, days_remaining: 3 } },
+const MOCK_MAINTENANCE = [
+  {
+    id: "m-clean",
+    name: "Coil check",
+    device_host: "ac3.local",
+    device_name: "Master BR",
+    trigger_type: "runtime_hours",
+    interval_hours: 500,
+    status: { overdue: false, due_soon: false, hours_remaining: 200 },
+  },
+  {
+    id: "m-overdue",
+    name: "Clean filters",
+    device_host: "ac1.local",
+    device_name: "Main LR",
+    trigger_type: "days",
+    interval_days: 90,
+    status: { overdue: true, due_soon: false, days_remaining: -5 },
+  },
+  {
+    id: "m-soon",
+    name: "Annual service",
+    device_host: null,
+    device_name: null,
+    trigger_type: "days",
+    interval_days: 365,
+    status: { overdue: false, due_soon: true, days_remaining: 3 },
+  },
 ];
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 test("kiosk.html end-to-end functional behavior", async (t) => {
-  let beeperCalls = [];
+  const beeperCalls = [];
   let cmdCalls = [];
   let vacationCalls = [];
-  let usageSummaryCalls = [];
-  let maintenanceCompleteCalls = [];
+  const usageSummaryCalls = [];
+  const maintenanceCompleteCalls = [];
   let simulateNetworkDown = false;
 
   const mockFetch = async (url, opts) => {
@@ -114,15 +214,42 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
     if (u.endsWith("/api/")) return { ok: true, status: 200, json: async () => MOCK_ROOT };
     if (u.includes("/api/auth/login-pin")) {
       const body = JSON.parse(opts.body);
-      if (body.pin === "4821") return { ok: true, status: 200, json: async () => ({ ok: true, token: "tok", username: "dwight", role: "operator", must_change_password: false }) };
-      if (body.pin === "1357") return { ok: true, status: 200, json: async () => ({ ok: true, token: "tok-viewer", username: "guest", role: "viewer", must_change_password: false }) };
+      if (body.pin === "4821")
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ok: true,
+            token: "tok",
+            username: "dwight",
+            role: "operator",
+            must_change_password: false,
+          }),
+        };
+      if (body.pin === "1357")
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ok: true,
+            token: "tok-viewer",
+            username: "guest",
+            role: "viewer",
+            must_change_password: false,
+          }),
+        };
       return { ok: false, status: 401, json: async () => ({ detail: "Incorrect PIN" }) };
     }
-    if (u.includes("/api/auth/logout")) return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    if (u.includes("/api/auth/logout"))
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
     if (u.includes("/vacation/")) {
       vacationCalls.push(u);
       MOCK_SETTINGS.vacation_mode = u.includes("/vacation/on");
-      return { ok: true, status: 200, json: async () => ({ ok: true, vacation_mode: MOCK_SETTINGS.vacation_mode }) };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, vacation_mode: MOCK_SETTINGS.vacation_mode }),
+      };
     }
     if (u.includes("/beeper/")) {
       beeperCalls.push(u);
@@ -142,20 +269,37 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
       if (item) item.status = { ...item.status, overdue: false, due_soon: false };
       return { ok: true, status: 200, json: async () => ({ ok: true }) };
     }
-    if (u.includes("/api/maintenance")) return { ok: true, status: 200, json: async () => ({ maintenance: MOCK_MAINTENANCE }) };
-    if (u.includes("/api/devices")) return { ok: true, status: 200, json: async () => MOCK_DEVICES };
-    if (u.includes("/api/settings")) return { ok: true, status: 200, json: async () => MOCK_SETTINGS };
-    if (u.includes("/api/schedules")) return { ok: true, status: 200, json: async () => buildMockSchedules() };
+    if (u.includes("/api/maintenance"))
+      return { ok: true, status: 200, json: async () => ({ maintenance: MOCK_MAINTENANCE }) };
+    if (u.includes("/api/devices"))
+      return { ok: true, status: 200, json: async () => MOCK_DEVICES };
+    if (u.includes("/api/settings"))
+      return { ok: true, status: 200, json: async () => MOCK_SETTINGS };
+    if (u.includes("/api/schedules"))
+      return { ok: true, status: 200, json: async () => buildMockSchedules() };
     if (u.includes("/api/usage/summary")) {
       usageSummaryCalls.push(u);
       // Deliberately different from Main LR's cumulative
       // _on_time_minutes fixture (42) — if the kiosk were still
       // showing the all-time cumulative field instead of fetching
       // today's actual runtime, this test would see 42m, not 15m.
-      return { ok: true, status: 200, json: async () => ({
-        month: "today",
-        devices: [{ host: "ac1.local", name: "Main LR", runtime_hours: 0.25, est_kwh: 0.1, peak_watts: 900, days_active: 1 }],
-      }) };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          month: "today",
+          devices: [
+            {
+              host: "ac1.local",
+              name: "Main LR",
+              runtime_hours: 0.25,
+              est_kwh: 0.1,
+              peak_watts: 900,
+              days_active: 1,
+            },
+          ],
+        }),
+      };
     }
     return { ok: false, status: 404, json: async () => ({}) };
   };
@@ -173,7 +317,10 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   await wait(50);
 
   const $ = (sel) => window.document.querySelector(sel);
-  const tap = (d) => [...window.document.querySelectorAll("[data-key]")].find((b) => b.dataset.key === d).dispatchEvent(new window.Event("click", { bubbles: true }));
+  const tap = (d) =>
+    [...window.document.querySelectorAll("[data-key]")]
+      .find((b) => b.dataset.key === d)
+      .dispatchEvent(new window.Event("click", { bubbles: true }));
 
   // ── PIN entry / unlock ─────────────────────────────────────
 
@@ -181,7 +328,10 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   await wait(100);
 
   await t.test("unlocks successfully with the correct PIN", () => {
-    assert.ok(window.getComputedStyle($("#main-screen")).display !== "none" || $("#main-screen").classList.contains("active"));
+    assert.ok(
+      window.getComputedStyle($("#main-screen")).display !== "none" ||
+        $("#main-screen").classList.contains("active"),
+    );
   });
 
   await t.test("header badge shows username alongside role, not just role", () => {
@@ -207,7 +357,9 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   });
 
   await t.test("grid tile temp font size is readably large (>22px)", () => {
-    const tileTemp = [...$(".tile").querySelectorAll("span")].find((s) => /\d+°\/\d+°/.test(s.textContent));
+    const tileTemp = [...$(".tile").querySelectorAll("span")].find((s) =>
+      /\d+°\/\d+°/.test(s.textContent),
+    );
     assert.ok(parseInt(window.getComputedStyle(tileTemp).fontSize) > 22);
   });
 
@@ -218,8 +370,13 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
     // daily — genuinely not what "on-time" reads as at a glance on a
     // wall panel. It now comes from GET /usage/summary scoped to
     // today's date specifically.
-    const mainLrTile = [...window.document.querySelectorAll(".tile")].find((tile) => tile.textContent.includes("Main LR"));
-    assert.ok(mainLrTile.textContent.includes("15m"), `expected today's 15m runtime, not the cumulative 42m (tile text: "${mainLrTile.textContent.replace(/\s+/g, " ")}")`);
+    const mainLrTile = [...window.document.querySelectorAll(".tile")].find((tile) =>
+      tile.textContent.includes("Main LR"),
+    );
+    assert.ok(
+      mainLrTile.textContent.includes("15m"),
+      `expected today's 15m runtime, not the cumulative 42m (tile text: "${mainLrTile.textContent.replace(/\s+/g, " ")}")`,
+    );
     assert.ok(!mainLrTile.textContent.includes("42m"));
   });
 
@@ -250,20 +407,33 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   await t.test("wifi stat shows the actual dBm meter and value, not just a word", () => {
     const detailHtml = $("#grid-detail").innerHTML;
     assert.match(detailHtml, /dBm/);
-    const wifiBars = [...$("#grid-detail").querySelectorAll("span")].filter((s) => s.style.width === "5px");
+    const wifiBars = [...$("#grid-detail").querySelectorAll("span")].filter(
+      (s) => s.style.width === "5px",
+    );
     assert.equal(wifiBars.length, 4);
   });
 
-  await t.test("detail ON TODAY stat shows today's runtime, correctly labeled, calls usage/summary with today's date", () => {
-    const detailHtml = $("#grid-detail").innerHTML;
-    assert.ok(detailHtml.includes("ON TODAY"), "label should say ON TODAY, not the ambiguous old ON-TIME");
-    assert.ok(detailHtml.includes("15m") && !detailHtml.includes("42m"));
-    const today = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`;
-    assert.ok(usageSummaryCalls.some((u) => u.includes(`month=${today}`)), `usage/summary should be called with today's local date (calls: ${JSON.stringify(usageSummaryCalls)})`);
-  });
+  await t.test(
+    "detail ON TODAY stat shows today's runtime, correctly labeled, calls usage/summary with today's date",
+    () => {
+      const detailHtml = $("#grid-detail").innerHTML;
+      assert.ok(
+        detailHtml.includes("ON TODAY"),
+        "label should say ON TODAY, not the ambiguous old ON-TIME",
+      );
+      assert.ok(detailHtml.includes("15m") && !detailHtml.includes("42m"));
+      const today = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`;
+      assert.ok(
+        usageSummaryCalls.some((u) => u.includes(`month=${today}`)),
+        `usage/summary should be called with today's local date (calls: ${JSON.stringify(usageSummaryCalls)})`,
+      );
+    },
+  );
 
   await t.test("hero temp font size is prominent (>34px)", () => {
-    const heroTemp = [...$("#grid-detail").querySelectorAll("span")].find((s) => s.textContent.includes("°C"));
+    const heroTemp = [...$("#grid-detail").querySelectorAll("span")].find((s) =>
+      s.textContent.includes("°C"),
+    );
     assert.ok(parseInt(window.getComputedStyle(heroTemp).fontSize) > 34);
   });
 
@@ -294,17 +464,24 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
 
   await t.test("tapping + updates the display instantly, before any network round trip", () => {
     assert.ok($("#grid-detail").textContent.includes("22.5°C"));
-    assert.equal(cmdCalls.length, 0, "command should not have been sent yet — still inside the debounce window");
+    assert.equal(
+      cmdCalls.length,
+      0,
+      "command should not have been sent yet — still inside the debounce window",
+    );
   });
 
   await wait(650);
 
-  await t.test("debounced send fires after the window closes, using the real 0.5°C step from device state", () => {
-    // Regression coverage: this used to be hardcoded to a 1°C step
-    // regardless of what the dongle actually reported.
-    assert.equal(cmdCalls.length, 1);
-    assert.equal(cmdCalls[0].body.params.target_temperature, 22.5);
-  });
+  await t.test(
+    "debounced send fires after the window closes, using the real 0.5°C step from device state",
+    () => {
+      // Regression coverage: this used to be hardcoded to a 1°C step
+      // regardless of what the dongle actually reported.
+      assert.equal(cmdCalls.length, 1);
+      assert.equal(cmdCalls[0].body.params.target_temperature, 22.5);
+    },
+  );
 
   cmdCalls = [];
   upBtn.dispatchEvent(new window.Event("click", { bubbles: true }));
@@ -337,7 +514,9 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
 
   // ── Schedules view ───────────────────────────────────────────
 
-  const nextCell = [...window.document.querySelectorAll("[data-action]")].find((c) => c.dataset.action === "schedules");
+  const nextCell = [...window.document.querySelectorAll("[data-action]")].find(
+    (c) => c.dataset.action === "schedules",
+  );
   await t.test("NEXT footer stat is tappable", () => {
     assert.ok(nextCell !== undefined);
   });
@@ -366,46 +545,62 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
     .find((d) => d.textContent === "Currently Active")
     ?.closest('div[style*="justify-content:space-between"]');
 
-  await t.test("a currently-active schedule (started, not yet ended) shows 'ends in', never 'starts in'", () => {
-    // Showing "starts in 8h" for something already mid-run would be
-    // straightforwardly wrong, not just incomplete.
-    assert.ok(activeRow !== undefined);
-    assert.ok(activeRow.textContent.includes("ends in"));
-    assert.ok(!activeRow.textContent.includes("starts in"));
-  });
+  await t.test(
+    "a currently-active schedule (started, not yet ended) shows 'ends in', never 'starts in'",
+    () => {
+      // Showing "starts in 8h" for something already mid-run would be
+      // straightforwardly wrong, not just incomplete.
+      assert.ok(activeRow !== undefined);
+      assert.ok(activeRow.textContent.includes("ends in"));
+      assert.ok(!activeRow.textContent.includes("starts in"));
+    },
+  );
 
-  await t.test("overnight end_time countdown is correct (~1h), not thrown a week off by day-matching", () => {
-    // Regression test for a real bug: an overnight end_time crossing
-    // midnight was matched against the wrong day-of-week, sending the
-    // computed countdown a full week into the future (145h instead of
-    // ~1h) for a schedule that was actually about to end shortly after
-    // midnight.
-    assert.match(activeRow.textContent, /ends in (\d+m|[01]h)/);
-  });
+  await t.test(
+    "overnight end_time countdown is correct (~1h), not thrown a week off by day-matching",
+    () => {
+      // Regression test for a real bug: an overnight end_time crossing
+      // midnight was matched against the wrong day-of-week, sending the
+      // computed countdown a full week into the future (145h instead of
+      // ~1h) for a schedule that was actually about to end shortly after
+      // midnight.
+      assert.match(activeRow.textContent, /ends in (\d+m|[01]h)/);
+    },
+  );
 
-  await t.test("schedule row text is readably large (device name >=16px) and sub-header retitles to 'Schedules'", () => {
-    const scheduleNameEl = [...$("#schedules-view").querySelectorAll("div")].find((d) => d.textContent.trim() === "Kitchen");
-    assert.ok(scheduleNameEl && parseInt(window.getComputedStyle(scheduleNameEl).fontSize) >= 16);
-    assert.ok($("#sub-header").textContent.includes("Schedules"));
-  });
+  await t.test(
+    "schedule row text is readably large (device name >=16px) and sub-header retitles to 'Schedules'",
+    () => {
+      const scheduleNameEl = [...$("#schedules-view").querySelectorAll("div")].find(
+        (d) => d.textContent.trim() === "Kitchen",
+      );
+      assert.ok(scheduleNameEl && parseInt(window.getComputedStyle(scheduleNameEl).fontSize) >= 16);
+      assert.ok($("#sub-header").textContent.includes("Schedules"));
+    },
+  );
 
   // ── Devices view ─────────────────────────────────────────────
 
   $("#sub-header").dispatchEvent(new window.Event("click", { bubbles: true }));
   await wait(50);
-  const onlineCell = [...window.document.querySelectorAll("[data-action]")].find((c) => c.dataset.action === "devices");
+  const onlineCell = [...window.document.querySelectorAll("[data-action]")].find(
+    (c) => c.dataset.action === "devices",
+  );
   await t.test("ONLINE footer stat is tappable", () => {
     assert.ok(onlineCell !== undefined);
   });
   onlineCell.dispatchEvent(new window.Event("click", { bubbles: true }));
   await wait(50);
 
-  await t.test("tapping ONLINE opens the devices view listing all devices, online and offline", () => {
-    assert.equal(window.getComputedStyle($("#devices-view")).display, "block");
-    const devText = $("#devices-view").textContent;
-    assert.ok(devText.includes("Main LR") && devText.includes("Kitchen"));
-    assert.ok(devText.includes("OFFLINE"));
-  });
+  await t.test(
+    "tapping ONLINE opens the devices view listing all devices, online and offline",
+    () => {
+      assert.equal(window.getComputedStyle($("#devices-view")).display, "block");
+      const devText = $("#devices-view").textContent;
+      assert.ok(devText.includes("Main LR") && devText.includes("Kitchen"));
+      assert.ok(devText.includes("OFFLINE"));
+    },
+  );
 
   // ── Screensaver: burn-in mitigation ──────────────────────────
 
@@ -415,21 +610,27 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   await wait(30);
   const pos1 = { left: $("#saver-content").style.left, top: $("#saver-content").style.top };
 
-  await t.test("showing the screensaver immediately positions the clock, not left at a default spot", () => {
-    assert.ok(pos1.left !== "" && pos1.top !== "");
-  });
+  await t.test(
+    "showing the screensaver immediately positions the clock, not left at a default spot",
+    () => {
+      assert.ok(pos1.left !== "" && pos1.top !== "");
+    },
+  );
 
   window.moveSaverContent();
   const pos2 = { left: $("#saver-content").style.left, top: $("#saver-content").style.top };
 
-  await t.test("the screensaver clock moves to a new position on each move call, for burn-in mitigation", () => {
-    // Note: jsdom has no real layout engine, so getBoundingClientRect()
-    // always returns zero-sized rects — this can verify the position
-    // genuinely changes, but not that it stays within real on-screen
-    // bounds against actual rendered text dimensions. That part relies
-    // on code review of the bounds math, not this test.
-    assert.ok(pos1.left !== pos2.left || pos1.top !== pos2.top);
-  });
+  await t.test(
+    "the screensaver clock moves to a new position on each move call, for burn-in mitigation",
+    () => {
+      // Note: jsdom has no real layout engine, so getBoundingClientRect()
+      // always returns zero-sized rects — this can verify the position
+      // genuinely changes, but not that it stays within real on-screen
+      // bounds against actual rendered text dimensions. That part relies
+      // on code review of the bounds math, not this test.
+      assert.ok(pos1.left !== pos2.left || pos1.top !== pos2.top);
+    },
+  );
 
   // Verifying the move interval is actually cleared on relock (not
   // left running invisibly in the background) isn't practically
@@ -490,7 +691,10 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
       .filter((t) => t === "Clean filters" || t === "Coil check" || t === "Annual service");
     const overdueIdx = rowNames.indexOf("Clean filters");
     const cleanIdx = rowNames.indexOf("Coil check");
-    assert.ok(overdueIdx !== -1 && cleanIdx !== -1 && overdueIdx < cleanIdx, `expected overdue item before the clean item (order: ${rowNames.join(", ")})`);
+    assert.ok(
+      overdueIdx !== -1 && cleanIdx !== -1 && overdueIdx < cleanIdx,
+      `expected overdue item before the clean item (order: ${rowNames.join(", ")})`,
+    );
   });
 
   await t.test("a whole-house item (no device_host) still appears in the list", () => {
@@ -504,15 +708,33 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   window.showSub("grid");
   await wait(20);
 
-  await t.test("the device-scoped overdue item (Main LR) shows a wrench badge on its own grid tile, while it's actually overdue", () => {
-    const wrenchPathFragment = "14.7 6.3";
-    const mainLrTile = [...window.document.querySelectorAll(".tile")].find((tile) => tile.textContent.includes("Main LR"));
-    const masterBrTile = [...window.document.querySelectorAll(".tile")].find((tile) => tile.textContent.includes("Master BR"));
-    const kitchenTile = [...window.document.querySelectorAll(".tile")].find((tile) => tile.textContent.includes("Kitchen"));
-    assert.ok(mainLrTile.innerHTML.includes(wrenchPathFragment), "Main LR tile (the one with the overdue item) shows the wrench badge");
-    assert.ok(!masterBrTile.innerHTML.includes(wrenchPathFragment), "Master BR tile (item not overdue) does not show a wrench badge");
-    assert.ok(!kitchenTile.innerHTML.includes(wrenchPathFragment), "Kitchen tile (no maintenance items at all) does not show a wrench badge");
-  });
+  await t.test(
+    "the device-scoped overdue item (Main LR) shows a wrench badge on its own grid tile, while it's actually overdue",
+    () => {
+      const wrenchPathFragment = "14.7 6.3";
+      const mainLrTile = [...window.document.querySelectorAll(".tile")].find((tile) =>
+        tile.textContent.includes("Main LR"),
+      );
+      const masterBrTile = [...window.document.querySelectorAll(".tile")].find((tile) =>
+        tile.textContent.includes("Master BR"),
+      );
+      const kitchenTile = [...window.document.querySelectorAll(".tile")].find((tile) =>
+        tile.textContent.includes("Kitchen"),
+      );
+      assert.ok(
+        mainLrTile.innerHTML.includes(wrenchPathFragment),
+        "Main LR tile (the one with the overdue item) shows the wrench badge",
+      );
+      assert.ok(
+        !masterBrTile.innerHTML.includes(wrenchPathFragment),
+        "Master BR tile (item not overdue) does not show a wrench badge",
+      );
+      assert.ok(
+        !kitchenTile.innerHTML.includes(wrenchPathFragment),
+        "Kitchen tile (no maintenance items at all) does not show a wrench badge",
+      );
+    },
+  );
 
   window.showSub("maintenance");
   window.renderMaintenanceView();
@@ -526,15 +748,21 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   await wait(50);
 
   await t.test("tapping Done calls the correct /maintenance/{id}/complete endpoint", () => {
-    assert.ok(maintenanceCompleteCalls.some((u) => u.includes("/maintenance/m-overdue/complete")), `calls: ${JSON.stringify(maintenanceCompleteCalls)}`);
+    assert.ok(
+      maintenanceCompleteCalls.some((u) => u.includes("/maintenance/m-overdue/complete")),
+      `calls: ${JSON.stringify(maintenanceCompleteCalls)}`,
+    );
   });
 
-  await t.test("after completing, the maintenance icon reflects the change (no longer red-overdue, since the mock cleared it)", () => {
-    // m-soon (whole-house, due_soon) is still due_soon, so the icon
-    // should now show amber rather than disappearing entirely.
-    assert.notEqual(window.getComputedStyle($("#maintenance-btn")).display, "none");
-    assert.doesNotMatch(maintBtn.getAttribute("aria-label"), /overdue/);
-  });
+  await t.test(
+    "after completing, the maintenance icon reflects the change (no longer red-overdue, since the mock cleared it)",
+    () => {
+      // m-soon (whole-house, due_soon) is still due_soon, so the icon
+      // should now show amber rather than disappearing entirely.
+      assert.notEqual(window.getComputedStyle($("#maintenance-btn")).display, "none");
+      assert.doesNotMatch(maintBtn.getAttribute("aria-label"), /overdue/);
+    },
+  );
 
   // Role gating: viewer sees the reminder list (awareness matters for
   // everyone) but never a Done button (completing is operator+, same
@@ -543,9 +771,12 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   "1357".split("").forEach(tap);
   await wait(100);
 
-  await t.test("maintenance icon is still visible for a viewer role (status is not admin-only)", () => {
-    assert.notEqual(window.getComputedStyle($("#maintenance-btn")).display, "none");
-  });
+  await t.test(
+    "maintenance icon is still visible for a viewer role (status is not admin-only)",
+    () => {
+      assert.notEqual(window.getComputedStyle($("#maintenance-btn")).display, "none");
+    },
+  );
 
   $("#maintenance-btn").dispatchEvent(new window.Event("click", { bubbles: true }));
   await wait(50);
@@ -597,16 +828,22 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   await Promise.all([window.refreshAll(), window.refreshAll(), window.refreshAll()]);
   window.fetch = originalFetch;
 
-  await t.test("concurrent refreshAll() calls coalesce into one round of fetches, not three", () => {
-    // A kiosk meant to run unattended for months shouldn't fire
-    // overlapping requests if a periodic poll and a post-command
-    // refresh happen to land at the same moment.
-    assert.equal(deviceFetchCount, 1);
-  });
+  await t.test(
+    "concurrent refreshAll() calls coalesce into one round of fetches, not three",
+    () => {
+      // A kiosk meant to run unattended for months shouldn't fire
+      // overlapping requests if a periodic poll and a post-command
+      // refresh happen to land at the same moment.
+      assert.equal(deviceFetchCount, 1);
+    },
+  );
 
-  await t.test("requests go through the timeout wrapper (AbortController signal attached), not raw fetch", () => {
-    assert.ok(sawAbortSignal);
-  });
+  await t.test(
+    "requests go through the timeout wrapper (AbortController signal attached), not raw fetch",
+    () => {
+      assert.ok(sawAbortSignal);
+    },
+  );
 
   // ── Shared idle-badge across detail/schedules/devices ────────
 
@@ -625,18 +862,23 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   });
 
   window.showSub("grid");
-  const nextCellAgain = [...window.document.querySelectorAll("[data-action]")].find((c) => c.dataset.action === "schedules");
+  const nextCellAgain = [...window.document.querySelectorAll("[data-action]")].find(
+    (c) => c.dataset.action === "schedules",
+  );
   nextCellAgain.dispatchEvent(new window.Event("click", { bubbles: true }));
   await wait(20);
 
-  await t.test("the same shared idle badge also appears on the schedules view, not just the detail view", () => {
-    // Regression coverage: an earlier draft embedded a separate
-    // #idle-badge element inside each view's own template, which
-    // meant three elements briefly shared the same id simultaneously
-    // in the DOM — getElementById only ever returns the first match,
-    // so the countdown could silently show in the wrong view.
-    assert.notEqual(window.getComputedStyle(idleBadge).display, "none");
-  });
+  await t.test(
+    "the same shared idle badge also appears on the schedules view, not just the detail view",
+    () => {
+      // Regression coverage: an earlier draft embedded a separate
+      // #idle-badge element inside each view's own template, which
+      // meant three elements briefly shared the same id simultaneously
+      // in the DOM — getElementById only ever returns the first match,
+      // so the countdown could silently show in the wrong view.
+      assert.notEqual(window.getComputedStyle(idleBadge).display, "none");
+    },
+  );
 
   // ── Role gating: viewer sees no admin-level controls ─────────
 
@@ -654,16 +896,21 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   "4821".split("").forEach(tap);
   await wait(100);
 
-  const lockedTile = [...window.document.querySelectorAll(".tile")].find((tile) => tile.textContent.includes("Master BR"));
+  const lockedTile = [...window.document.querySelectorAll(".tile")].find((tile) =>
+    tile.textContent.includes("Master BR"),
+  );
   lockedTile.dispatchEvent(new window.Event("click", { bubbles: true }));
   await wait(30);
 
-  await t.test("the separate LOCKED stat card is gone — moved next to the beeper icon, not duplicated", () => {
-    const detailHtmlLocked = $("#grid-detail").innerHTML;
-    assert.ok(!detailHtmlLocked.includes("LOCKED"));
-    const lockIconRow = $('[data-act="beeper"]')?.parentElement;
-    assert.ok(lockIconRow && lockIconRow.innerHTML.includes("Locked at"));
-  });
+  await t.test(
+    "the separate LOCKED stat card is gone — moved next to the beeper icon, not duplicated",
+    () => {
+      const detailHtmlLocked = $("#grid-detail").innerHTML;
+      assert.ok(!detailHtmlLocked.includes("LOCKED"));
+      const lockIconRow = $('[data-act="beeper"]')?.parentElement;
+      assert.ok(lockIconRow && lockIconRow.innerHTML.includes("Locked at"));
+    },
+  );
 
   const downBtnLocked = $('[data-act="down"]');
   const upBtnLocked = $('[data-act="up"]');
@@ -690,9 +937,12 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   modeBtn.dispatchEvent(new window.Event("click", { bubbles: true }));
   await wait(30);
 
-  await t.test("mode buttons still work normally on a locked device — only temperature is locked", () => {
-    assert.ok(cmdCalls.some((c) => c.body.params.mode === "HEAT"));
-  });
+  await t.test(
+    "mode buttons still work normally on a locked device — only temperature is locked",
+    () => {
+      assert.ok(cmdCalls.some((c) => c.body.params.mode === "HEAT"));
+    },
+  );
 
   // ── Quiet-hours screensaver dimming (isQuietHours) ────────────
   // Pure logic, tested directly via window.isQuietHours(now) rather
@@ -701,40 +951,68 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   // this reason.
 
   await t.test("disabled by default — never quiet regardless of time", () => {
-    const cfg = { kiosk_quiet_hours_enabled: false, kiosk_quiet_start: "22:00", kiosk_quiet_end: "07:00" };
+    const cfg = {
+      kiosk_quiet_hours_enabled: false,
+      kiosk_quiet_start: "22:00",
+      kiosk_quiet_end: "07:00",
+    };
     assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 23, 0)), false);
   });
 
   await t.test("overnight window: inside the window on both sides of midnight", () => {
-    const cfg = { kiosk_quiet_hours_enabled: true, kiosk_quiet_start: "22:00", kiosk_quiet_end: "07:00" };
+    const cfg = {
+      kiosk_quiet_hours_enabled: true,
+      kiosk_quiet_start: "22:00",
+      kiosk_quiet_end: "07:00",
+    };
     assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 23, 30)), true); // 11:30pm
-    assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 5, 0)), true);   // 5:00am
+    assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 5, 0)), true); // 5:00am
   });
 
   await t.test("overnight window: outside the window during the day", () => {
-    const cfg = { kiosk_quiet_hours_enabled: true, kiosk_quiet_start: "22:00", kiosk_quiet_end: "07:00" };
+    const cfg = {
+      kiosk_quiet_hours_enabled: true,
+      kiosk_quiet_start: "22:00",
+      kiosk_quiet_end: "07:00",
+    };
     assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 14, 0)), false); // 2:00pm
   });
 
   await t.test("overnight window: boundaries are start-inclusive, end-exclusive", () => {
-    const cfg = { kiosk_quiet_hours_enabled: true, kiosk_quiet_start: "22:00", kiosk_quiet_end: "07:00" };
-    assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 22, 0)), true);  // exactly start
+    const cfg = {
+      kiosk_quiet_hours_enabled: true,
+      kiosk_quiet_start: "22:00",
+      kiosk_quiet_end: "07:00",
+    };
+    assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 22, 0)), true); // exactly start
     assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 7, 0)), false); // exactly end
   });
 
   await t.test("same-day window (not spanning midnight) works too", () => {
-    const cfg = { kiosk_quiet_hours_enabled: true, kiosk_quiet_start: "13:00", kiosk_quiet_end: "18:00" };
+    const cfg = {
+      kiosk_quiet_hours_enabled: true,
+      kiosk_quiet_start: "13:00",
+      kiosk_quiet_end: "18:00",
+    };
     assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 15, 0)), true);
     assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 20, 0)), false);
   });
 
   await t.test("identical start and end is treated as no quiet window at all", () => {
-    const cfg = { kiosk_quiet_hours_enabled: true, kiosk_quiet_start: "10:00", kiosk_quiet_end: "10:00" };
+    const cfg = {
+      kiosk_quiet_hours_enabled: true,
+      kiosk_quiet_start: "10:00",
+      kiosk_quiet_end: "10:00",
+    };
     assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 10, 0)), false);
   });
 
   await t.test("malformed time strings fail closed (never quiet) rather than throwing", () => {
-    const cfg = { kiosk_quiet_hours_enabled: true, kiosk_quiet_start: "not-a-time", kiosk_quiet_end: "07:00" };
+    const cfg = {
+      kiosk_quiet_hours_enabled: true,
+      kiosk_quiet_start: "not-a-time",
+      kiosk_quiet_end: "07:00",
+    };
     assert.doesNotThrow(() => window.isQuietHours(cfg, new Date()));
     assert.equal(window.isQuietHours(cfg, new Date()), false);
   });

@@ -1,0 +1,14 @@
+# Normalize line endings to LF for everything text-based, regardless
+# of a given contributor's or CI runner's local git config (core.autocrlf
+# etc.) — without this, a Windows checkout with autocrlf=true can commit
+# or check out CRLF line endings for files that were authored as LF,
+# which is invisible in most diffs/editors but makes tools with strict
+# formatting expectations (prettier's default endOfLine: "lf") fail in
+# CI even though the file content otherwise matches byte-for-byte.
+* text=auto eol=lf
+
+# Binary files some tools might otherwise try to "normalize" —
+# explicit is safer than relying on file-extension heuristics alone.
+*.png binary
+*.jpg binary
+*.ico binary

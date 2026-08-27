@@ -9,7 +9,7 @@ import httpx
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from state import _state, _lock, _save_raw, _add_log, _utcnow, _now_iso
+from state import _add_log, _lock, _now_iso, _save_raw, _state, _utcnow
 from worker import _send_cmd
 
 router = APIRouter(tags=["system"])

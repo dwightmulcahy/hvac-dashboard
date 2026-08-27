@@ -11,13 +11,14 @@ the standard api_module fixture, since the env var must be set before
 api.py is imported (module-level side effect), not after.
 """
 
-from test_api_lifespan import _fresh_import_modules, _clear_modules
+from test_api_lifespan import _clear_modules, _fresh_import_modules
 
 
 def test_cors_disabled_by_default(temp_data_file):
     router_modules, core_modules = _fresh_import_modules()
-    import api as api_mod
     from fastapi.testclient import TestClient
+
+    import api as api_mod
 
     try:
         with TestClient(api_mod.app) as client:
@@ -30,8 +31,9 @@ def test_cors_disabled_by_default(temp_data_file):
 def test_cors_enabled_for_configured_origin(temp_data_file, monkeypatch):
     monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://dashboard.example.com")
     router_modules, core_modules = _fresh_import_modules()
-    import api as api_mod
     from fastapi.testclient import TestClient
+
+    import api as api_mod
 
     try:
         with TestClient(api_mod.app) as client:
@@ -44,8 +46,9 @@ def test_cors_enabled_for_configured_origin(temp_data_file, monkeypatch):
 def test_cors_rejects_unconfigured_origin(temp_data_file, monkeypatch):
     monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://dashboard.example.com")
     router_modules, core_modules = _fresh_import_modules()
-    import api as api_mod
     from fastapi.testclient import TestClient
+
+    import api as api_mod
 
     try:
         with TestClient(api_mod.app) as client:
@@ -58,8 +61,9 @@ def test_cors_rejects_unconfigured_origin(temp_data_file, monkeypatch):
 def test_cors_allows_multiple_comma_separated_origins(temp_data_file, monkeypatch):
     monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://a.example.com, https://b.example.com")
     router_modules, core_modules = _fresh_import_modules()
-    import api as api_mod
     from fastapi.testclient import TestClient
+
+    import api as api_mod
 
     try:
         with TestClient(api_mod.app) as client:
