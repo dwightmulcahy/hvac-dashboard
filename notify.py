@@ -13,7 +13,7 @@ without violating the one-way dependency graph in docs/ARCHITECTURE.md.
 
 import httpx
 
-from state import _state, _add_log
+from state import _add_log, _state
 
 
 async def notify(text: str, title: str = "HVAC Dashboard"):

@@ -4,8 +4,8 @@ import uuid
 
 from fastapi import APIRouter
 
-from state import SCHEDULE_DEFAULTS, _lock, _state, _save_raw, _add_log
 from models import ScheduleConfig
+from state import SCHEDULE_DEFAULTS, _add_log, _lock, _save_raw, _state
 
 router = APIRouter(tags=["schedules"])
 

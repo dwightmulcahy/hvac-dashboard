@@ -59,8 +59,8 @@ function extractRegion(source, name) {
   if (startIdx === -1) {
     throw new Error(
       `extract.js: sentinel "${startMarker}" not found in hvac-dashboard.html.\n` +
-      `Either the region was renamed/removed from the dashboard, or a typo ` +
-      `crept into REGIONS in extract.js — they must match exactly.`
+        `Either the region was renamed/removed from the dashboard, or a typo ` +
+        `crept into REGIONS in extract.js — they must match exactly.`,
     );
   }
   const contentStart = startIdx + startMarker.length;
@@ -68,7 +68,7 @@ function extractRegion(source, name) {
   if (endIdx === -1) {
     throw new Error(
       `extract.js: found start sentinel for "${name}" but no matching ` +
-      `"${endMarker}". Every TESTABLE:${name}:start needs a TESTABLE:${name}:end.`
+        `"${endMarker}". Every TESTABLE:${name}:start needs a TESTABLE:${name}:end.`,
     );
   }
   return source.slice(contentStart, endIdx);
@@ -114,9 +114,9 @@ function checkAllSentinelsConsumed(source) {
   if (unconsumed.length > 0) {
     throw new Error(
       `extract.js: hvac-dashboard.html has TESTABLE region(s) not listed ` +
-      `in REGIONS: ${unconsumed.join(", ")}. Add them to REGIONS in ` +
-      `extract.js (and write tests for them) or remove the sentinels ` +
-      `if they're no longer meant to be tested.`
+        `in REGIONS: ${unconsumed.join(", ")}. Add them to REGIONS in ` +
+        `extract.js (and write tests for them) or remove the sentinels ` +
+        `if they're no longer meant to be tested.`,
     );
   }
 }
@@ -141,8 +141,12 @@ function loadDashboardFunctions() {
   const sandbox = {
     localStorage: {
       _data: {},
-      getItem(key) { return Object.prototype.hasOwnProperty.call(this._data, key) ? this._data[key] : null; },
-      setItem(key, val) { this._data[key] = String(val); },
+      getItem(key) {
+        return Object.prototype.hasOwnProperty.call(this._data, key) ? this._data[key] : null;
+      },
+      setItem(key, val) {
+        this._data[key] = String(val);
+      },
     },
     console,
   };
@@ -183,7 +187,7 @@ function loadDashboardFunctions() {
   // real current constants instead of guessing/duplicating them.
   vm.runInContext(
     "this.__bridge = { DAY_NAMES, LOG_LEVELS, RATE_DEFAULTS, rateSettings };",
-    sandbox
+    sandbox,
   );
   Object.assign(sandbox, sandbox.__bridge);
 

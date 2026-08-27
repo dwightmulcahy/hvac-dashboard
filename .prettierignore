@@ -1,0 +1,8 @@
+# frontend/*.html ship their JS embedded in a single <script> tag with
+# no build step, by design (docs/ARCHITECTURE.md). Running Prettier's
+# HTML parser across ~4,000 lines of already-shipped, heavily-tested
+# production markup+script would produce a single enormous diff with
+# no way to verify each change is safe — see pyproject.toml's
+# equivalent reasoning for why `ruff format` isn't enforced either.
+frontend/*.html
+CHANGELOG.md

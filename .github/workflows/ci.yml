@@ -24,12 +24,19 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+
+      - name: Extract Python version from Dockerfile
+        id: pyver
+        run: |
+          VERSION=$(grep -oP '(?<=FROM python:)[0-9]+\.[0-9]+' Dockerfile)
+          echo "Dockerfile uses Python $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.14"
+          python-version: ${{ steps.pyver.outputs.version }}
           cache: "pip"
 
       - name: Set up Docker Buildx
@@ -89,17 +96,43 @@ jobs:
       - name: Test container starts
         run: |
           docker run -d --name hvac-test -p 8080:80 hvac-dashboard:ci-test
-          sleep 10
+
+          # A fixed sleep here was either too short (occasional flakes
+          # on a loaded runner — /health and / are served directly by
+          # nginx and come up instantly, but /api/ needs the Python
+          # backend to actually finish starting and bind to port 8081,
+          # which doesn't happen on the same timeline) or, if bumped
+          # up to "safe", wastes real CI time on every single run even
+          # when the app is ready in 2 seconds. Poll instead: proceed
+          # as soon as it's actually ready, fail fast with real
+          # diagnostics if it never becomes ready at all.
+          echo "Waiting for the app to become ready..."
+          READY=0
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/api/ >/dev/null 2>&1; then
+              READY=1
+              echo "Ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+
+          if [ "$READY" -ne 1 ]; then
+            echo "App did not become ready within 30s — container logs:"
+            docker logs hvac-test
+            exit 1
+          fi
+
           curl -sf http://localhost:8080/health || exit 1
           curl -sf http://localhost:8080/ | grep -i "HVAC" || exit 1
           curl -sf http://localhost:8080/api/ | grep -i "ok" || exit 1
           echo "All checks passed"
           docker stop hvac-test
 
-      - name: Lint Python API
+      - name: Lint Python API (ruff)
         run: |
-          pip install pyflakes
-          pyflakes api.py auth.py state.py models.py worker.py maintenance_logic.py notify.py routers/*.py
+          pip install ruff
+          ruff check .
 
       - name: Validate nginx config
         run: |

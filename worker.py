@@ -16,17 +16,24 @@ rather than duplicating it.
 import asyncio
 import datetime
 import logging
-from typing import Optional
 from urllib.parse import urlencode
 
 import httpx
 
-from state import (
-    _state, _lock, _save_raw, _add_log, _verbose,
-    _utcnow, _now_iso, _today, _ts, _est_watts,
-)
 from maintenance_logic import _maintenance_status
 from notify import notify
+from state import (
+    _add_log,
+    _est_watts,
+    _lock,
+    _now_iso,
+    _save_raw,
+    _state,
+    _today,
+    _ts,
+    _utcnow,
+    _verbose,
+)
 
 log = logging.getLogger("hvac")
 
@@ -53,7 +60,7 @@ CLIMATE_PATHS = [
     "climate/air_conditioner",
 ]
 
-async def _fetch_state(host: str) -> Optional[dict]:
+async def _fetch_state(host: str) -> dict | None:
     for path in CLIMATE_PATHS:
         url = f"http://{host}/{path}"
         for attempt in range(3):
@@ -133,7 +140,7 @@ async def _fetch_sensors(host: str) -> dict:
                 pass
     return out
 
-async def _fetch_exchange_rate() -> Optional[dict]:
+async def _fetch_exchange_rate() -> dict | None:
     """Fetch live USD/CRC rate from frankfurter.app (ECB data, free, no key)."""
     try:
         async with httpx.AsyncClient(timeout=10) as client:
@@ -408,11 +415,15 @@ def _record_usage(device: dict, ds: dict, interval_mins: float):
     if watts > bucket["peak_watts"]:
         bucket["peak_watts"] = watts
     if ds.get("current_temperature") is not None:
-        try: bucket["avg_indoor"].append(float(ds["current_temperature"]))
-        except Exception: pass
+        try:
+            bucket["avg_indoor"].append(float(ds["current_temperature"]))
+        except Exception:
+            pass
     if ds.get("outdoor_temp") is not None:
-        try: bucket["avg_outdoor"].append(float(ds["outdoor_temp"]))
-        except Exception: pass
+        try:
+            bucket["avg_outdoor"].append(float(ds["outdoor_temp"]))
+        except Exception:
+            pass
     bucket["snapshots"] += 1
 
 # ── Watchdog ──────────────────────────────────────────────

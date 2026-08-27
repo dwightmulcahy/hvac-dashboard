@@ -1,11 +1,12 @@
 """Tests for models.py — request/response shape validation."""
 
+import sys
+
 import pytest
 from pydantic import ValidationError
 
-import sys
 sys.path.insert(0, ".")
-from models import DeviceConfig, CommandPayload, ScheduleConfig
+from models import CommandPayload, DeviceConfig, ScheduleConfig
 
 
 def test_device_config_requires_host_and_name():

@@ -21,12 +21,11 @@ api.py wires this up with:
 import datetime
 import hashlib
 import secrets
-from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Header, Request, Body
+from fastapi import APIRouter, Body, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from state import _state, _lock, _save_raw, _add_log, _utcnow, _now_iso
+from state import _add_log, _lock, _now_iso, _save_raw, _state, _utcnow
 
 # ── Roles ─────────────────────────────────────────────────
 
@@ -58,7 +57,7 @@ def _login_key(username: str, ip: str) -> str:
     return f"{username}:{ip}"
 
 
-def _check_login_lockout(username: str, ip: str) -> Optional[int]:
+def _check_login_lockout(username: str, ip: str) -> int | None:
     """Return remaining lockout seconds if locked, else None."""
     key = _login_key(username, ip)
     entry = _login_attempts.get(key)
@@ -125,7 +124,7 @@ def _create_token(username: str, role: str) -> str:
     return token
 
 
-def _get_token_info(authorization: str = None) -> Optional[dict]:
+def _get_token_info(authorization: str = None) -> dict | None:
     if not authorization or not authorization.startswith("Bearer "):
         return None
     token = authorization[7:]
@@ -327,7 +326,8 @@ async def login(data: dict, request: Request):
     user = _state["users"].get(username)
     if not user or not _verify_password(password, user["hash"], user["salt"]):
         _record_login_failure(username, client_ip)
-        attempts_left = max(0, LOGIN_MAX_ATTEMPTS - _login_attempts.get(_login_key(username, client_ip), {}).get("failures", 0))
+        failures = _login_attempts.get(_login_key(username, client_ip), {}).get("failures", 0)
+        attempts_left = max(0, LOGIN_MAX_ATTEMPTS - failures)
         detail = "Invalid username or password"
         if 0 < attempts_left <= 2:
             detail += f" ({attempts_left} attempt(s) remaining)"
@@ -348,7 +348,7 @@ async def login(data: dict, request: Request):
 
 
 @router.post("/remember")
-async def remember_me(authorization: Optional[str] = Header(None)):
+async def remember_me(authorization: str | None = Header(None)):
     """Mints a remember-token for the CURRENTLY authenticated user —
     called as a deliberate follow-up to a successful /auth/login when
     the person checked "remember me", not folded into /auth/login
@@ -398,7 +398,7 @@ async def login_remember(data: dict):
 
 
 @router.put("/users/{username}/pin")
-async def set_user_pin(username: str, data: dict, authorization: Optional[str] = Header(None)):
+async def set_user_pin(username: str, data: dict, authorization: str | None = Header(None)):
     """Set or clear a user's kiosk PIN. Admin-only, same as role/
     force-reset — a household member doesn't self-serve a PIN, since
     it's meant to be handed out deliberately alongside a chosen role."""
@@ -462,7 +462,8 @@ async def login_pin(data: dict, request: Request):
 
     if not matched_user:
         _record_login_failure(PIN_LOCKOUT_KEY, client_ip)
-        attempts_left = max(0, LOGIN_MAX_ATTEMPTS - _login_attempts.get(_login_key(PIN_LOCKOUT_KEY, client_ip), {}).get("failures", 0))
+        failures = _login_attempts.get(_login_key(PIN_LOCKOUT_KEY, client_ip), {}).get("failures", 0)
+        attempts_left = max(0, LOGIN_MAX_ATTEMPTS - failures)
         detail = "Incorrect PIN"
         if 0 < attempts_left <= 2:
             detail += f" ({attempts_left} attempt(s) remaining)"
@@ -483,7 +484,7 @@ async def login_pin(data: dict, request: Request):
 
 
 @router.post("/logout")
-async def logout(authorization: Optional[str] = Header(None), data: dict = Body(default={})):
+async def logout(authorization: str | None = Header(None), data: dict = Body(default={})):
     if authorization and authorization.startswith("Bearer "):
         token = authorization[7:]
         _tokens.pop(token, None)
@@ -504,7 +505,7 @@ async def logout(authorization: Optional[str] = Header(None), data: dict = Body(
 
 
 @router.post("/change-password")
-async def change_password(data: dict, authorization: Optional[str] = Header(None)):
+async def change_password(data: dict, authorization: str | None = Header(None)):
     info = _require_role("viewer", authorization)
     username = info["username"]
     old_pw = data.get("old_password", "")
@@ -530,7 +531,7 @@ async def change_password(data: dict, authorization: Optional[str] = Header(None
 
 
 @router.get("/users")
-async def list_users(authorization: Optional[str] = Header(None)):
+async def list_users(authorization: str | None = Header(None)):
     _require_role("admin", authorization)
     now_iso = _utcnow().isoformat()
     return {"users": [
@@ -546,7 +547,7 @@ async def list_users(authorization: Optional[str] = Header(None)):
 
 
 @router.get("/recovery-key")
-async def get_recovery_key(authorization: Optional[str] = Header(None)):
+async def get_recovery_key(authorization: str | None = Header(None)):
     """Admin-only. Surfaces the same key already printed to Docker logs
     on startup (see api.py's lifespan) so an admin with dashboard
     access but not container/log access can still retrieve it — no new
@@ -559,7 +560,7 @@ async def get_recovery_key(authorization: Optional[str] = Header(None)):
 
 
 @router.post("/users")
-async def add_user(data: dict, authorization: Optional[str] = Header(None)):
+async def add_user(data: dict, authorization: str | None = Header(None)):
     _require_role("admin", authorization)
     username = data.get("username", "").strip().lower()
     password = data.get("password", "")
@@ -579,7 +580,7 @@ async def add_user(data: dict, authorization: Optional[str] = Header(None)):
 
 
 @router.delete("/users/{username}")
-async def delete_user(username: str, authorization: Optional[str] = Header(None)):
+async def delete_user(username: str, authorization: str | None = Header(None)):
     info = _require_role("admin", authorization)
     if username == info["username"]:
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
@@ -597,7 +598,7 @@ async def delete_user(username: str, authorization: Optional[str] = Header(None)
 
 
 @router.post("/users/{username}/force-reset")
-async def force_password_reset(username: str, authorization: Optional[str] = Header(None)):
+async def force_password_reset(username: str, authorization: str | None = Header(None)):
     _require_role("admin", authorization)
     user = _state["users"].get(username)
     if not user:
@@ -614,7 +615,7 @@ async def force_password_reset(username: str, authorization: Optional[str] = Hea
 
 
 @router.put("/users/{username}/role")
-async def set_user_role(username: str, data: dict, authorization: Optional[str] = Header(None)):
+async def set_user_role(username: str, data: dict, authorization: str | None = Header(None)):
     info = _require_role("admin", authorization)
     if username == info["username"]:
         raise HTTPException(status_code=400, detail="Cannot change your own role")
@@ -633,7 +634,7 @@ async def set_user_role(username: str, data: dict, authorization: Optional[str] 
 
 
 @router.get("/me")
-async def get_me(authorization: Optional[str] = Header(None)):
+async def get_me(authorization: str | None = Header(None)):
     # if no users, return open access
     if not _state.get("users"):
         return {"username": "admin", "role": "admin", "must_change_password": False}

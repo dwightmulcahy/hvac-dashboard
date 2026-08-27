@@ -16,6 +16,7 @@ network calls go through a mocked httpx client (see mock_httpx below).
 """
 
 import sys
+
 import pytest
 
 
@@ -146,7 +147,7 @@ def api_module(temp_data_file, monkeypatch):
         "routers.maintenance",
         "routers",
     )
-    core_modules = ("api", "auth", "worker", "state", "models", "maintenance_logic", "notify")
+    core_modules = ("api", "auth", "worker", "state", "models", "maintenance_logic", "notify", "logging_config")
     for mod in router_modules + core_modules:
         if mod in sys.modules:
             del sys.modules[mod]

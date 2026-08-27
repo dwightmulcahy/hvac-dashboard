@@ -1,11 +1,17 @@
 {
   "name": "hvac-dashboard",
   "private": true,
-  "description": "Dev-only manifest — the app itself ships zero client-side dependencies. This exists solely so the jsdom-based suites (tests-js/kiosk.test.js and tests-js/dashboard-maintenance.test.js) can require jsdom; tests-js/dashboard-functions.test.js is intentionally dependency-free, extracting pure functions straight out of hvac-dashboard.html via sentinel comments rather than needing a DOM at all. kiosk.html's PIN lock screen and hvac-dashboard.html's Settings modal are inherently DOM-driven — form fields, click handlers, rendered table rows — so testing them for real needs an actual DOM implementation; see each test file's own header comment for details.",
+  "description": "Dev-only manifest. Two independent purposes: (1) the jsdom-based test suites (tests-js/kiosk.test.js, tests-js/dashboard-maintenance.test.js) need jsdom — tests-js/dashboard-functions.test.js stays dependency-free, extracting pure functions straight out of hvac-dashboard.html via sentinel comments rather than needing a DOM at all; (2) eslint/prettier lint and format the standalone tests-js/*.js files. Both are deliberately scoped to tests-js/ only, not frontend/*.html — those ship embedded JS with no build step by design, and running either tool's formatter across ~4,000 lines of already-shipped production markup would produce one enormous, hard-to-review diff (see eslint.config.js and .prettierignore for the full reasoning). The app itself still ships zero client-side dependencies at runtime; everything here is dev-only tooling.",
   "scripts": {
-    "test:js": "node --test tests-js/*.test.js"
+    "test:js": "node --test tests-js/*.test.js",
+    "lint:js": "eslint tests-js/",
+    "lint:js:fix": "eslint tests-js/ --fix",
+    "format:js:check": "prettier --check tests-js/",
+    "format:js": "prettier --write tests-js/"
   },
   "devDependencies": {
-    "jsdom": "^30.0.1"
+    "eslint": "^10.9.1",
+    "jsdom": "^30.0.1",
+    "prettier": "^3.9.6"
   }
 }

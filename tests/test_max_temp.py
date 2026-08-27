@@ -271,3 +271,28 @@ async def test_recovery_restore_mode_fails_is_queued_and_logged(worker_module, m
     logs = [l["msg"] for l in worker_module._state["logs"]]
     assert any("mode restore failed, queued for retry" in m for m in logs)
     assert any("temperature restore failed, queued for retry" in m for m in logs)
+
+
+@pytest.mark.asyncio
+async def test_recovery_restore_off_fails_is_queued_and_logged(worker_module, mocker):
+    """Same class of bug as the other recovery-restore failure tests,
+    but for the specific case where the device was OFF/FAN_ONLY before
+    the guard triggered — a separate code path (auto-off, not a
+    mode+temp restore) that failed the same way pre-fix and needs its
+    own coverage rather than assuming the prev_mode branch covers it."""
+    async def fake_post(self, url, *a, **kw):
+        return _FakeResponse(status_code=404)
+    mocker.patch.object(httpx.AsyncClient, "post", fake_post)
+
+    device = _device(max_temp=29.0)
+    device["_max_temp_active"] = True
+    device["_pre_autocool_mode"] = "OFF"
+    _set_device_state(worker_module, "ac1.local", mode="COOL", current_temperature="26.0", target_temperature="27")
+    await worker_module._check_max_temp(device)
+
+    ds = worker_module._state["device_state"]["ac1.local"]
+    # command failed — must not optimistically claim OFF took effect
+    assert ds["mode"] == "COOL"
+    assert {"mode": "OFF"} in device.get("_retry_queue", [])
+    logs = [l["msg"] for l in worker_module._state["logs"]]
+    assert any("off command failed, queued for retry" in m for m in logs)

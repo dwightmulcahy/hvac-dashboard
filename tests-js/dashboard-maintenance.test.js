@@ -31,10 +31,27 @@ const { JSDOM } = require("jsdom");
 const html = fs.readFileSync(path.join(__dirname, "..", "frontend", "hvac-dashboard.html"), "utf8");
 
 const MOCK_DEVICE = {
-  host: "ac1.local", name: "Main LR", btu: 24000, seer: 20, max_temp: null, beeper: "OFF",
-  lock_temp: false, locked_target_temp: null, watchdog_minutes: 5,
-  _max_temp_active: false, _retry_queue: [], _consecutive_failures: 0, _firmware_version: "2026.7.0",
-  state: { mode: "COOL", current_temperature: 23, target_temperature: 22, outdoor_temp: 31, wifi_signal: -48, actual_power_watts: 900 },
+  host: "ac1.local",
+  name: "Main LR",
+  btu: 24000,
+  seer: 20,
+  max_temp: null,
+  beeper: "OFF",
+  lock_temp: false,
+  locked_target_temp: null,
+  watchdog_minutes: 5,
+  _max_temp_active: false,
+  _retry_queue: [],
+  _consecutive_failures: 0,
+  _firmware_version: "2026.7.0",
+  state: {
+    mode: "COOL",
+    current_temperature: 23,
+    target_temperature: 22,
+    outdoor_temp: 31,
+    wifi_signal: -48,
+    actual_power_watts: 900,
+  },
 };
 const MOCK_ROOT = { status: "ok", version: "v1.14.0", git_sha: "abc1234", build: "" };
 
@@ -48,9 +65,16 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 // separately-scoped role-gating check if they shared one window.
 function boot(role) {
   const maintenanceItems = [
-    { id: "m-existing", name: "Annual service", device_host: null, device_name: null,
-      trigger_type: "days", interval_days: 365, notes: "whole-house",
-      status: { overdue: false, due_soon: false, days_remaining: 40 } },
+    {
+      id: "m-existing",
+      name: "Annual service",
+      device_host: null,
+      device_name: null,
+      trigger_type: "days",
+      interval_days: 365,
+      notes: "whole-house",
+      status: { overdue: false, due_soon: false, days_remaining: 40 },
+    },
   ];
   const calls = { post: [], put: [], delete: [], complete: [] };
 
@@ -58,13 +82,22 @@ function boot(role) {
     const u = String(url);
     const method = opts?.method || "GET";
     if (u.endsWith("/api/")) return { ok: true, status: 200, json: async () => MOCK_ROOT };
-    if (u.includes("/auth/me")) return { ok: true, status: 200, json: async () => ({ role, username: role, must_change_password: false }) };
-    if (u.includes("/vacation")) return { ok: true, status: 200, json: async () => ({ vacation_mode: false }) };
-    if (u.includes("/devices")) return { ok: true, status: 200, json: async () => ({ devices: [MOCK_DEVICE] }) };
-    if (u.includes("/schedules")) return { ok: true, status: 200, json: async () => ({ schedules: [] }) };
+    if (u.includes("/auth/me"))
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ role, username: role, must_change_password: false }),
+      };
+    if (u.includes("/vacation"))
+      return { ok: true, status: 200, json: async () => ({ vacation_mode: false }) };
+    if (u.includes("/devices"))
+      return { ok: true, status: 200, json: async () => ({ devices: [MOCK_DEVICE] }) };
+    if (u.includes("/schedules"))
+      return { ok: true, status: 200, json: async () => ({ schedules: [] }) };
     if (u.includes("/settings")) return { ok: true, status: 200, json: async () => ({}) };
     if (u.includes("/logs")) return { ok: true, status: 200, json: async () => ({ logs: [] }) };
-    if (u.includes("/usage/summary") || u.includes("/usage/rolling30")) return { ok: true, status: 200, json: async () => ({ devices: [] }) };
+    if (u.includes("/usage/summary") || u.includes("/usage/rolling30"))
+      return { ok: true, status: 200, json: async () => ({ devices: [] }) };
 
     if (u.includes("/maintenance") && u.includes("/complete") && method === "POST") {
       const id = u.split("/maintenance/")[1].split("/complete")[0];
@@ -92,10 +125,15 @@ function boot(role) {
       const body = JSON.parse(opts.body);
       calls.post.push(body);
       const id = "m-new-" + (maintenanceItems.length + 1);
-      maintenanceItems.push({ id, ...body, status: { overdue: false, due_soon: false, days_remaining: body.interval_days } });
+      maintenanceItems.push({
+        id,
+        ...body,
+        status: { overdue: false, due_soon: false, days_remaining: body.interval_days },
+      });
       return { ok: true, status: 200, json: async () => ({ ok: true, id }) };
     }
-    if (u.includes("/maintenance")) return { ok: true, status: 200, json: async () => ({ maintenance: maintenanceItems }) };
+    if (u.includes("/maintenance"))
+      return { ok: true, status: 200, json: async () => ({ maintenance: maintenanceItems }) };
 
     return { ok: false, status: 404, json: async () => ({}) };
   };
@@ -156,7 +194,9 @@ test("hvac-dashboard.html maintenance tab — admin flow", async (t) => {
   });
 
   // ── Open the add form ────────────────────────────────────────
-  const addBtn = [...window.document.querySelectorAll("#settings-maintenance-body button")].find((b) => b.textContent.includes("Add reminder"));
+  const addBtn = [...window.document.querySelectorAll("#settings-maintenance-body button")].find(
+    (b) => b.textContent.includes("Add reminder"),
+  );
   click(addBtn, window);
 
   await t.test("form appears with cleared, defaulted fields for a new item", () => {
@@ -173,7 +213,10 @@ test("hvac-dashboard.html maintenance tab — admin flow", async (t) => {
     assert.ok(opts.includes("Main LR"));
   });
 
-  const saveBtn = () => [...$(window, "#maintenance-form").querySelectorAll("button")].find((b) => b.textContent === "Save");
+  const saveBtn = () =>
+    [...$(window, "#maintenance-form").querySelectorAll("button")].find(
+      (b) => b.textContent === "Save",
+    );
 
   // ── Validation: empty name blocks submission ────────────────
   click(saveBtn(), window);
@@ -218,7 +261,9 @@ test("hvac-dashboard.html maintenance tab — admin flow", async (t) => {
   });
 
   // ── Edit the existing whole-house item ──────────────────────
-  const editBtn = [...window.document.querySelectorAll("#settings-maintenance-body button")].find((b) => b.title === "Edit");
+  const editBtn = [...window.document.querySelectorAll("#settings-maintenance-body button")].find(
+    (b) => b.title === "Edit",
+  );
   click(editBtn, window);
 
   await t.test("edit pre-fills the form with the existing item's values", () => {
@@ -240,7 +285,9 @@ test("hvac-dashboard.html maintenance tab — admin flow", async (t) => {
   });
 
   // ── Complete the (now-edited) whole-house item ──────────────
-  const doneBtn = [...window.document.querySelectorAll("#settings-maintenance-body button")].find((b) => b.textContent.includes("Done"));
+  const doneBtn = [...window.document.querySelectorAll("#settings-maintenance-body button")].find(
+    (b) => b.textContent.includes("Done"),
+  );
   click(doneBtn, window);
   await wait(50);
 
