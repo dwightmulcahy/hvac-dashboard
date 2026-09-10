@@ -9,7 +9,7 @@ from fastapi import APIRouter, Header, HTTPException
 from auth import _get_token_info
 from models import CommandPayload
 from state import _add_log, _lock, _save_raw, _state
-from worker import _check_max_temp, _poll_device, _send_cmd, _send_switch
+from worker import _check_max_temp, _poll_device, _send_cmd, _send_switch, _verify_temp_command
 
 router = APIRouter(tags=["devices"])
 
@@ -52,6 +52,8 @@ async def send_device_cmd(host: str, payload: CommandPayload, authorization: str
                 _add_log(f"{name}: turned on ({m}) by {user}", "ok")
         if "target_temperature" in payload.params:
             _add_log(f"{name}: set → {payload.params['target_temperature']}°C by {user}", "info")
+            if device is not None:
+                await _verify_temp_command(host, device, name, payload.params["target_temperature"])
     else:
         if device is not None:
             if "_retry_queue" not in device:

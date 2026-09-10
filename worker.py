@@ -561,6 +561,44 @@ async def _check_max_temp(device: dict):
 
 # ── Scheduler ─────────────────────────────────────────────
 
+async def _verify_temp_command(host: str, device: dict, name: str, target) -> bool:
+    """After a target_temperature command reports success, re-poll the
+    device and confirm it actually applied it, retrying once if not.
+
+    Mirrors the browser-side check in hvac-dashboard.html's adjustTemp()
+    (device reports X (expected Y) — retrying / corrected), which only
+    protects manual dashboard clicks. This is the same protection for
+    schedule-fired commands, which previously had none — _send_cmd only
+    confirms the HTTP POST was accepted, not that the AC applied it."""
+    try:
+        target = float(target)
+    except (TypeError, ValueError):
+        return True
+
+    await asyncio.sleep(1.5)
+    state = await _fetch_state(host)
+    confirmed = state.get("target_temperature") if state else None
+    try:
+        confirmed = float(confirmed) if confirmed is not None else None
+    except (TypeError, ValueError):
+        confirmed = None
+
+    if confirmed is None or abs(confirmed - target) < 0.5:
+        return True
+
+    _add_log(f"{name}: ⚠ device reports {confirmed}°C (expected {target}°C) — retrying", "warn")
+    ok = await _send_cmd(host, {"target_temperature": target})
+    if ok:
+        _add_log(f"{name}: ↩ corrected → {target}°C", "ok")
+        return True
+
+    _add_log(f"{name}: correction failed — queued for retry", "err")
+    if "_retry_queue" not in device:
+        device["_retry_queue"] = []
+    device["_retry_queue"].append({"target_temperature": target})
+    return False
+
+
 def _build_schedule_commands(sch: dict) -> list:
     """Build the list of command dicts a schedule should send, given its
     power/mode/temp fields. Shared by _check_schedules and
@@ -630,6 +668,9 @@ async def _check_schedules():
                         _add_log(f"{name}: scheduled mode → {m}", "ok")
                 if "target_temperature" in cmd:
                     _add_log(f"{name}: scheduled temp → {cmd['target_temperature']}°C", "ok")
+                    verified = await _verify_temp_command(host, device, name, cmd["target_temperature"])
+                    if not verified:
+                        all_ok = False
             else:
                 all_ok = False
                 if "_retry_queue" not in device:
@@ -736,6 +777,8 @@ async def _check_missed_schedules():
                 if "_retry_queue" not in device:
                     device["_retry_queue"] = []
                 device["_retry_queue"].append(cmd)
+            elif "target_temperature" in cmd:
+                await _verify_temp_command(host, device, name, cmd["target_temperature"])
 
         sch["last_run"] = f"{today} {_ts()}"
 
