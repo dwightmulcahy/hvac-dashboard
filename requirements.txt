@@ -10,5 +10,5 @@ python-multipart>=0.0.32
 # declares, closing known CVEs flagged by the Trivy scan in CI:
 #   msgpack    < 1.2.1  — GHSA-6v7p-g79w-8964 (out-of-bounds read/crash)
 #   setuptools < 78.1.1 — CVE-2025-47273 (path traversal in PackageIndex)
-msgpack>=1.2.1
+msgpack>=1.2.2
 setuptools>=84.0.0
