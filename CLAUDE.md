@@ -34,6 +34,6 @@ npm run lint:js                 # eslint, scoped to tests-js/ only
 ## Conventions
 
 - Conventional commits (`feat:`, `fix:`, `docs:`, `test:`, `chore:` …) — `git-cliff` builds release notes from them (`cliff.toml`).
-- Commit directly to `main`; no PRs. The owner handles pushing, merging to `release`, and tagging.
+- Commit directly to `main` and push to `origin/main`; no PRs. The owner handles merging to `release` and tagging.
 - Every fix gets a regression test; keep the suite green before committing.
 - Responses: terse, factual, compact diffs only, ≤3 bullets of reasoning, ask instead of speculating.
