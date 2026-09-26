@@ -2464,7 +2464,6 @@ function buildTileHTML(d,i){
           ${readOnly?'<span style="font-size:9px;color:var(--text3);border:1px solid var(--border);padding:1px 5px;border-radius:4px" title="Read-only access">👁 view only</span>':''}
           ${d.stale?'<span style="font-size:10px;color:var(--warn);font-family:\'DM Mono\',monospace" title="Device not responding">⚠ stale</span>':''}
           ${d.stale&&d.consecutive_failures>1?`<span style="font-size:10px;color:var(--err);font-family:'DM Mono',monospace" title="${d.consecutive_failures} consecutive poll failures">⚠${d.consecutive_failures}</span>`:''}
-          ${d._keep_paused?`<span style="font-size:10px;color:var(--keep);border:1px solid var(--keep);padding:1px 5px;border-radius:4px" title="KEEP: target ${d._keep_target}°C reached — fan only until the room drifts 0.5°C back, then ${d._keep_resume_mode}">⏸ keep</span>`:''}
           ${d.retry_queue_depth?`<span style="font-size:10px;color:var(--warn);font-family:'DM Mono',monospace" title="${d.retry_queue_depth} command(s) queued for retry">↺${d.retry_queue_depth}</span>`:''}
           ${d._maintenanceOverdue?`<span style="font-size:10px;color:var(--err);cursor:pointer" title="Maintenance overdue — click for details" onclick="openSettings('maintenance')">🔧⚠</span>`:''}
         </div>
@@ -2486,7 +2485,7 @@ function buildTileHTML(d,i){
         </div>
       </div>
       <div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:8px">
-        ${MODES.map(m=>`<button onclick="setMode(${i},'${m}')" ${busyOrRO?'disabled':''} style="flex:1;padding:3px 0;font-size:10px;border:none;border-right:1px solid var(--border);cursor:pointer;transition:all .15s;background:${s.mode===m?`var(--${m==='COOL'?'cool':m==='HEAT'?'heat':m==='HEAT_COOL'?'auto':m==='FAN_ONLY'?'fan':'dry'}-bg)`:'transparent'};color:${s.mode===m?`var(--${m==='COOL'?'cool':m==='HEAT'?'heat':m==='HEAT_COOL'?'auto':m==='FAN_ONLY'?'fan':'dry'})`:'var(--text3)'};font-weight:${s.mode===m?'600':'400'}" ${busy||readOnly||(!on&&m!==s.mode)?'disabled':''}">${MODE_LABEL[m]}</button>`).join('')}
+        ${MODES.map(m=>`<button onclick="setMode(${i},'${m}')" ${busyOrRO?'disabled':''} style="flex:1;padding:3px 0;font-size:10px;border:none;border-right:1px solid var(--border);cursor:pointer;transition:all .15s;background:${s.mode===m?`var(--${m==='COOL'?'cool':m==='HEAT'?'heat':m==='HEAT_COOL'?'auto':m==='FAN_ONLY'?'fan':'dry'}-bg)`:'transparent'};color:${s.mode===m?`var(--${m==='COOL'?'cool':m==='HEAT'?'heat':m==='HEAT_COOL'?'auto':m==='FAN_ONLY'?'fan':'dry'})`:'var(--text3)'};font-weight:${s.mode===m?'600':'400'}" ${busy||readOnly||(!on&&m!==s.mode)?'disabled':''} ${d._keep_paused&&m==='FAN_ONLY'&&s.mode===m?`title="KEEP: target ${d._keep_target}°C reached — fan only until the room drifts 0.5°C back, then ${String(d._keep_resume_mode||'').toLowerCase()}"`:''}>${d._keep_paused&&m==='FAN_ONLY'&&s.mode===m?'<span style="color:var(--keep)">⏸ keep</span>':MODE_LABEL[m]}</button>`).join('')}
       </div>
       <div style="display:flex;gap:5px">
         <div class="stat" style="flex:1;text-align:center"><div class="slabel">In</div><div class="sval">${fmtCF(s.current_temperature)}</div></div>
