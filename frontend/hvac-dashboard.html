@@ -52,6 +52,17 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
 .inp{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:5px 9px;font-size:12px;color:var(--text);font-family:'DM Mono',monospace;outline:none;min-width:0}
 .dev-hcell{padding-bottom:6px;border-bottom:1px solid var(--border);margin-bottom:2px;font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;font-weight:500;letter-spacing:.04em}
 .dev-cell{padding:6px 0;border-bottom:1px solid var(--border)}
+#ip-list .inp.dev-cell{padding:5px 6px}
+#ip-list select.inp.dev-cell{padding-right:2px}
+#ip-list input[type=number]{-moz-appearance:textfield;appearance:textfield;text-align:center}
+#ip-list input[type=number]::-webkit-inner-spin-button,#ip-list input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+/* settings: always-visible scrollbar + "more below" hint (macOS hides overlay scrollbars) */
+#settings-body{scrollbar-gutter:stable}
+#settings-body::-webkit-scrollbar{width:8px}
+#settings-body::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px}
+#settings-body::-webkit-scrollbar-track{background:transparent}
+#settings-more{display:none;position:absolute;left:18px;bottom:14px;z-index:5;font-size:11px;color:var(--text2);background:var(--bg3);border:1px solid var(--border2);border-radius:999px;padding:4px 10px;cursor:pointer;box-shadow:0 -10px 18px 6px var(--bg2)}
+#settings-more.show{display:block}
 .irow.dragging>*{opacity:0.4}
 .inp:focus{border-color:var(--border2)}
 .ucard{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rl);padding:0 16px;margin-bottom:20px}
@@ -380,7 +391,8 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
 
 <!-- Settings modal -->
 <div id="settings-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:150;align-items:center;justify-content:center">
-  <div id="settings-modal-inner" style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl);width:720px;max-width:96vw;max-height:90vh;display:flex;flex-direction:column">
+  <div id="settings-modal-inner" style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl);width:720px;max-width:96vw;max-height:90vh;display:flex;flex-direction:column;position:relative">
+    <div id="settings-more" onclick="document.getElementById('settings-body').scrollTo({top:1e6,behavior:'smooth'})">▾ more below</div>
     <!-- header -->
     <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 18px 0">
       <div style="display:flex;gap:2px">
@@ -393,7 +405,7 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
       <button class="btn bico" onclick="closeSettings()" style="font-size:16px;color:var(--text3)">✕</button>
     </div>
     <!-- body -->
-    <div style="overflow-y:auto;padding:16px 18px 18px;flex:1">
+    <div id="settings-body" onscroll="updateSettingsScrollHint()" style="overflow-y:auto;padding:16px 18px 18px;flex:1">
       <!-- Rates tab -->
       <div id="stab-content-rates">
         <div id="settings-rates-body"></div>
@@ -419,7 +431,7 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
         </div>
         <div id="test-all-results" style="display:none;background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px"></div>
         <div id="discover-results" style="display:none;background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px"></div>
-        <div id="ip-list" style="display:grid;grid-template-columns:20px 95px minmax(160px,1fr) 58px 58px 70px 34px 40px 64px auto;gap:6px 6px;align-items:center"></div>
+        <div id="ip-list" style="display:grid;grid-template-columns:16px minmax(84px,110px) minmax(110px,1fr) 58px 50px 46px 26px 34px 40px auto;gap:6px 6px;align-items:center"></div>
       </div>
       <!-- General tab -->
       <div id="stab-content-general" style="display:none">
@@ -2286,7 +2298,7 @@ function renderIPList(){
           title="KEEP — in COOL/HEAT, switch to fan only once the room is 0.5°C past target, back to COOL/HEAT when it drifts 0.5°C back"
           style="width:16px;height:16px;cursor:pointer">
       </div>
-      <div class="dev-cell" style="font-size:11px;font-family:'DM Mono',monospace;text-align:center">${fwHtml(d.state,true)}</div>
+      <div class="dev-cell" style="font-size:10px;font-family:'DM Mono',monospace;text-align:center;white-space:nowrap;overflow:hidden">${fwHtml(d.state,true)}</div>
       <div class="dev-cell" style="display:flex;gap:3px;flex-shrink:0;position:relative">
         <button class="btn bico" id="save-btn-${i}" onclick="saveDeviceRow(${i})" title="Save"
           style="color:var(--text3);cursor:not-allowed" disabled>✓</button>
@@ -3061,6 +3073,19 @@ function closeSettings(){
   closeTestAllResults();
 }
 
+function updateSettingsScrollHint(){
+  const b=document.getElementById('settings-body'),h=document.getElementById('settings-more');
+  if(!b||!h)return;
+  h.classList.toggle('show',b.scrollHeight-b.scrollTop-b.clientHeight>24);
+}
+window.addEventListener('resize',updateSettingsScrollHint);
+// tab content grows after async loads (users, rates, maintenance) — re-check then
+if(window.ResizeObserver)document.addEventListener('DOMContentLoaded',()=>{
+  const ro=new ResizeObserver(()=>updateSettingsScrollHint());
+  document.querySelectorAll('[id^="stab-content-"]').forEach(el=>ro.observe(el));
+  const b=document.getElementById('settings-body');if(b)ro.observe(b);
+});
+
 function switchTab(tab){
   ['general','devices','rates','users','maintenance'].forEach(t=>{
     const btn=document.getElementById('stab-'+t);
@@ -3069,6 +3094,7 @@ function switchTab(tab){
     if(content)content.style.display=t===tab?'block':'none';
   });
   _activeTab=tab;
+  requestAnimationFrame(updateSettingsScrollHint);
   if(tab==='rates')populateRatesTab();
   if(tab==='devices'){
     renderIPList();
