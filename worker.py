@@ -254,6 +254,41 @@ async def _send_cmd(host: str, params: dict, *, keep: bool = False) -> bool:
             log.warning(f"{host} cmd failed: {e}")
     return False
 
+ECO_BUTTON_PATHS = {
+    "on": ("button/Air%20Conditioner%20Eco%20On/press", "button/air_conditioner_eco_on/press"),
+    "off": ("button/Air%20Conditioner%20Eco%20Off/press", "button/air_conditioner_eco_off/press"),
+}
+
+
+async def _send_eco(host: str, state: str) -> bool:
+    """Set the unit's ECO preset via the firmware's eco_on/eco_off buttons.
+    Updates device_state optimistically; the eco_status sensor confirms on
+    the next poll."""
+    if state not in ECO_BUTTON_PATHS:
+        return False
+    for path in ECO_BUTTON_PATHS[state]:
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                r = await client.post(f"http://{host}/{path}")
+            if r.status_code < 300:
+                ds = _state["device_state"].get(host)
+                if ds is not None and not ds.get("error"):
+                    ds["preset"] = "ECO" if state == "on" else "NONE"
+                    ds["eco"] = state == "on"
+                return True
+        except Exception:
+            pass
+    return False
+
+
+async def _send_action(host: str, cmd: dict) -> bool:
+    """Dispatch one queued/scheduled command: {"eco": "on"|"off"} goes to the
+    ECO buttons, everything else is a climate call."""
+    if "eco" in cmd:
+        return await _send_eco(host, cmd["eco"])
+    return await _send_cmd(host, cmd)
+
+
 BEEPER_PATHS = [
     "switch/Air%20Conditioner%20Beeper",
     "switch/air_conditioner_beeper",
@@ -442,7 +477,7 @@ async def _poll_device(device: dict):
         retry = queue.pop(0)
         device["_retry_queue"] = queue
         _add_log(f"{name}: retrying queued command {retry}", "info")
-        await _send_cmd(host, retry)
+        await _send_action(host, retry)
 
 # ── Temperature history ───────────────────────────────────
 
@@ -791,6 +826,7 @@ def _build_schedule_commands(sch: dict) -> list:
     power = sch.get("power")
     mode = sch.get("mode")
     temp = sch.get("temp")
+    eco = sch.get("eco")
     commands = []
     if power == "off":
         commands.append({"mode": "OFF"})
@@ -799,6 +835,9 @@ def _build_schedule_commands(sch: dict) -> list:
             commands.append({"mode": mode})
         if temp:
             commands.append({"target_temperature": temp})
+        # last: the unit only honours a preset once it's running in the new mode
+        if eco in ("on", "off"):
+            commands.append({"eco": eco})
     return commands
 
 
@@ -841,8 +880,10 @@ async def _check_schedules():
         # send commands — queue any that fail for retry on next poll
         all_ok = True
         for cmd in commands:
-            ok = await _send_cmd(host, cmd)
+            ok = await _send_action(host, cmd)
             if ok:
+                if "eco" in cmd:
+                    _add_log(f"{name}: scheduled 🌿 ECO {cmd['eco']}", "ok")
                 if "mode" in cmd:
                     m = cmd["mode"]
                     if m == "OFF":
@@ -957,7 +998,7 @@ async def _check_missed_schedules():
         commands = _build_schedule_commands(sch)
 
         for cmd in commands:
-            ok = await _send_cmd(host, cmd)
+            ok = await _send_action(host, cmd)
             if not ok:
                 if "_retry_queue" not in device:
                     device["_retry_queue"] = []

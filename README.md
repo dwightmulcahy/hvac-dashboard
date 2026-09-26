@@ -36,7 +36,7 @@ See [`ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for how the backend is structure
 - 📡 overdue indicator (only shown when outside watchdog window)
 
 ### Automation (server-side, 24/7)
-- **Schedules** — time + day-of-week per device, evaluated every minute server-side, resilient to poll-timing drift and missed-while-down recovery
+- **Schedules** — power / mode / temp / 🌿 ECO on-off actions, time + day-of-week per device, evaluated every minute server-side, resilient to poll-timing drift and missed-while-down recovery
 - **Max temp guard** — auto-turns on AC when room exceeds configurable threshold, off when cooled (with hysteresis to prevent rapid cycling; guard hours only block the trigger, never the auto-off recovery)
 - **KEEP mode** — per-device (Settings → Devices → Keep): in COOL or HEAT, switches to fan only once the room is 0.5°C past target and back to COOL/HEAT when it drifts 0.5°C back (5-min minimum in fan). Fan keeps air moving over the intake-air sensor so readings stay accurate. Shown as KEEP / ⏸ keep on the kiosk and dashboard tiles
 - **Vacation mode** — turns off all units, sets high temp guard (configurable), pauses all schedules, optional auto-end after N days

@@ -314,3 +314,65 @@ async def test_check_missed_schedules_failed_send_queues_retry(worker_module, mo
 
     await worker_module._check_missed_schedules()
     assert len(device["_retry_queue"]) > 0
+
+
+# ── ECO action ──────────────────────────────────────────────
+
+
+def _record_posts(mocker, fail_eco=False):
+    urls = []
+
+    async def fake_post(self, url, *a, **kw):
+        urls.append(url)
+        if fail_eco and "eco" in url.lower():
+            return _FakeResponse(404)
+        return _FakeResponse(200)
+    mocker.patch.object(httpx.AsyncClient, "post", fake_post)
+    return urls
+
+
+@pytest.mark.asyncio
+async def test_check_schedules_presses_eco_button(worker_module, mocker, monkeypatch):
+    _freeze(monkeypatch, worker_module, 2026, 1, 5, 7, 2)
+    worker_module._state["devices"].append({"host": "ac1.local", "name": "Living Room"})
+    worker_module._state["device_state"]["ac1.local"] = {"mode": "COOL"}
+    worker_module._state["schedules"].append(_sch(days=[1], temp=None, eco="on"))
+    urls = _record_posts(mocker)
+
+    await worker_module._check_schedules()
+
+    assert any(u.endswith("/button/Air%20Conditioner%20Eco%20On/press") for u in urls)
+    eco_idx = next(i for i, u in enumerate(urls) if "Eco%20On" in u)
+    mode_idx = next(i for i, u in enumerate(urls) if "/set?" in u)
+    assert mode_idx < eco_idx  # preset only after the mode change
+    assert worker_module._state["device_state"]["ac1.local"]["eco"] is True
+    assert any("scheduled 🌿 ECO on" in l["msg"] for l in worker_module._state["logs"])
+
+
+@pytest.mark.asyncio
+async def test_check_schedules_failed_eco_is_queued_and_retried(worker_module, mocker, monkeypatch):
+    _freeze(monkeypatch, worker_module, 2026, 1, 5, 7, 2)
+    device = {"host": "ac1.local", "name": "Living Room"}
+    worker_module._state["devices"].append(device)
+    worker_module._state["schedules"].append(_sch(days=[1], mode=None, temp=None, power=None, eco="off"))
+    mocker.patch.object(worker_module, "notify", mocker.AsyncMock())
+    _record_posts(mocker, fail_eco=True)
+
+    await worker_module._check_schedules()
+    assert device["_retry_queue"] == [{"eco": "off"}]
+
+    send_eco = mocker.patch.object(worker_module, "_send_eco", mocker.AsyncMock(return_value=True))
+    assert await worker_module._send_action("ac1.local", device["_retry_queue"][0])
+    send_eco.assert_awaited_once_with("ac1.local", "off")
+
+
+@pytest.mark.asyncio
+async def test_missed_schedule_recovery_sends_eco(worker_module, mocker, monkeypatch):
+    _freeze(monkeypatch, worker_module, 2026, 1, 5, 7, 30)
+    worker_module._state["devices"].append({"host": "ac1.local", "name": "Living Room"})
+    worker_module._state["schedules"].append(_sch(days=[1], temp=None, eco="on"))
+    urls = _record_posts(mocker)
+
+    await worker_module._check_missed_schedules()
+
+    assert any("Eco%20On" in u or "eco_on" in u for u in urls)

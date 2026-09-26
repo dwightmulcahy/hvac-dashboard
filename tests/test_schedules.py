@@ -4,6 +4,8 @@ fixed during development (duplicate on/off branches, overlap
 detection) so they can't silently regress.
 """
 
+import pytest
+
 
 def test_build_commands_power_off_ignores_mode_and_temp(worker_module):
     sch = {"power": "off", "mode": "COOL", "temp": 24}
@@ -93,3 +95,23 @@ def test_exclude_id_lets_editing_same_schedule_not_self_conflict(schedules_route
     edited = _sch("a", "ac1.local", "07:00", [0, 1, 2, 3, 4])
     conflicts = schedules_router_module._detect_schedule_conflicts(edited, exclude_id="a")
     assert conflicts == []
+
+
+# ── ECO action ──
+
+def test_build_commands_eco_on_is_sent_last(worker_module):
+    cmds = worker_module._build_schedule_commands({"power": "on", "mode": "COOL", "temp": 24, "eco": "on"})
+    assert cmds == [{"mode": "COOL"}, {"target_temperature": 24}, {"eco": "on"}]
+
+
+def test_build_commands_eco_only(worker_module):
+    assert worker_module._build_schedule_commands({"eco": "off"}) == [{"eco": "off"}]
+
+
+def test_build_commands_eco_ignored_when_powering_off(worker_module):
+    assert worker_module._build_schedule_commands({"power": "off", "eco": "on"}) == [{"mode": "OFF"}]
+
+
+@pytest.mark.parametrize("eco", [None, "", "maybe"])
+def test_build_commands_no_eco_when_unset_or_invalid(worker_module, eco):
+    assert worker_module._build_schedule_commands({"mode": "COOL", "eco": eco}) == [{"mode": "COOL"}]

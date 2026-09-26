@@ -618,6 +618,14 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
         <input type="number" id="sch-temp" class="inp" min="17" max="30" value="24" style="width:66px;margin-left:4px"
           oninput="this.dataset.celsius=tempFromDisplayUnit(this.value)"> <span id="sch-temp-unit">°C</span>
       </div>
+      <div style="display:flex;align-items:center;gap:8px;font-size:13px" title="Unit's built-in ECO preset. Sent after mode/temp; ignored when the schedule powers the unit off.">
+        <input type="checkbox" id="sch-eco-en">
+        <label for="sch-eco-en">🌿 ECO</label>
+        <select id="sch-eco" class="inp" style="margin-left:4px">
+          <option value="on">On</option>
+          <option value="off">Off</option>
+        </select>
+      </div>
     </div>
 
     <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -3485,6 +3493,8 @@ function openScheduleModal(idx=null){
     const setMd=document.getElementById('sch-mode-en');if(setMd)setMd.checked=s.mode!==null;
     const md=document.getElementById('sch-mode');if(md)md.value=s.mode||'COOL';
     const setTp=document.getElementById('sch-temp-en');if(setTp)setTp.checked=s.temp!==null;
+    const setEco=document.getElementById('sch-eco-en');if(setEco)setEco.checked=!!s.eco;
+    const eco=document.getElementById('sch-eco');if(eco)eco.value=s.eco||'on';
     const hasEnd=!!s.end_time;
     const endEn=document.getElementById('sch-end-en');if(endEn)endEn.checked=hasEnd;
     const endRow=document.getElementById('sch-end-row');if(endRow)endRow.style.display=hasEnd?'flex':'none';
@@ -3492,7 +3502,7 @@ function openScheduleModal(idx=null){
     const tp=document.getElementById('sch-temp');if(tp)populateTempInput('sch-temp','sch-temp-unit',s.temp||24,17,30);
   }else{
     setTimePicker('07:00');
-    ['sch-power-en','sch-mode-en','sch-temp-en','sch-end-en'].forEach(id=>{
+    ['sch-power-en','sch-mode-en','sch-temp-en','sch-eco-en','sch-end-en'].forEach(id=>{
       const el=document.getElementById(id);if(el)el.checked=false;
     });
     populateTempInput('sch-temp','sch-temp-unit',24,17,30);
@@ -3514,9 +3524,10 @@ function saveSchedule(){
   const powerEn=document.getElementById('sch-power-en').checked;
   const modeEn=document.getElementById('sch-mode-en').checked;
   const tempEn=document.getElementById('sch-temp-en').checked;
+  const ecoEn=document.getElementById('sch-eco-en').checked;
   if(!time){alert('Set a time.');return;}
   if(!days.length){alert('Select at least one day.');return;}
-  if(!powerEn&&!modeEn&&!tempEn){alert('Enable at least one action.');return;}
+  if(!powerEn&&!modeEn&&!tempEn&&!ecoEn){alert('Enable at least one action.');return;}
   const endEn=document.getElementById('sch-end-en')?.checked;
   const endTime=endEn?document.getElementById('sch-end-time')?.value:null;
   const sch={
@@ -3528,6 +3539,7 @@ function saveSchedule(){
     power:powerEn?document.getElementById('sch-power').value:null,
     mode:modeEn?document.getElementById('sch-mode').value:null,
     temp:tempEn?tempFromDisplayUnit(document.getElementById('sch-temp').value):null,
+    eco:ecoEn?document.getElementById('sch-eco').value:null,
     enabled:editSchIdx!==null?schedules[editSchIdx].enabled:true,
   };
   // send to API
@@ -3577,6 +3589,7 @@ function fmtActions(s){
   if(s.power)p.push(`power ${s.power}`);
   if(s.mode)p.push(`mode ${s.mode.toLowerCase()}`);
   if(s.temp)p.push(`temp ${s.temp}°C`);
+  if(s.eco&&s.power!=='off')p.push(`🌿 eco ${s.eco}`);
   return p.join(' · ')||'—';
 }
 

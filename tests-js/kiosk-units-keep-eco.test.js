@@ -52,6 +52,7 @@ test("kiosk: temp units, power-on to last mode, FAN mode, KEEP, ECO", async (t) 
     ],
   };
   let cmdCalls = [];
+  let mockSchedules = [];
   const ecoCalls = [];
   const ok = (body) => ({ ok: true, status: 200, json: async () => body });
   const mockFetch = async (url, opts) => {
@@ -71,7 +72,7 @@ test("kiosk: temp units, power-on to last mode, FAN mode, KEEP, ECO", async (t) 
     }
     if (u.includes("/api/devices")) return ok(devices);
     if (u.includes("/api/settings")) return ok({ exchangeRate: 455, tiered: false, flatRate: 70 });
-    if (u.includes("/api/schedules")) return ok({ schedules: [] });
+    if (u.includes("/api/schedules")) return ok({ schedules: mockSchedules });
     if (u.includes("/api/maintenance")) return ok({ maintenance: [] });
     if (u.includes("/api/usage/summary")) return ok({ devices: [] });
     return { ok: false, status: 404, json: async () => ({}) };
@@ -229,6 +230,26 @@ test("kiosk: temp units, power-on to last mode, FAN mode, KEEP, ECO", async (t) 
     txt = $("#grid-detail").textContent;
     assert.match(txt, /fw 1\.0\.0 ⬆ 1\.1\.0/);
     click($("#sub-header"));
+    await wait(30);
+  });
+
+  // ── Schedules with ECO action ───────────────────────────────
+
+  await t.test("schedules view shows ECO actions (alone and with a mode)", async () => {
+    const days = [0, 1, 2, 3, 4, 5, 6];
+    const base = { device_host: "off-heat.local", device_name: "Off Heat", days, enabled: true, end_time: null };
+    mockSchedules = [
+      { ...base, id: "1", time: "23:58", power: null, mode: null, temp: null, eco: "on" },
+      { ...base, id: "2", time: "23:59", power: "on", mode: "COOL", temp: 24, eco: "off" },
+    ];
+    await window.refreshAll();
+    window.showSub("schedules");
+    window.renderSchedulesView();
+    await wait(30);
+    const txt = $("#schedules-view").textContent;
+    assert.match(txt, /ECO on/);
+    assert.match(txt, /COOL 24°\/75° · ECO off/);
+    window.showSub("grid");
     await wait(30);
   });
 

@@ -47,4 +47,5 @@ class ScheduleConfig(BaseModel):
     power: str | None = None
     mode: str | None = None
     temp: float | None = None
+    eco: str | None = None          # "on" / "off" — unit ECO preset; None = leave as is
     enabled: bool = True

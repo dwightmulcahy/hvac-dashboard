@@ -135,6 +135,7 @@ SCHEDULE_DEFAULTS = {
     "power": None,
     "mode": None,
     "temp": None,
+    "eco": None,            # "on" / "off" / None (unchanged)
     "enabled": True,
     "last_run": None,
 }

@@ -9,7 +9,16 @@ from fastapi import APIRouter, Header, HTTPException
 from auth import _get_token_info
 from models import CommandPayload
 from state import _add_log, _lock, _save_raw, _state
-from worker import _check_keep, _check_max_temp, _poll_device, _send_cmd, _send_switch, _verify_temp_command
+from worker import (
+    ECO_BUTTON_PATHS,
+    _check_keep,
+    _check_max_temp,
+    _poll_device,
+    _send_cmd,
+    _send_eco,
+    _send_switch,
+    _verify_temp_command,
+)
 
 router = APIRouter(tags=["devices"])
 
@@ -164,12 +173,6 @@ async def set_beeper(host: str, state: str):
     return {"ok": ok}
 
 
-ECO_BUTTON_PATHS = {
-    "on": ("button/Air%20Conditioner%20Eco%20On/press", "button/air_conditioner_eco_on/press"),
-    "off": ("button/Air%20Conditioner%20Eco%20Off/press", "button/air_conditioner_eco_off/press"),
-}
-
-
 @router.post("/devices/{host:path}/eco/{state}")
 async def set_eco(host: str, state: str, authorization: str | None = Header(None)):
     """Turn the unit's built-in ECO preset on/off via the firmware's
@@ -184,18 +187,8 @@ async def set_eco(host: str, state: str, authorization: str | None = Header(None
         raise HTTPException(status_code=404, detail="Device not found")
     info = _get_token_info(authorization)
     user = info["username"] if info else "api"
-    for path in ECO_BUTTON_PATHS[state]:
-        try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                r = await client.post(f"http://{host}/{path}")
-            if r.status_code < 300:
-                ds = _state["device_state"].get(host)
-                if ds is not None and not ds.get("error"):
-                    ds["preset"] = "ECO" if state == "on" else "NONE"
-                    ds["eco"] = state == "on"
-                _add_log(f"{device['name']}: 🌿 ECO {state} by {user}", "info")
-                return {"ok": True}
-        except Exception:
-            pass
+    if await _send_eco(host, state):
+        _add_log(f"{device['name']}: 🌿 ECO {state} by {user}", "info")
+        return {"ok": True}
     _add_log(f"{device['name']}: ECO {state} failed — eco_{state} button not reachable", "warn")
     return {"ok": False, "error": "ECO buttons not supported by this firmware"}
