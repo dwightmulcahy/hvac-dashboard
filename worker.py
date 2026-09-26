@@ -99,6 +99,11 @@ async def _fetch_sensors(host: str) -> dict:
             "switch/Air%20Conditioner%20Beeper",
             "switch/air_conditioner_beeper",
         ],
+        # unit's ECO preset, "ON"/"OFF" — firmware with eco_on/eco_off buttons
+        "eco_status": [
+            "text_sensor/Air%20Conditioner%20Eco%20Status",
+            "text_sensor/air_conditioner_eco_status",
+        ],
     }
     wifi_paths = [
         "sensor/Air%20Conditioner%20Wi-Fi%20Signal",
@@ -311,6 +316,17 @@ async def _poll_device(device: dict):
             if device.get("beeper") != device_beeper:
                 device["beeper"] = device_beeper
                 _verbose(f"{name}: beeper state updated → {device_beeper.lower()}", "info")
+
+    # ECO preset — text sensor is authoritative; older firmware only has
+    # the climate preset field, which the frontends fall back to
+    if "eco_status" in sensors:
+        raw = sensors["eco_status"].get("state", sensors["eco_status"].get("value"))
+        if raw is not None:
+            eco = str(raw).strip().upper() == "ON"
+            prev = _state["device_state"].get(host, {}).get("eco")
+            ds["eco"] = eco
+            if prev is not None and prev != eco:
+                _verbose(f"{name}: 🌿 ECO {'on' if eco else 'off'} (reported by unit)", "info")
 
     # on-time tracking
     now_epoch = _utcnow().timestamp()

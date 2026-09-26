@@ -22,7 +22,7 @@ See [`ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for how the backend is structure
 - Temperature +/− with debounce — rapid clicks batch into one command, confirmed against device after send
 - Power toggle per unit
 - Beeper toggle (persisted server-side, synced on every poll)
-- 🌿 ECO toggle — the unit's built-in ECO preset, via the firmware's `eco_on` / `eco_off` template buttons (`button/air_conditioner_eco_on/press`, `.../eco_off/press`); state read back from the climate `preset` field on each poll. Needs those buttons in the dongle firmware
+- 🌿 ECO toggle — the unit's built-in ECO preset, via the firmware's `eco_on` / `eco_off` template buttons (`button/air_conditioner_eco_on/press`, `.../eco_off/press`); state read back each poll from the `eco_status` text sensor (ON/OFF), or the climate `preset` field on firmware without it. Needs those buttons in the dongle firmware
 - 🔒 Temp lock — override protection: if someone changes the setpoint on the physical remote, the next poll auto-reverts to the locked value
 
 ### Tile Info

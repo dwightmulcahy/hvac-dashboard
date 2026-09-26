@@ -884,9 +884,9 @@ function toggleBeeperOptimistic(host,turnOn){
   });
 }
 
-// Unit's built-in ECO preset (firmware eco_on/eco_off buttons), read back
-// from the climate state's preset field on each poll.
-function isEcoPreset(s){return String(s?.preset||'').toUpperCase()==='ECO';}
+// Unit's built-in ECO preset (firmware eco_on/eco_off buttons). State comes
+// from the eco_status text sensor (ds.eco), falling back to climate preset.
+function isEcoPreset(s){return s?.eco!=null?!!s.eco:String(s?.preset||'').toUpperCase()==='ECO';}
 
 function toggleEcoOptimistic(host,turnOn){
   pendingHost=host;

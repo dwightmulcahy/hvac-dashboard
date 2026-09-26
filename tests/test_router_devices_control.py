@@ -284,6 +284,7 @@ def test_eco_on_presses_eco_on_button_and_sets_preset(client, auth_headers, api_
     assert r.json() == {"ok": True}
     assert calls[-1] == "http://ac1.local/button/air_conditioner_eco_on/press"
     assert api_module._state["device_state"]["ac1.local"]["preset"] == "ECO"
+    assert api_module._state["device_state"]["ac1.local"]["eco"] is True
 
 
 def test_eco_off_presses_eco_off_button(client, auth_headers, api_module, mocker):
@@ -293,6 +294,7 @@ def test_eco_off_presses_eco_off_button(client, auth_headers, api_module, mocker
     assert r.json() == {"ok": True}
     assert calls[-1].endswith("/button/air_conditioner_eco_off/press")
     assert api_module._state["device_state"]["ac1.local"]["preset"] == "NONE"
+    assert api_module._state["device_state"]["ac1.local"]["eco"] is False
 
 
 def test_eco_unsupported_firmware_reports_failure(client, auth_headers, api_module, mocker):

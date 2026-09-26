@@ -471,3 +471,34 @@ async def test_check_watchdog_does_not_mark_stale_within_threshold(worker_module
     }
     await worker_module._check_watchdog(device)
     assert device["_stale"] is False
+
+
+# ── ECO status text sensor ──
+
+@pytest.mark.parametrize("raw,expected", [("ON", True), ("OFF", False), ("on", True)])
+@pytest.mark.asyncio
+async def test_poll_reads_eco_status_text_sensor(worker_module, mocker, raw, expected):
+    from unittest.mock import AsyncMock
+
+    device = {"host": "ac1.local", "name": "LR", "_retry_queue": []}
+    worker_module._state["devices"] = [device]
+    mocker.patch.object(worker_module, "_fetch_state", AsyncMock(return_value={"mode": "COOL"}))
+    mocker.patch.object(worker_module, "_fetch_sensors",
+                        AsyncMock(return_value={"eco_status": {"id": "text_sensor-x", "state": raw}}))
+    await worker_module._poll_device(device)
+    assert worker_module._state["device_state"]["ac1.local"]["eco"] is expected
+
+
+@pytest.mark.asyncio
+async def test_poll_without_eco_sensor_leaves_eco_unset(worker_module, mocker):
+    from unittest.mock import AsyncMock
+
+    device = {"host": "ac1.local", "name": "LR", "_retry_queue": []}
+    worker_module._state["devices"] = [device]
+    mocker.patch.object(worker_module, "_fetch_state",
+                        AsyncMock(return_value={"mode": "COOL", "preset": "ECO"}))
+    mocker.patch.object(worker_module, "_fetch_sensors", AsyncMock(return_value={}))
+    await worker_module._poll_device(device)
+    ds = worker_module._state["device_state"]["ac1.local"]
+    assert "eco" not in ds
+    assert ds["preset"] == "ECO"

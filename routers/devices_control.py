@@ -173,8 +173,9 @@ ECO_BUTTON_PATHS = {
 @router.post("/devices/{host:path}/eco/{state}")
 async def set_eco(host: str, state: str, authorization: str | None = Header(None)):
     """Turn the unit's built-in ECO preset on/off via the firmware's
-    eco_on / eco_off template buttons. Actual ECO state is read back from
-    the climate `preset` field on the next poll; the local copy is updated
+    eco_on / eco_off template buttons. Actual ECO state is read back on the
+    next poll from the eco_status text sensor (climate `preset` on older
+    firmware); the local copy is updated
     optimistically so the UI doesn't flicker in between."""
     if state not in ECO_BUTTON_PATHS:
         raise HTTPException(status_code=400, detail="state must be 'on' or 'off'")
@@ -191,6 +192,7 @@ async def set_eco(host: str, state: str, authorization: str | None = Header(None
                 ds = _state["device_state"].get(host)
                 if ds is not None and not ds.get("error"):
                     ds["preset"] = "ECO" if state == "on" else "NONE"
+                    ds["eco"] = state == "on"
                 _add_log(f"{device['name']}: 🌿 ECO {state} by {user}", "info")
                 return {"ok": True}
         except Exception:

@@ -42,7 +42,8 @@ test("kiosk: temp units, power-on to last mode, FAN mode, KEEP, ECO", async (t) 
         { keep_mode: true, _keep_paused: true, _keep_target: 25.5, _keep_resume_mode: "COOL", _last_active_mode: "FAN_ONLY" },
         { mode: "FAN_ONLY", target_temperature: "25.5" },
       ),
-      dev("fan.local", "Fan", { _last_active_mode: "FAN_ONLY" }, { mode: "FAN_ONLY", preset: "ECO" }),
+      dev("fan.local", "Fan", { _last_active_mode: "FAN_ONLY" }, { mode: "FAN_ONLY", eco: true, preset: "NONE" }),
+      dev("legacy.local", "Legacy", {}, { mode: "COOL", preset: "ECO" }),
     ],
   };
   let cmdCalls = [];
@@ -56,7 +57,7 @@ test("kiosk: temp units, power-on to last mode, FAN mode, KEEP, ECO", async (t) 
     if (u.includes("/eco/")) {
       ecoCalls.push(u);
       const d = devices.devices.find((x) => u.includes(`/devices/${x.host}/`));
-      if (d) d.state.preset = u.endsWith("/on") ? "ECO" : "NONE"; // backend updates preset optimistically
+      if (d) d.state.eco = u.endsWith("/on"); // backend updates eco optimistically
       return ok({ ok: true });
     }
     if (u.includes("/cmd")) {
@@ -175,11 +176,12 @@ test("kiosk: temp units, power-on to last mode, FAN mode, KEEP, ECO", async (t) 
 
   // ── ECO preset ──────────────────────────────────────────────
 
-  await t.test("tile shows a leaf only when the unit reports preset ECO", () => {
+  await t.test("tile leaf follows eco_status (eco) over climate preset", () => {
     assert.match(tile("fan.local").innerHTML, /<svg/);
     const leafCount = (h) => (tile(h).innerHTML.match(/M5 20c0-9/g) || []).length;
     assert.equal(leafCount("fan.local"), 1);
     assert.equal(leafCount("off-heat.local"), 0);
+    assert.equal(leafCount("legacy.local"), 1, "falls back to climate preset without eco_status sensor");
   });
 
   await t.test("detail ECO button reflects preset and calls eco/off then eco/on", async () => {

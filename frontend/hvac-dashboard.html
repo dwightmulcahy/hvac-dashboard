@@ -1934,8 +1934,8 @@ async function toggleLockTemp(i){
 }
 
 // Unit's built-in ECO preset — set via the firmware's eco_on/eco_off
-// buttons, read back from the climate state's preset field on each poll.
-function isEcoPreset(s){return String(s?.preset||'').toUpperCase()==='ECO';}
+// buttons; state from the eco_status text sensor (ds.eco), else climate preset.
+function isEcoPreset(s){return s?.eco!=null?!!s.eco:String(s?.preset||'').toUpperCase()==='ECO';}
 
 async function toggleEco(i){
   if(_authRole==='viewer'){addLog('Read-only access — cannot toggle ECO','warn');return;}
@@ -1945,7 +1945,7 @@ async function toggleEco(i){
       const r=await fetch(`${API}/devices/${encodeURIComponent(d.host)}/eco/${newState}`,{method:'POST'});
       const data=await r.json().catch(()=>({}));
       if(r.ok&&data.ok){
-        if(d.state)d.state.preset=newState==='on'?'ECO':'NONE';
+        if(d.state){d.state.preset=newState==='on'?'ECO':'NONE';d.state.eco=newState==='on';}
         addLog(`${d.name}: ECO ${newState}`,'ok');
       }else addLog(`${d.name}: ECO ${newState} failed — ${data.error||r.status}`,'err');
     }catch(e){addLog(`${d.name}: ECO failed — ${e.message}`,'err');}
