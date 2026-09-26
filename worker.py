@@ -16,6 +16,7 @@ rather than duplicating it.
 import asyncio
 import datetime
 import logging
+import re
 from urllib.parse import urlencode
 
 import httpx
@@ -106,6 +107,32 @@ def _parse_firmware(raw) -> dict | None:
     if not name:
         return {"name": version, "version": None}
     return {"name": name, "version": version}
+
+
+def _parse_esphome_version(raw) -> dict:
+    """ESPHome's version text sensor, either
+    '2026.6.5 (config hash 0xbd538c66, built 2026-09-26 17:12:28 -0600)' or
+    the older '2026.6.5 Sep 26 2026, 16:34:31'. → build time, date, config hash."""
+    out = {"firmware_built": None, "firmware_built_date": None, "firmware_config_hash": None}
+    if not raw or " " not in str(raw):
+        return out
+    rest = str(raw).split(" ", 1)[1].strip()
+    m = re.search(r"config hash (0x[0-9a-fA-F]+)", rest)
+    if m:
+        out["firmware_config_hash"] = m.group(1)
+    m = re.search(r"built ([^)]+)\)?\s*$", rest)
+    built = (m.group(1) if m else rest).strip().strip("()")
+    out["firmware_built"] = built or None
+    m = re.match(r"(\d{4}-\d{2}-\d{2})", built)
+    if m:
+        out["firmware_built_date"] = m.group(1)
+    else:
+        try:
+            out["firmware_built_date"] = datetime.datetime.strptime(
+                built.split(",")[0].strip(), "%b %d %Y").date().isoformat()
+        except ValueError:
+            pass
+    return out
 
 
 def _firmware_status(fw: dict | None) -> dict:
@@ -391,8 +418,7 @@ async def _poll_device(device: dict):
     # ESPHome version sensor ("2026.6.5 Sep 26 2026, 16:34:31")
     fw_raw = sensors.get("firmware", {})
     ds.update(_firmware_status(_parse_firmware(fw_raw.get("state") or fw_raw.get("value"))))
-    esv = ds.get("esphome_version")
-    ds["firmware_built"] = esv.split(" ", 1)[1].strip() if esv and " " in esv else None
+    ds.update(_parse_esphome_version(ds.get("esphome_version")))
     # actual power_usage — use if non-zero, otherwise fall back to estimation
     if "power_usage" in sensors:
         raw_power = sensors["power_usage"].get("value")

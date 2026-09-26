@@ -215,13 +215,15 @@ test("kiosk: temp units, power-on to last mode, FAN mode, KEEP, ECO", async (t) 
   await t.test("detail footer shows firmware version, build date, and outdated marker", async () => {
     devices.devices[0].state.firmware_version = "1.1.0";
     devices.devices[0].state.firmware_outdated = false;
-    devices.devices[0].state.firmware_built = "Sep 26 2026, 16:34:31";
+    devices.devices[0].state.firmware_built = "2026-09-26 17:12:28 -0600";
+    devices.devices[0].state.firmware_built_date = "2026-09-26";
     await window.refreshAll();
     click(tile("off-heat.local"));
     await wait(30);
     let txt = $("#grid-detail").textContent;
     assert.match(txt, /fw 1\.1\.0/);
-    assert.match(txt, /built Sep 26 2026/);
+    assert.match(txt, /built 2026-09-26/);
+    assert.doesNotMatch(txt, /config hash|17:12/);
     assert.doesNotMatch(txt, /⬆/);
     click($("#sub-header"));
     await wait(30);

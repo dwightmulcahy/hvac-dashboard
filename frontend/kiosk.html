@@ -892,10 +892,7 @@ function fwLabel(s){
   const v=s.firmware_version?`fw ${s.firmware_version}`:'fw legacy';
   return s.firmware_outdated?`${v} ⬆ ${s.firmware_latest}`:v;
 }
-function fwBuilt(s){
-  const b=s?.firmware_built;
-  return b?String(b).replace(/,?\s*\d{1,2}:\d{2}(:\d{2})?$/,''):null;
-}
+function fwBuilt(s){return s?.firmware_built_date||null;}
 
 function isEcoPreset(s){return s?.eco!=null?!!s.eco:String(s?.preset||'').toUpperCase()==='ECO';}
 

@@ -50,6 +50,7 @@ async def test_poll_sets_firmware_fields_and_build_date(worker_module, mocker):
     assert ds["firmware_version"] == "1.1.0"
     assert ds["firmware_outdated"] is False
     assert ds["firmware_built"] == "Sep 26 2026, 16:34:31"
+    assert ds["firmware_built_date"] == "2026-09-26"
 
 
 @pytest.mark.asyncio
@@ -109,3 +110,17 @@ async def test_fetch_sensors_without_firmware_sensor_still_probes_eco(worker_mod
     mocker.patch.object(httpx.AsyncClient, "get", _fake_get(None, calls))
     out = await worker_module._fetch_sensors("ac1.local")
     assert out["eco_status"]["state"] == "ON"
+
+
+@pytest.mark.parametrize("raw,built,date,hash_", [
+    ("2026.6.5 (config hash 0xbd538c66, built 2026-09-26 17:12:28 -0600)",
+     "2026-09-26 17:12:28 -0600", "2026-09-26", "0xbd538c66"),
+    ("2026.6.5 Sep 26 2026, 16:34:31", "Sep 26 2026, 16:34:31", "2026-09-26", None),
+    ("2026.6.5", None, None, None),
+    (None, None, None, None),
+])
+def test_parse_esphome_version(worker_module, raw, built, date, hash_):
+    """Current ESPHome formats the build as '(config hash …, built …)'; the
+    tile showed that whole string before this was parsed."""
+    out = worker_module._parse_esphome_version(raw)
+    assert out == {"firmware_built": built, "firmware_built_date": date, "firmware_config_hash": hash_}

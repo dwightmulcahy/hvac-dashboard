@@ -1781,22 +1781,22 @@ const VERIFY_DELAY_MS=6000;
 // firmware without the sensor reports no version and counts as outdated.
 function fwInfo(s){
   if(!s||s.error)return null;
-  const built=s.firmware_built?String(s.firmware_built).replace(/,?\s*\d{1,2}:\d{2}(:\d{2})?$/,''):null;
   const esp=s.esphome_version?String(s.esphome_version).split(' ')[0]:null;
   const ver=s.firmware_version||null;
-  const short=ver?`${ver}${built?' · '+built.replace(/\s\d{4}$/,''):''}`:'legacy';
+  // tile shows only the version; everything else lives in the tooltip
   const title=[
     ver?`${s.firmware_name||'firmware'} ${ver}`:'Legacy firmware (no air_conditioner_firmware sensor)',
-    built?`built ${s.firmware_built}`:null,
+    s.firmware_built?`Built ${s.firmware_built}`:null,
+    s.firmware_config_hash?`Config hash ${s.firmware_config_hash}`:null,
     esp?`ESPHome ${esp}`:null,
-    s.firmware_outdated?`⬆ update available: ${s.firmware_latest}`:null,
-  ].filter(Boolean).join(' · ');
-  return{short,title,outdated:!!s.firmware_outdated,latest:s.firmware_latest};
+    s.firmware_outdated?`⬆ Update available: ${s.firmware_latest}`:null,
+  ].filter(Boolean).join('\n');
+  return{short:ver||'legacy',title,outdated:!!s.firmware_outdated,latest:s.firmware_latest};
 }
 function fwHtml(s,compact){
   const f=fwInfo(s);if(!f)return'—';
   const txt=compact?(s.firmware_version||'legacy'):`fw ${f.short}`;
-  return `<span title="${f.title}" style="color:${f.outdated?'var(--warn)':'var(--text3)'}">${txt}${f.outdated?' ⬆':''}</span>`;
+  return `<span title="${f.title}" style="color:${f.outdated?'var(--warn)':'var(--text3)'};white-space:nowrap;cursor:help">${txt}${f.outdated?' ⬆':''}</span>`;
 }
 
 async function withBusy(i,fn){
