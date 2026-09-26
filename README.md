@@ -37,7 +37,7 @@ See [`ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for how the backend is structure
 ### Automation (server-side, 24/7)
 - **Schedules** — time + day-of-week per device, evaluated every minute server-side, resilient to poll-timing drift and missed-while-down recovery
 - **Max temp guard** — auto-turns on AC when room exceeds configurable threshold, off when cooled (with hysteresis to prevent rapid cycling; guard hours only block the trigger, never the auto-off recovery)
-- **Keep temp** — per-device (Settings → Devices → Keep): in COOL, powers the unit off once the room is 0.5°C below target and back on at 0.5°C above (5-min minimum off); shown as KEEP / ⏸ keep on the kiosk and dashboard tiles
+- **ECO mode** — per-device (Settings → Devices → ECO): in COOL or HEAT, switches to fan only once the room is 0.5°C past target and back to COOL/HEAT when it drifts 0.5°C back (5-min minimum in fan). Fan keeps air moving over the intake-air sensor so readings stay accurate. Shown as ECO / 🌿 eco on the kiosk and dashboard tiles
 - **Vacation mode** — turns off all units, sets high temp guard (configurable), pauses all schedules, optional auto-end after N days
 - **Beeper sync** — saved beeper state read from device, not pushed to it
 - **Reboot detection** — logs when dongle uptime resets

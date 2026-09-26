@@ -1,7 +1,7 @@
 "use strict";
 /**
  * kiosk.html: kiosk-local °C/°F/both toggle, power-on-to-last-mode when a
- * temp is adjusted on an OFF unit, and keep-temp paused highlighting.
+ * temp is adjusted on an OFF unit, FAN mode, and ECO paused highlighting.
  * Separate jsdom instance from kiosk.test.js so device fixtures and
  * localStorage start clean.
  */
@@ -31,17 +31,18 @@ const dev = (host, name, extra, state) => ({
   state: { current_temperature: "24.5", target_temperature: "25.5", outdoor_temp: 30, ...state },
 });
 
-test("kiosk: temp units, power-on to last mode, keep-temp", async (t) => {
+test("kiosk: temp units, power-on to last mode, FAN mode, ECO", async (t) => {
   const devices = {
     devices: [
       dev("off-heat.local", "Off Heat", { _last_active_mode: "HEAT" }, { mode: "OFF", target_temperature: "22" }),
       dev("off-new.local", "Off New", { _last_active_mode: null }, { mode: "OFF", target_temperature: "22" }),
       dev(
-        "keep.local",
-        "Kept",
-        { keep_temp: true, _keep_temp_paused: true, _keep_temp_target: 25.5, _last_active_mode: "COOL" },
-        { mode: "OFF", target_temperature: "25.5" },
+        "eco.local",
+        "Eco",
+        { eco_mode: true, _eco_paused: true, _eco_target: 25.5, _eco_resume_mode: "COOL", _last_active_mode: "FAN_ONLY" },
+        { mode: "FAN_ONLY", target_temperature: "25.5" },
       ),
+      dev("fan.local", "Fan", { _last_active_mode: "FAN_ONLY" }, { mode: "FAN_ONLY" }),
     ],
   };
   let cmdCalls = [];
@@ -105,14 +106,36 @@ test("kiosk: temp units, power-on to last mode, keep-temp", async (t) => {
     assert.equal(window.localStorage.getItem("kiosk_temp_unit"), "both");
   });
 
-  // ── Keep-temp highlight ──────────────────────────────────────
+  // ── ECO highlight / FAN mode ─────────────────────────────────
 
-  await t.test("paused keep-temp tile shows KEEP and the resume target, not OFF", () => {
-    const txt = tile("keep.local").textContent;
-    assert.match(txt, /KEEP/);
-    assert.doesNotMatch(txt, /\bOFF\b/);
+  await t.test("paused ECO tile shows ECO and its target, not FAN", () => {
+    const txt = tile("eco.local").textContent;
+    assert.match(txt, /ECO/);
+    assert.doesNotMatch(txt, /FAN/);
     assert.match(txt, /→ 25\.5°/);
-    assert.match(tile("keep.local").getAttribute("style"), /var\(--keep\)/);
+    assert.match(tile("eco.local").getAttribute("style"), /var\(--eco\)/);
+  });
+
+  await t.test("a unit in FAN_ONLY shows FAN on its tile", () => {
+    assert.match(tile("fan.local").textContent, /\bFAN\b/);
+    assert.doesNotMatch(tile("fan.local").textContent, /FAN_ONLY/);
+  });
+
+  await t.test("detail mode bar is OFF/COOL/HEAT/FAN/AUTO and FAN sends FAN_ONLY", async () => {
+    click(tile("off-heat.local"));
+    await wait(30);
+    const btns = [...window.document.querySelectorAll("[data-mode]")];
+    assert.deepEqual(
+      btns.map((b) => b.textContent),
+      ["OFF", "COOL", "HEAT", "FAN", "AUTO"],
+    );
+    cmdCalls = [];
+    click(btns[3]);
+    await wait(30);
+    assert.deepEqual(cmdCalls[0].params, { mode: "FAN_ONLY" });
+    click($("#sub-header"));
+    await wait(30);
+    devices.devices[0].state.mode = "OFF";
   });
 
   // ── Power on to last mode ────────────────────────────────────
@@ -138,8 +161,8 @@ test("kiosk: temp units, power-on to last mode, keep-temp", async (t) => {
     assert.deepEqual(cmdCalls[0].params, { mode: "COOL", target_temperature: 22.5 });
   });
 
-  await t.test("keep-temp paused unit only changes its target and stays paused", async () => {
-    await adjustOnce("keep.local");
+  await t.test("ECO-paused unit (in fan) only changes its target", async () => {
+    await adjustOnce("eco.local");
     assert.deepEqual(cmdCalls[0].params, { target_temperature: 26 });
   });
 

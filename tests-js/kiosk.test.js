@@ -391,9 +391,9 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
     assert.match(detailHtml, /°F/);
   });
 
-  await t.test("all four modes (OFF/COOL/HEAT/AUTO) render as buttons", () => {
+  await t.test("all five modes (OFF/COOL/HEAT/FAN/AUTO) render as buttons", () => {
     const detailHtml = $("#grid-detail").innerHTML;
-    for (const m of ["OFF", "COOL", "HEAT", "AUTO"]) {
+    for (const m of ["OFF", "COOL", "HEAT", "FAN", "AUTO"]) {
       assert.ok(detailHtml.includes(`>${m}<`), `missing ${m} button`);
     }
   });

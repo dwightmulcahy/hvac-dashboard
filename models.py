@@ -19,7 +19,7 @@ class DeviceConfig(BaseModel):
     lock_temp: bool = False
     locked_target_temp: float | None = None
     has_ir_emitter: bool = False
-    keep_temp: bool = False
+    eco_mode: bool = False
 
 
 class CommandPayload(BaseModel):
