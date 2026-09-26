@@ -1,0 +1,199 @@
+# ==============================================================================
+# SMLIGHT SLWF-01 Pro - Pro Edition (Base Package)
+# Optimized for ESP8266 & Innovair (Midea Protocol) Mini-Splits
+#
+# Entity names are the REST paths the HVAC dashboard reads/writes
+# (http://<dongle>/<domain>/<name>) — rename one and the matching
+# path in worker.py / routers/ must change too.
+# ==============================================================================
+
+esphome:
+  name: "${name}"
+  friendly_name: "${friendly_name}"
+  name_add_mac_suffix: true
+  project:
+    name: "SMLIGHT.SLWF-01Pro-Pro"
+    version: "1.0.0"
+
+  platformio_options:
+    board_build.flash_mode: dout
+
+esp8266:
+  board: esp12e
+
+# --- FLASH WEAR & PERFORMANCE ---
+preferences:
+  flash_write_interval: 5min
+
+logger:
+  baud_rate: 0
+  level: WARN
+
+# --- NETWORKING & SECURITY ---
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  fast_connect: true
+  power_save_mode: none
+  reboot_timeout: 0s
+  ap:
+    ssid: "${friendly_name} Fallback"
+    password: "slwf01pro"
+  output_power: 17.5dBm # Prevents the small ESP module from screaming too loud
+
+captive_portal:
+
+# REST API used by the dashboard. No `api:` block — Home Assistant isn't used.
+web_server:
+  port: 80
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+# --- HARDWARE UART MAPPING ---
+# Verified GPIOs for v2.4 board revision
+uart:
+  tx_pin: GPIO12
+  rx_pin: GPIO14
+  baud_rate: 9600
+
+# --- IR TRANSMITTER (SMLIGHT v2 Dongle Hook) ---
+remote_transmitter:
+  pin: GPIO13
+  carrier_duty_percent: 100%
+
+# --- MIDEA CLIMATE CONTROLLER ---
+climate:
+  - platform: midea
+    name: "air_conditioner"                    # → /climate/air_conditioner
+    id: midea_climate
+    # Dashboard waits worker.VERIFY_DELAY_SECS (6s) before re-reading a temp
+    # command — keep this below that.
+    period: 5s
+    timeout: 2s
+    num_attempts: 3
+    autoconf: false                            # use the explicit lists below
+    beeper: false                              # controlled by the beeper switch
+    visual:
+      min_temperature: "17 °C"
+      max_temperature: "30 °C"
+      temperature_step: "0.5 °C"
+    supported_modes:
+      - FAN_ONLY
+      - HEAT_COOL
+      - COOL
+      - HEAT
+      - DRY
+    custom_fan_modes:
+      - SILENT
+      - TURBO
+    supported_presets:
+      - ECO
+      - BOOST
+      - SLEEP
+    custom_presets:
+      - FREEZE_PROTECTION
+    supported_swing_modes:
+      - VERTICAL
+      - HORIZONTAL
+      - BOTH
+    outdoor_temperature:
+      name: "air_conditioner_outdoor_temperature"   # → /sensor/air_conditioner_outdoor_temperature
+    power_usage:
+      name: "air_conditioner_power_usage"           # → /sensor/air_conditioner_power_usage
+    humidity_setpoint:
+      name: "air_conditioner_humidity_setpoint"     # DRY-mode target, not a room reading
+    # publish ECO status as soon as the preset changes, not on a timer
+    on_state:
+      - lambda: |-
+          id(eco_status_sensor).publish_state(
+            id(midea_climate).preset == esphome::climate::CLIMATE_PRESET_ECO ? "ON" : "OFF");
+
+# --- INTERACTIVE CONTROLS ---
+button:
+  - platform: restart
+    name: "air_conditioner_restart"            # → /button/air_conditioner_restart (nightly reboot)
+    entity_category: diagnostic
+
+  - platform: template
+    name: "air_conditioner_display_toggle"     # → /button/air_conditioner_display_toggle (IR)
+    id: midea_display_toggle
+    icon: mdi:theme-light-dark
+    on_press:
+      midea_ac.display_toggle:
+
+  - platform: template
+    name: "air_conditioner_swing_step"         # → /button/air_conditioner_swing_step (IR)
+    id: midea_swing_step
+    icon: mdi:tailwind
+    on_press:
+      midea_ac.swing_step:
+
+  - platform: template
+    name: "air_conditioner_eco_on"             # → /button/air_conditioner_eco_on
+    id: force_eco_on
+    icon: mdi:leaf
+    on_press:
+      lambda: |-
+        auto call = id(midea_climate).make_call();
+        call.set_preset(esphome::climate::CLIMATE_PRESET_ECO);
+        call.perform();
+
+  - platform: template
+    name: "air_conditioner_eco_off"            # → /button/air_conditioner_eco_off
+    id: force_eco_off
+    icon: mdi:leaf-off
+    on_press:
+      lambda: |-
+        auto call = id(midea_climate).make_call();
+        call.set_preset(esphome::climate::CLIMATE_PRESET_NONE);
+        call.perform();
+
+# --- SWITCHES ---
+switch:
+  - platform: template
+    name: "air_conditioner_beeper"             # → /switch/air_conditioner_beeper
+    id: midea_beeper
+    icon: mdi:volume-source
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+    turn_on_action:
+      midea_ac.beeper_on:
+    turn_off_action:
+      midea_ac.beeper_off:
+
+# --- DIAGNOSTICS ---
+sensor:
+  - platform: wifi_signal
+    name: "air_conditioner_wi-fi_signal"       # → /sensor/air_conditioner_wi-fi_signal
+    id: wifi_sig
+    update_interval: 63s
+    entity_category: diagnostic
+
+  # dashboard shows uptime and logs "dongle rebooted" when this drops
+  - platform: uptime
+    name: "air_conditioner_uptime_days"        # → /sensor/air_conditioner_uptime_days
+    id: uptime_days
+    update_interval: 67s
+    unit_of_measurement: d
+    accuracy_decimals: 3
+    entity_category: diagnostic
+    filters:
+      - lambda: return x / 86400.0;
+
+text_sensor:
+  - platform: version
+    name: "air_conditioner_esphome_version"    # → /text_sensor/air_conditioner_esphome_version
+    entity_category: diagnostic
+
+  - platform: template
+    name: "air_conditioner_eco_status"         # → /text_sensor/air_conditioner_eco_status (ON/OFF)
+    id: eco_status_sensor
+    icon: mdi:leaf
+    update_interval: never                     # published from climate on_state
+
+  - platform: wifi_info
+    mac_address:
+      name: "air_conditioner_mac_address"      # → /text_sensor/air_conditioner_mac_address (discovery naming)
+      entity_category: diagnostic

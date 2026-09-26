@@ -680,6 +680,11 @@ async def _check_keep(device: dict):
 
 # ── Scheduler ─────────────────────────────────────────────
 
+# Must exceed the dongle's midea `period` (5s in firmware/packages/slwf-base.yaml),
+# or the re-poll can read the pre-command value and trigger a needless retry.
+VERIFY_DELAY_SECS = 6.0
+
+
 async def _verify_temp_command(host: str, device: dict, name: str, target) -> bool:
     """After a target_temperature command reports success, re-poll the
     device and confirm it actually applied it, retrying once if not.
@@ -694,7 +699,7 @@ async def _verify_temp_command(host: str, device: dict, name: str, target) -> bo
     except (TypeError, ValueError):
         return True
 
-    await asyncio.sleep(1.5)
+    await asyncio.sleep(VERIFY_DELAY_SECS)
     state = await _fetch_state(host)
     confirmed = state.get("target_temperature") if state else None
     try:

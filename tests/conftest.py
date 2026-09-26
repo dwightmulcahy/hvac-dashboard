@@ -78,6 +78,9 @@ def worker_module(temp_data_file):
         if mod in sys.modules:
             del sys.modules[mod]
     import worker as worker_mod
+    # real firmware needs ~6s between a temp command and its verify re-poll;
+    # tests mock the device, so don't spend that time for real
+    worker_mod.VERIFY_DELAY_SECS = 0
     yield worker_mod
     for mod in ("worker", "maintenance_logic", "notify", "state"):
         if mod in sys.modules:
@@ -152,6 +155,7 @@ def api_module(temp_data_file, monkeypatch):
         if mod in sys.modules:
             del sys.modules[mod]
     import api as api_mod
+    sys.modules["worker"].VERIFY_DELAY_SECS = 0  # see worker_module
     yield api_mod
     for mod in router_modules + core_modules:
         if mod in sys.modules:

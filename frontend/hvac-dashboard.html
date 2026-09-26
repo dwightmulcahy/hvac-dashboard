@@ -1752,6 +1752,10 @@ function tempFromDisplayUnit(raw){
 }
 // ── TESTABLE:watts-temp:end ──
 
+// Must exceed the dongle's midea `period` (5s) so the confirm re-read sees
+// the new value, not the pre-command one. Matches worker.VERIFY_DELAY_SECS.
+const VERIFY_DELAY_MS=6000;
+
 async function withBusy(i,fn){
   const d=devices[i];
   if(d.busy)return;
@@ -1837,7 +1841,7 @@ async function adjustTemp(i,delta){
           }
           renderUnits();updateSummary();
         }catch(_){}
-      },1500);
+      },VERIFY_DELAY_MS);
     }catch(e){
       addLog(`${d.name}: temp failed — ${e.message}`,'err');
       // re-poll to get actual state

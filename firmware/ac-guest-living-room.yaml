@@ -1,0 +1,11 @@
+# ==============================================================================
+# Device: Guest Living Room Mini-Split
+# ==============================================================================
+substitutions:
+#  name: ac_guest_living_room
+#  friendly_name: "Guest Living Room AC"
+  name: air-conditioner
+  friendly_name: "Air Conditioner"
+
+packages:
+  base_config: !include packages/slwf-base.yaml

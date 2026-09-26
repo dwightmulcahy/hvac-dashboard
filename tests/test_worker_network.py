@@ -232,3 +232,16 @@ async def test_send_switch_non_beeper_path_exception_returns_false(worker_module
 
     ok = await worker_module._send_switch("ac1.local", "button/some_other_button/press")
     assert ok is False
+
+
+def test_verify_delay_exceeds_dongle_poll_period():
+    """Firmware polls the unit every 5s (midea period); verifying sooner reads
+    the pre-command value and triggers a needless retry."""
+    import re
+    from pathlib import Path
+
+    src = Path("worker.py").read_text()
+    delay = float(re.search(r"^VERIFY_DELAY_SECS = ([\d.]+)", src, re.M).group(1))
+    fw = Path("firmware/packages/slwf-base.yaml").read_text()
+    period = float(re.search(r"^\s+period:\s*(\d+)s", fw, re.M).group(1))
+    assert delay > period

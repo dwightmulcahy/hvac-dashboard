@@ -21,17 +21,17 @@ npm run lint:js                 # eslint, scoped to tests-js/ only
 
 - Backend: `logging_config.py` → `state.py` → `auth.py` / `maintenance_logic.py` / `notify.py` → `worker.py` → `routers/*.py` → `api.py`. Imports only go down this chain; `worker.py` never imports from `routers/`. Routers may import from `worker.py`.
 - Frontend: `frontend/hvac-dashboard.html`, `frontend/kiosk.html` — single-file, no build step, zero runtime deps. Don't run eslint/prettier on them.
-- Firmware: `firmware/*.yaml` — ESPHome configs for the dongles.
+- Firmware: `firmware/packages/slwf-base.yaml` (current base package, per-device files include it, e.g. `firmware/ac-guest-living-room.yaml`); other `firmware/*.yaml` are older configs. Entity names = REST paths the backend uses. No `api:` (no Home Assistant). Validate with `esphome config`.
 - Tests: `tests/` (pytest), `tests-js/` (node test runner; `extract.js` pulls pure functions out of the HTML via sentinel comments).
 
 ## Rules / gotchas
 
 - **New module importing `_state`** → add it to the reload list in `tests/conftest.py`'s `api_module` fixture AND the copy in `tests/test_api_lifespan.py`, or tests break order-dependently.
 - **ruff target is py313, not py314** — py314 formatter corrupts `except (A, B):`. See `pyproject.toml`.
-- **Device commands can silently not apply.** An HTTP 2xx from the dongle does not mean the unit changed state (e.g. temp sent right after a mode change). Any code path that sets `target_temperature` must go through `worker._verify_temp_command` (re-poll after 1.5s, retry once, else `_retry_queue`). Currently wired into `_check_schedules`, `_check_missed_schedules`, and `/cmd` in `routers/devices_control.py`. The dashboard's `adjustTemp()` has its own client-side equivalent.
+- **Device commands can silently not apply.** An HTTP 2xx from the dongle does not mean the unit changed state (e.g. temp sent right after a mode change). Any code path that sets `target_temperature` must go through `worker._verify_temp_command` (re-poll after `VERIFY_DELAY_SECS`=6s — must exceed the firmware's midea `period: 5s` — retry once, else `_retry_queue`; test fixtures set it to 0). Currently wired into `_check_schedules`, `_check_missed_schedules`, and `/cmd` in `routers/devices_control.py`. The dashboard's `adjustTemp()` has its own client-side equivalent (`VERIFY_DELAY_MS`).
 - **KEEP mode** (`worker._check_keep`, per-device `keep_mode`, COOL/HEAT): switches to FAN_ONLY once the room is 0.5°C past target (sensor reads intake air, so the fan keeps it accurate), returns to COOL/HEAT once it drifts 0.5°C back after ≥5 min in fan. Any `_send_cmd` mode command cancels the pause unless called with `keep=True` — so schedules/users/guard/vacation always win.
-- **ECO** is the unit's own preset, not KEEP: `POST /devices/{host}/eco/{on|off}` presses firmware buttons `eco_on`/`eco_off` (not in `firmware/*.yaml`); state comes from text sensor `eco_status` (ON/OFF → `device_state.eco`), falling back to the climate `preset` field on firmware without it.
-- `_verify_temp_command` sleeps inside the sequential worker loop; many devices firing in the same minute add ~1.5s each.
+- **ECO** is the unit's own preset, not KEEP: `POST /devices/{host}/eco/{on|off}` presses firmware buttons `eco_on`/`eco_off`; state comes from text sensor `eco_status` (ON/OFF → `device_state.eco`), falling back to the climate `preset` field on firmware without it.
+- `_verify_temp_command` sleeps inside the sequential worker loop; many devices firing in the same minute add ~6s each.
 
 ## Conventions
 
