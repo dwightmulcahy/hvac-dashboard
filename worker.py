@@ -159,7 +159,10 @@ async def _fetch_exchange_rate() -> dict | None:
         _add_log(f"Exchange rate fetch failed: {e}", "warn")
     return None
 
-async def _send_cmd(host: str, params: dict) -> bool:
+async def _send_cmd(host: str, params: dict, *, keep_temp: bool = False) -> bool:
+    """Send a climate command. Any mode command not issued by keep-temp itself
+    (schedule, user, max-temp guard, vacation, retry queue) cancels a keep-temp
+    pause, so keep-temp never turns a unit back on that something else turned off."""
     qs = urlencode(params)
     for path in CLIMATE_PATHS:
         url = f"http://{host}/{path}/set?{qs}"
@@ -167,12 +170,23 @@ async def _send_cmd(host: str, params: dict) -> bool:
             async with httpx.AsyncClient(timeout=5) as client:
                 r = await client.post(url)
                 if r.status_code < 300:
+                    if "target_temperature" in params:
+                        device = next((d for d in _state["devices"] if d["host"] == host), None)
+                        if device is not None and device.get("_keep_temp_paused"):
+                            try:
+                                device["_keep_temp_target"] = float(params["target_temperature"])
+                            except (TypeError, ValueError):
+                                pass
                     # update _last_mode immediately so the next poll doesn't
                     # re-log this as a separate "detected externally"/"turned off" event
                     if "mode" in params:
                         device = next((d for d in _state["devices"] if d["host"] == host), None)
                         if device is not None:
                             device["_last_mode"] = params["mode"]
+                            if params["mode"] != "OFF":
+                                device["_last_active_mode"] = params["mode"]
+                            if not keep_temp:
+                                _clear_keep_temp_pause(device)
                     return True
                 elif r.status_code == 404:
                     continue
@@ -317,6 +331,8 @@ async def _poll_device(device: dict):
             _add_log(f"{name}: turned on ({cur_mode}) — detected externally", "ok")
 
     device["_last_mode"] = cur_mode
+    if cur_mode != "OFF":
+        device["_last_active_mode"] = cur_mode
     device["_last_poll_epoch"] = now_epoch
     device["_last_poll"] = _now_iso()
     ds["last_seen"] = device["_last_seen"]
@@ -558,6 +574,77 @@ async def _check_max_temp(device: dict):
                 else:
                     device.setdefault("_retry_queue", []).append({"target_temperature": float(prev_temp)})
                     _add_log(f"{name}: max-temp guard recovery — temperature restore failed, queued for retry", "warn")
+
+# ── Keep-temp ─────────────────────────────────────────────
+
+KEEP_TEMP_BAND = 0.5          # °C below target to pause, above target to resume
+KEEP_TEMP_MIN_OFF_SECS = 300  # compressor short-cycle protection
+
+
+def _clear_keep_temp_pause(device: dict):
+    device["_keep_temp_paused"] = False
+    device["_keep_temp_paused_at"] = None
+    device["_keep_temp_target"] = None
+
+
+async def _check_keep_temp(device: dict):
+    """COOL-only thermostat on top of the unit's own: power the unit off once the
+    room is KEEP_TEMP_BAND below target, and back on in COOL once it's
+    KEEP_TEMP_BAND above target (after at least KEEP_TEMP_MIN_OFF_SECS off)."""
+    host = device["host"]
+    name = device["name"]
+    paused = device.get("_keep_temp_paused", False)
+
+    if not device.get("keep_temp"):
+        if paused:
+            _add_log(f"{name}: keep-temp disabled while paused — resuming COOL", "info")
+            if not await _send_cmd(host, {"mode": "COOL"}):
+                device.setdefault("_retry_queue", []).append({"mode": "COOL"})
+            _clear_keep_temp_pause(device)
+        return
+
+    ds = _state["device_state"].get(host, {})
+    if ds.get("error") or device.get("_max_temp_active"):
+        return
+    try:
+        indoor = float(ds["current_temperature"])
+    except (KeyError, TypeError, ValueError):
+        return
+    cur_mode = ds.get("mode", "OFF")
+
+    if paused:
+        if cur_mode != "OFF":
+            # turned back on by something outside this process (physical remote)
+            _add_log(f"{name}: keep-temp pause cancelled — unit turned on ({cur_mode})", "info")
+            _clear_keep_temp_pause(device)
+            return
+        target = device.get("_keep_temp_target")
+        if target is None:
+            _clear_keep_temp_pause(device)
+            return
+        off_for = _utcnow().timestamp() - (device.get("_keep_temp_paused_at") or 0)
+        if indoor >= target + KEEP_TEMP_BAND and off_for >= KEEP_TEMP_MIN_OFF_SECS:
+            if await _send_cmd(host, {"mode": "COOL"}, keep_temp=True):
+                ds["mode"] = "COOL"
+                _clear_keep_temp_pause(device)
+                _add_log(f"{name}: ▶ keep-temp — {indoor}°C ≥ {target + KEEP_TEMP_BAND}°C, resuming COOL", "ok")
+                await _verify_temp_command(host, device, name, target)
+        return
+
+    if cur_mode != "COOL":
+        return
+    try:
+        target = float(ds["target_temperature"])
+    except (KeyError, TypeError, ValueError):
+        return
+    if indoor <= target - KEEP_TEMP_BAND:
+        if await _send_cmd(host, {"mode": "OFF"}, keep_temp=True):
+            ds["mode"] = "OFF"
+            device["_keep_temp_paused"] = True
+            device["_keep_temp_paused_at"] = _utcnow().timestamp()
+            device["_keep_temp_target"] = target
+            _add_log(f"{name}: ⏸ keep-temp — {indoor}°C ≤ {target - KEEP_TEMP_BAND}°C, pausing until "
+                     f"≥ {target + KEEP_TEMP_BAND}°C", "info")
 
 # ── Scheduler ─────────────────────────────────────────────
 
@@ -866,6 +953,7 @@ async def _background_worker():
             for device in _state["devices"]:
                 await _poll_device(device)
                 await _check_max_temp(device)
+                await _check_keep_temp(device)
                 await _check_watchdog(device)
                 await asyncio.sleep(0.5)  # jitter between devices
 

@@ -37,6 +37,7 @@ See [`ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for how the backend is structure
 ### Automation (server-side, 24/7)
 - **Schedules** — time + day-of-week per device, evaluated every minute server-side, resilient to poll-timing drift and missed-while-down recovery
 - **Max temp guard** — auto-turns on AC when room exceeds configurable threshold, off when cooled (with hysteresis to prevent rapid cycling; guard hours only block the trigger, never the auto-off recovery)
+- **Keep temp** — per-device (Settings → Devices → Keep): in COOL, powers the unit off once the room is 0.5°C below target and back on at 0.5°C above (5-min minimum off); shown as KEEP / ⏸ keep on the kiosk and dashboard tiles
 - **Vacation mode** — turns off all units, sets high temp guard (configurable), pauses all schedules, optional auto-end after N days
 - **Beeper sync** — saved beeper state read from device, not pushed to it
 - **Reboot detection** — logs when dongle uptime resets
@@ -80,7 +81,7 @@ See [`ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for how the backend is structure
 - **Rates** — provider, exchange rate (↻ Live fetch), monthly kWh, runtime hrs, tiered or flat rate
 
 ### Kiosk Panel
-Wall-mounted, PIN-locked touchscreen control panel — a separate, purpose-built UI (`kiosk.html`), not a cut-down version of the main dashboard. Fixed 800×480 layout, self-contained SVG icons (no CDN dependency), screensaver with idle timeout, role-aware controls (viewers can view devices and maintenance status but can't send commands or mark maintenance items complete — that needs operator or admin). Ships in the same Docker image; nothing extra to install. See [`KIOSK.md`](./docs/KIOSK.md) for the Raspberry Pi hardware setup.
+Wall-mounted, PIN-locked touchscreen control panel — a separate, purpose-built UI (`kiosk.html`), not a cut-down version of the main dashboard. Fixed 800×480 layout, self-contained SVG icons (no CDN dependency), screensaver with idle timeout, °C / °F / both toggle in the header (saved per kiosk), adjusting the temp on an OFF unit powers it on in the last mode it ran in (COOL if unknown), role-aware controls (viewers can view devices and maintenance status but can't send commands or mark maintenance items complete — that needs operator or admin). Ships in the same Docker image; nothing extra to install. See [`KIOSK.md`](./docs/KIOSK.md) for the Raspberry Pi hardware setup.
 
 ---
 

@@ -9,7 +9,7 @@ from fastapi import APIRouter, Header, HTTPException
 from auth import _get_token_info
 from models import CommandPayload
 from state import _add_log, _lock, _save_raw, _state
-from worker import _check_max_temp, _poll_device, _send_cmd, _send_switch, _verify_temp_command
+from worker import _check_keep_temp, _check_max_temp, _poll_device, _send_cmd, _send_switch, _verify_temp_command
 
 router = APIRouter(tags=["devices"])
 
@@ -22,6 +22,7 @@ async def poll_device_now(host: str):
         raise HTTPException(status_code=404, detail="Device not found")
     await _poll_device(device)
     await _check_max_temp(device)
+    await _check_keep_temp(device)
     async with _lock:
         _save_raw(_state)
     ds = _state["device_state"].get(host, {})

@@ -15,7 +15,7 @@
   --auto:#a855f7;--auto-bg:#3b1f5e;
   --fan:#10b981;--fan-bg:#0d3728;
   --dry:#ec4899;--dry-bg:#4a1030;
-  --ok:#22c55e;--warn:#f59e0b;--err:#ef4444;
+  --ok:#22c55e;--warn:#f59e0b;--err:#ef4444;--keep:#4ade80;
   --r:10px;--rl:14px;
 }
 :root.light{
@@ -27,7 +27,7 @@
   --auto:#9333ea;--auto-bg:#f3e8ff;
   --fan:#059669;--fan-bg:#d1fae5;
   --dry:#db2777;--dry-bg:#fce7f3;
-  --ok:#16a34a;--warn:#d97706;--err:#dc2626;
+  --ok:#16a34a;--warn:#d97706;--err:#dc2626;--keep:#15803d;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:24px 20px;max-width:960px;margin:0 auto}
@@ -419,7 +419,7 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
         </div>
         <div id="test-all-results" style="display:none;background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px"></div>
         <div id="discover-results" style="display:none;background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px"></div>
-        <div id="ip-list" style="display:grid;grid-template-columns:20px 95px minmax(160px,1fr) 58px 58px 70px 34px auto;gap:6px 6px;align-items:center"></div>
+        <div id="ip-list" style="display:grid;grid-template-columns:20px 95px minmax(160px,1fr) 58px 58px 70px 34px 40px auto;gap:6px 6px;align-items:center"></div>
       </div>
       <!-- General tab -->
       <div id="stab-content-general" style="display:none">
@@ -1447,7 +1447,7 @@ async function saveDeviceToAPI(d){
       body:JSON.stringify({host:d.host,name:d.name,btu:d.btu||24000,seer:d.seer||20,
         max_temp:d.maxTemp||null,beeper:d.beeper||'OFF',watchdog_minutes:d.watchdog_minutes||5,
         lock_temp:d.lock_temp||false,locked_target_temp:d.locked_target_temp||null,
-        has_ir_emitter:d.has_ir_emitter||false})
+        has_ir_emitter:d.has_ir_emitter||false,keep_temp:d.keep_temp||false})
     });
   }catch(_){}
 }
@@ -2199,6 +2199,7 @@ function renderIPList(){
     <div class="dev-hcell">SEER</div>
     <div class="dev-hcell">Max${tempUnitLabel()}</div>
     <div class="dev-hcell" title="Has IR emitter — unlocks display toggle and swing step on the tile">IR</div>
+    <div class="dev-hcell" title="Keep temp — in COOL, power off when the room is 0.5°C below target, back on at 0.5°C above">Keep</div>
     <div class="dev-hcell"></div>`;
   document.getElementById('ip-list').innerHTML=header+devices.map((d,i)=>`
     <div class="irow" data-orig-host="${d.host}" data-idx="${i}" draggable="true"
@@ -2223,6 +2224,11 @@ function renderIPList(){
       <div class="dev-cell" style="display:flex;justify-content:center">
         <input type="checkbox" ${d.has_ir_emitter?'checked':''} onchange="toggleHasIrEmitter(${i})"
           title="Has IR emitter — unlocks display toggle and swing step on the tile"
+          style="width:16px;height:16px;cursor:pointer">
+      </div>
+      <div class="dev-cell" style="display:flex;justify-content:center">
+        <input type="checkbox" ${d.keep_temp?'checked':''} onchange="toggleKeepTemp(${i})"
+          title="Keep temp — in COOL, power off when the room is 0.5°C below target, back on at 0.5°C above"
           style="width:16px;height:16px;cursor:pointer">
       </div>
       <div class="dev-cell" style="display:flex;gap:3px;flex-shrink:0;position:relative">
@@ -2290,7 +2296,7 @@ async function saveDeviceRow(i){
     seer:d.seer||20,max_temp:d.maxTemp||null,
     beeper:d.beeper||'OFF',watchdog_minutes:d.watchdog_minutes||5,
     lock_temp:d.lock_temp||false,locked_target_temp:d.locked_target_temp||null,
-    has_ir_emitter:d.has_ir_emitter||false};
+    has_ir_emitter:d.has_ir_emitter||false,keep_temp:d.keep_temp||false};
 
   try{
     if(hostChanged){
@@ -2381,7 +2387,7 @@ function buildTileHTML(d,i){
     const dis=(!on||busy||readOnly)?'disabled':'';
     const busyOrRO=(busy||readOnly)?'disabled':'';
     const x=d.extras||{};
-    return`<div id="tile-${i}" data-state-key="${stateKey}" class="tile ${on?'tile-on':''}" style="${d.stale?'border-color:var(--warn)':''}${readOnly?';opacity:0.85':''}">
+    return`<div id="tile-${i}" data-state-key="${stateKey}" class="tile ${on?'tile-on':''}" style="${d.stale?'border-color:var(--warn)':d._keep_temp_paused?'border-color:var(--keep)':''}${readOnly?';opacity:0.85':''}">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:8px">
         <div style="display:flex;align-items:center;gap:6px;min-width:0;flex:1">
           <span class="dot ${on?'d-on':'d-off'}" style="flex-shrink:0"></span>
@@ -2390,12 +2396,13 @@ function buildTileHTML(d,i){
           ${readOnly?'<span style="font-size:9px;color:var(--text3);border:1px solid var(--border);padding:1px 5px;border-radius:4px" title="Read-only access">👁 view only</span>':''}
           ${d.stale?'<span style="font-size:10px;color:var(--warn);font-family:\'DM Mono\',monospace" title="Device not responding">⚠ stale</span>':''}
           ${d.stale&&d.consecutive_failures>1?`<span style="font-size:10px;color:var(--err);font-family:'DM Mono',monospace" title="${d.consecutive_failures} consecutive poll failures">⚠${d.consecutive_failures}</span>`:''}
+          ${d._keep_temp_paused?`<span style="font-size:10px;color:var(--keep);border:1px solid var(--keep);padding:1px 5px;border-radius:4px" title="Keep temp: paused until the room warms to ${d._keep_temp_target+0.5}°C">⏸ keep</span>`:''}
           ${d.retry_queue_depth?`<span style="font-size:10px;color:var(--warn);font-family:'DM Mono',monospace" title="${d.retry_queue_depth} command(s) queued for retry">↺${d.retry_queue_depth}</span>`:''}
           ${d._maintenanceOverdue?`<span style="font-size:10px;color:var(--err);cursor:pointer" title="Maintenance overdue — click for details" onclick="openSettings('maintenance')">🔧⚠</span>`:''}
         </div>
         <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
           ${readOnly?'':`<button class="btn bico" onclick="adjustTemp(${i},-1)" ${dis} style="width:24px;height:24px">−</button>`}
-          <div class="tdisp" style="line-height:1.2;text-align:center">${on&&s.target_temperature!=null?fmtTemp(s.target_temperature):'<span style="color:var(--text3);font-size:11px">off</span>'}</div>
+          <div class="tdisp" style="line-height:1.2;text-align:center">${on&&s.target_temperature!=null?fmtTemp(s.target_temperature):d._keep_temp_paused&&d._keep_temp_target!=null?`<span style="color:var(--keep)">${fmtTemp(d._keep_temp_target)}</span>`:'<span style="color:var(--text3);font-size:11px">off</span>'}</div>
           ${readOnly?'':`<button class="btn bico" onclick="adjustTemp(${i},1)" ${dis} style="width:24px;height:24px">+</button>`}
           ${readOnly?(x.beeper!==undefined?`<span style="font-size:11px;opacity:0.5">${x.beeper?.value==='ON'?'🔔':'🔕'}</span>`:''):(x.beeper!==undefined?`<button class="beeper ${x.beeper?.value==='ON'?'on':''}" onclick="toggleBeeper(${i})" ${busyOrRO} style="font-size:11px;padding:0 7px;height:24px;border-radius:7px">🔔</button>`:'')}
           ${readOnly?`<span style="font-size:12px;opacity:0.5">${d.lock_temp?'🔒':'🔓'}</span>`:`<button onclick="toggleLockTemp(${i})" title="${d.lock_temp?'Locked at '+d.locked_target_temp+'°C — click to unlock':'Click to lock temp at current setpoint'}"
@@ -2687,6 +2694,14 @@ async function otaDevice(i){
     body.innerHTML+=`<div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn" onclick="document.getElementById('test-modal').style.display='none'">Close</button></div>`;
   };
   input.click();
+}
+
+function toggleKeepTemp(i){
+  const d=devices[i];
+  d.keep_temp=!d.keep_temp;
+  saveDeviceToAPI(d);
+  addLog(`${d.name}: keep temp ${d.keep_temp?'enabled':'disabled'}`,'info');
+  renderIPList();
 }
 
 function toggleHasIrEmitter(i){
