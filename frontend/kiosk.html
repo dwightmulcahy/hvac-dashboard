@@ -809,7 +809,7 @@ function renderDetail(host){
       ${statCard('dollar',running&&watts?'$'+costHr+'/hr':'—','COST',running?'var(--green)':GRAY)}
       ${wifiStatCard(s.wifi_signal)}
     </div>
-    <div style="color:var(--text4);font-size:10px;text-align:center;margin-top:8px">${d.host} · ESPHome ${d._firmware_version||'—'}</div>
+    <div style="color:var(--text4);font-size:10px;text-align:center;margin-top:8px">${d.host} · <span style="color:${s.firmware_outdated?'var(--warn)':'inherit'}">${fwLabel(s)}</span>${fwBuilt(s)?` · built ${fwBuilt(s)}`:''} · ESPHome ${d._firmware_version||'—'}</div>
   `;
   if(canControl){
     if(!locked){
@@ -886,6 +886,17 @@ function toggleBeeperOptimistic(host,turnOn){
 
 // Unit's built-in ECO preset (firmware eco_on/eco_off buttons). State comes
 // from the eco_status text sensor (ds.eco), falling back to climate preset.
+// Dongle firmware (air_conditioner_firmware sensor); legacy = no sensor.
+function fwLabel(s){
+  if(!s||s.error)return'—';
+  const v=s.firmware_version?`fw ${s.firmware_version}`:'fw legacy';
+  return s.firmware_outdated?`${v} ⬆ ${s.firmware_latest}`:v;
+}
+function fwBuilt(s){
+  const b=s?.firmware_built;
+  return b?String(b).replace(/,?\s*\d{1,2}:\d{2}(:\d{2})?$/,''):null;
+}
+
 function isEcoPreset(s){return s?.eco!=null?!!s.eco:String(s?.preset||'').toUpperCase()==='ECO';}
 
 function toggleEcoOptimistic(host,turnOn){
@@ -1088,7 +1099,7 @@ function renderDevicesView(){
         <span style="color:${dim?'var(--text2)':MODE_COLOR[mode]||MODE_COLOR.OFF};font-size:11px;font-weight:500;min-width:60px">${dim?'OFFLINE':modeLabel(mode)}</span>
         <span style="color:var(--text2);font-size:12px;min-width:90px">${dim?'—':fmtTempCompact(s.current_temperature)}</span>
         <span style="display:flex;align-items:center;gap:6px;min-width:90px">${wifi.html}<span style="color:var(--text3);font-size:11px">${dim?'—':wifi.label}</span></span>
-        <span style="color:var(--text4);font-size:10px">${d._firmware_version||'—'}</span>
+        <span style="color:${s.firmware_outdated?'var(--warn)':'var(--text4)'};font-size:10px">${dim?'—':fwLabel(s)}</span>
       </div>`;
     }).join('')}
   </div>`;

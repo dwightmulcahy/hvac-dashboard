@@ -13,7 +13,10 @@ esphome:
   name_add_mac_suffix: true
   project:
     name: "SMLIGHT.SLWF-01Pro-Pro"
-    version: "1.0.0"
+    # Bump on every firmware change and update worker.LATEST_FIRMWARE_VERSION
+    # to match (tests/test_worker_firmware.py enforces it). The dashboard flags
+    # dongles reporting an older version and skips probing newer entities.
+    version: "1.1.0"
 
   platformio_options:
     board_build.flash_mode: dout
@@ -192,6 +195,14 @@ sensor:
       - lambda: return x / 86400.0;
 
 text_sensor:
+  # "<project name> <project version>" from the esphome.project block above
+  - platform: template
+    name: "air_conditioner_firmware"           # → /text_sensor/air_conditioner_firmware
+    entity_category: diagnostic
+    update_interval: 60s                       # not "never": a template sensor would then never publish
+    lambda: return {ESPHOME_PROJECT_NAME " " ESPHOME_PROJECT_VERSION};
+
+  # "<esphome version> <build date/time>" — dashboard shows the build date
   - platform: version
     name: "air_conditioner_esphome_version"    # → /text_sensor/air_conditioner_esphome_version
     entity_category: diagnostic

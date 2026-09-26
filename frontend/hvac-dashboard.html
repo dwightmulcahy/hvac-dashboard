@@ -419,7 +419,7 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
         </div>
         <div id="test-all-results" style="display:none;background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px"></div>
         <div id="discover-results" style="display:none;background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px"></div>
-        <div id="ip-list" style="display:grid;grid-template-columns:20px 95px minmax(160px,1fr) 58px 58px 70px 34px 40px auto;gap:6px 6px;align-items:center"></div>
+        <div id="ip-list" style="display:grid;grid-template-columns:20px 95px minmax(160px,1fr) 58px 58px 70px 34px 40px 64px auto;gap:6px 6px;align-items:center"></div>
       </div>
       <!-- General tab -->
       <div id="stab-content-general" style="display:none">
@@ -1756,6 +1756,29 @@ function tempFromDisplayUnit(raw){
 // the new value, not the pre-command one. Matches worker.VERIFY_DELAY_SECS.
 const VERIFY_DELAY_MS=6000;
 
+// Dongle firmware identity from the air_conditioner_firmware sensor (slwf-base
+// package version) + build date from the ESPHome version sensor. Legacy
+// firmware without the sensor reports no version and counts as outdated.
+function fwInfo(s){
+  if(!s||s.error)return null;
+  const built=s.firmware_built?String(s.firmware_built).replace(/,?\s*\d{1,2}:\d{2}(:\d{2})?$/,''):null;
+  const esp=s.esphome_version?String(s.esphome_version).split(' ')[0]:null;
+  const ver=s.firmware_version||null;
+  const short=ver?`${ver}${built?' · '+built.replace(/\s\d{4}$/,''):''}`:'legacy';
+  const title=[
+    ver?`${s.firmware_name||'firmware'} ${ver}`:'Legacy firmware (no air_conditioner_firmware sensor)',
+    built?`built ${s.firmware_built}`:null,
+    esp?`ESPHome ${esp}`:null,
+    s.firmware_outdated?`⬆ update available: ${s.firmware_latest}`:null,
+  ].filter(Boolean).join(' · ');
+  return{short,title,outdated:!!s.firmware_outdated,latest:s.firmware_latest};
+}
+function fwHtml(s,compact){
+  const f=fwInfo(s);if(!f)return'—';
+  const txt=compact?(s.firmware_version||'legacy'):`fw ${f.short}`;
+  return `<span title="${f.title}" style="color:${f.outdated?'var(--warn)':'var(--text3)'}">${txt}${f.outdated?' ⬆':''}</span>`;
+}
+
 async function withBusy(i,fn){
   const d=devices[i];
   if(d.busy)return;
@@ -2223,6 +2246,7 @@ function renderIPList(){
     <div class="dev-hcell">Max${tempUnitLabel()}</div>
     <div class="dev-hcell" title="Has IR emitter — unlocks display toggle and swing step on the tile">IR</div>
     <div class="dev-hcell" title="KEEP — in COOL/HEAT, switch to fan only once the room is 0.5°C past target, back to COOL/HEAT when it drifts 0.5°C back">Keep</div>
+    <div class="dev-hcell" title="Dongle firmware version (⬆ = older than this dashboard's firmware/packages/slwf-base.yaml)">FW</div>
     <div class="dev-hcell"></div>`;
   document.getElementById('ip-list').innerHTML=header+devices.map((d,i)=>`
     <div class="irow" data-orig-host="${d.host}" data-idx="${i}" draggable="true"
@@ -2254,6 +2278,7 @@ function renderIPList(){
           title="KEEP — in COOL/HEAT, switch to fan only once the room is 0.5°C past target, back to COOL/HEAT when it drifts 0.5°C back"
           style="width:16px;height:16px;cursor:pointer">
       </div>
+      <div class="dev-cell" style="font-size:11px;font-family:'DM Mono',monospace;text-align:center">${fwHtml(d.state,true)}</div>
       <div class="dev-cell" style="display:flex;gap:3px;flex-shrink:0;position:relative">
         <button class="btn bico" id="save-btn-${i}" onclick="saveDeviceRow(${i})" title="Save"
           style="color:var(--text3);cursor:not-allowed" disabled>✓</button>
@@ -2451,7 +2476,7 @@ function buildTileHTML(d,i){
       <div style="margin-top:5px;font-size:10px;font-family:'DM Mono',monospace;color:var(--text3);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <span title="Time this unit has run today">on <span style="color:var(--text2)">${fmtOnTime(_usageToday[d.host]||0)}</span></span>
         ${(()=>{const sig=x.wifi_signal?.value??d.state?.wifi_signal;const w=fmtWifi(sig);return sig!=null?(w?`<span>·</span><span title="${w.label}" style="color:${w.color}">${w.bar}</span>`:`<span>·</span><span style="color:var(--text3);font-size:10px">${sig}dBm</span>`):'';})()}
-        ${(()=>{const fv=d.firmware_version||(x.esphome_version?.value?.split(' ')[0]);return fv?`<span>·</span><span style="color:var(--text3)" title="ESPHome firmware version">fw ${fv}</span>`:'';})()}
+        ${fwInfo(d.state)?`<span>·</span>${fwHtml(d.state)}`:''}
         ${d.maxTemp!=null?`<span>·</span><span>max <span style="color:${safeFloat(s.current_temperature)>=d.maxTemp?'var(--err)':'var(--text2)'}">${fmtTemp(d.maxTemp)}</span>${d._maxTempActive?' <span style="color:var(--err)">●</span>':''}</span>`:''}
         ${(()=>{
           if(!d.last_seen)return'';
@@ -2573,7 +2598,6 @@ function renderTempsModalBody(){
     const modeColor=offline||mode==='OFF'?'var(--text3)':`var(--${modeVar})`;
     const sig=x.wifi_signal?.value??s?.wifi_signal;
     const w=fmtWifi(sig);
-    const fv=d.firmware_version||(x.esphome_version?.value?.split(' ')[0]);
     return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 2px;border-bottom:1px solid var(--border)">
       <div style="display:flex;align-items:center;gap:8px;min-width:0;flex:1">
         <span style="width:7px;height:7px;border-radius:50%;display:inline-block;flex-shrink:0;background:${offline?'var(--text3)':'var(--ok)'}" title="${offline?'No data yet / last poll failed':'Online'}"></span>
@@ -2585,7 +2609,7 @@ function renderTempsModalBody(){
       <span style="display:flex;align-items:center;justify-content:flex-end;gap:5px;min-width:70px">
         ${!offline&&w?`<span style="color:${w.color};font-size:12px" title="${w.label}">${w.bar}</span>`:'<span style="color:var(--text3);font-size:11px">—</span>'}
       </span>
-      <span style="font-size:10px;color:var(--text3);min-width:50px;text-align:right;font-family:'DM Mono',monospace">${fv||'—'}</span>
+      <span style="font-size:10px;min-width:50px;text-align:right;font-family:'DM Mono',monospace">${offline?'—':fwHtml(s)}</span>
     </div>`;
   }).join('');
 }
@@ -2782,7 +2806,7 @@ async function testDevice(i){
         ['Device',d.name],
         ['Host',d.host],
         ['Time',ms+'ms'],
-        ['FW',d.firmware_version||data.firmware_version||'—'],
+        ['FW',(()=>{const f=fwInfo(data.state);return f?f.title:(d.firmware_version||data.firmware_version||'—');})()],
       ];
       info.forEach(function(row){
         const div=document.createElement('div');

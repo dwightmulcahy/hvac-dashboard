@@ -35,7 +35,12 @@ test("kiosk: temp units, power-on to last mode, FAN mode, KEEP, ECO", async (t) 
   const devices = {
     devices: [
       dev("off-heat.local", "Off Heat", { _last_active_mode: "HEAT" }, { mode: "OFF", target_temperature: "22" }),
-      dev("off-new.local", "Off New", { _last_active_mode: null }, { mode: "OFF", target_temperature: "22" }),
+      dev(
+        "off-new.local",
+        "Off New",
+        { _last_active_mode: null },
+        { mode: "OFF", target_temperature: "22", firmware_version: "1.0.0", firmware_outdated: true, firmware_latest: "1.1.0" },
+      ),
       dev(
         "keep.local",
         "Kept",
@@ -200,6 +205,29 @@ test("kiosk: temp units, power-on to last mode, FAN mode, KEEP, ECO", async (t) 
     click(btn());
     await wait(30);
     assert.match(ecoCalls.at(-1), /\/devices\/off-heat\.local\/eco\/on$/);
+    click($("#sub-header"));
+    await wait(30);
+  });
+
+  // ── Firmware identity ───────────────────────────────────────
+
+  await t.test("detail footer shows firmware version, build date, and outdated marker", async () => {
+    devices.devices[0].state.firmware_version = "1.1.0";
+    devices.devices[0].state.firmware_outdated = false;
+    devices.devices[0].state.firmware_built = "Sep 26 2026, 16:34:31";
+    await window.refreshAll();
+    click(tile("off-heat.local"));
+    await wait(30);
+    let txt = $("#grid-detail").textContent;
+    assert.match(txt, /fw 1\.1\.0/);
+    assert.match(txt, /built Sep 26 2026/);
+    assert.doesNotMatch(txt, /⬆/);
+    click($("#sub-header"));
+    await wait(30);
+    click(tile("off-new.local"));
+    await wait(30);
+    txt = $("#grid-detail").textContent;
+    assert.match(txt, /fw 1\.0\.0 ⬆ 1\.1\.0/);
     click($("#sub-header"));
     await wait(30);
   });

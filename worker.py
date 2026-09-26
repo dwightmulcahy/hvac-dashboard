@@ -77,6 +77,48 @@ async def _fetch_state(host: str) -> dict | None:
                 await asyncio.sleep(0.8 * (attempt + 1))
     return None
 
+# Version of firmware/packages/slwf-base.yaml (esphome.project.version).
+# Dongles reporting an older version (or no air_conditioner_firmware sensor)
+# are flagged outdated. Kept in sync with the YAML by tests/test_worker_firmware.py.
+LATEST_FIRMWARE_VERSION = "1.1.0"
+FIRMWARE_PATHS = [
+    "text_sensor/Air%20Conditioner%20Firmware",
+    "text_sensor/air_conditioner_firmware",
+]
+# sensors that only exist from a given firmware version on — skipped (no 404
+# probing) for dongles that report an older version
+MIN_FIRMWARE_FOR = {"eco_status": "1.1.0"}
+
+
+def _parse_version(v) -> tuple:
+    out = []
+    for part in str(v or "").split("."):
+        digits = "".join(ch for ch in part if ch.isdigit())
+        out.append(int(digits) if digits else 0)
+    return tuple(out)
+
+
+def _parse_firmware(raw) -> dict | None:
+    """'SMLIGHT.SLWF-01Pro-Pro 1.1.0' → {name, version}."""
+    if not raw:
+        return None
+    name, _, version = str(raw).strip().rpartition(" ")
+    if not name:
+        return {"name": version, "version": None}
+    return {"name": name, "version": version}
+
+
+def _firmware_status(fw: dict | None) -> dict:
+    version = fw.get("version") if fw else None
+    outdated = version is None or _parse_version(version) < _parse_version(LATEST_FIRMWARE_VERSION)
+    return {
+        "firmware_name": fw.get("name") if fw else None,
+        "firmware_version": version,
+        "firmware_latest": LATEST_FIRMWARE_VERSION,
+        "firmware_outdated": outdated,
+    }
+
+
 async def _fetch_sensors(host: str) -> dict:
     # Try new firmware (space-encoded) and old firmware (underscored) paths
     path_candidates = {
@@ -118,7 +160,20 @@ async def _fetch_sensors(host: str) -> dict:
     ]
     out = {}
     async with httpx.AsyncClient(timeout=3) as client:
+        for fp in FIRMWARE_PATHS:
+            try:
+                r = await client.get(f"http://{host}/{fp}")
+                if r.status_code == 200:
+                    out["firmware"] = r.json()
+                    break
+            except Exception:
+                pass
+        fw = _parse_firmware((out.get("firmware") or {}).get("state") or (out.get("firmware") or {}).get("value"))
+        fw_version = _parse_version(fw["version"]) if fw and fw.get("version") else None
         for key, paths in path_candidates.items():
+            min_fw = MIN_FIRMWARE_FOR.get(key)
+            if min_fw and fw_version is not None and fw_version < _parse_version(min_fw):
+                continue
             for path in paths:
                 try:
                     r = await client.get(f"http://{host}/{path}")
@@ -297,6 +352,12 @@ async def _poll_device(device: dict):
         # store short version (strip build hash if present)
         if fw:
             device["_firmware_version"] = fw.split(" ")[0] if fw else None
+    # firmware identity (air_conditioner_firmware) + build time from the
+    # ESPHome version sensor ("2026.6.5 Sep 26 2026, 16:34:31")
+    fw_raw = sensors.get("firmware", {})
+    ds.update(_firmware_status(_parse_firmware(fw_raw.get("state") or fw_raw.get("value"))))
+    esv = ds.get("esphome_version")
+    ds["firmware_built"] = esv.split(" ", 1)[1].strip() if esv and " " in esv else None
     # actual power_usage — use if non-zero, otherwise fall back to estimation
     if "power_usage" in sensors:
         raw_power = sensors["power_usage"].get("value")
