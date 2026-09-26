@@ -9,7 +9,7 @@ from fastapi import APIRouter, Header, HTTPException
 from auth import _get_token_info
 from models import CommandPayload
 from state import _add_log, _lock, _save_raw, _state
-from worker import _check_eco, _check_max_temp, _poll_device, _send_cmd, _send_switch, _verify_temp_command
+from worker import _check_keep, _check_max_temp, _poll_device, _send_cmd, _send_switch, _verify_temp_command
 
 router = APIRouter(tags=["devices"])
 
@@ -22,7 +22,7 @@ async def poll_device_now(host: str):
         raise HTTPException(status_code=404, detail="Device not found")
     await _poll_device(device)
     await _check_max_temp(device)
-    await _check_eco(device)
+    await _check_keep(device)
     async with _lock:
         _save_raw(_state)
     ds = _state["device_state"].get(host, {})
@@ -162,3 +162,38 @@ async def set_beeper(host: str, state: str):
     async with _lock:
         _save_raw(_state)
     return {"ok": ok}
+
+
+ECO_BUTTON_PATHS = {
+    "on": ("button/Air%20Conditioner%20Eco%20On/press", "button/air_conditioner_eco_on/press"),
+    "off": ("button/Air%20Conditioner%20Eco%20Off/press", "button/air_conditioner_eco_off/press"),
+}
+
+
+@router.post("/devices/{host:path}/eco/{state}")
+async def set_eco(host: str, state: str, authorization: str | None = Header(None)):
+    """Turn the unit's built-in ECO preset on/off via the firmware's
+    eco_on / eco_off template buttons. Actual ECO state is read back from
+    the climate `preset` field on the next poll; the local copy is updated
+    optimistically so the UI doesn't flicker in between."""
+    if state not in ECO_BUTTON_PATHS:
+        raise HTTPException(status_code=400, detail="state must be 'on' or 'off'")
+    device = next((d for d in _state["devices"] if d["host"] == host), None)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    info = _get_token_info(authorization)
+    user = info["username"] if info else "api"
+    for path in ECO_BUTTON_PATHS[state]:
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                r = await client.post(f"http://{host}/{path}")
+            if r.status_code < 300:
+                ds = _state["device_state"].get(host)
+                if ds is not None and not ds.get("error"):
+                    ds["preset"] = "ECO" if state == "on" else "NONE"
+                _add_log(f"{device['name']}: 🌿 ECO {state} by {user}", "info")
+                return {"ok": True}
+        except Exception:
+            pass
+    _add_log(f"{device['name']}: ECO {state} failed — eco_{state} button not reachable", "warn")
+    return {"ok": False, "error": "ECO buttons not supported by this firmware"}

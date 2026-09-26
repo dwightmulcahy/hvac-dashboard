@@ -1,7 +1,7 @@
 "use strict";
 /**
  * kiosk.html: kiosk-local °C/°F/both toggle, power-on-to-last-mode when a
- * temp is adjusted on an OFF unit, FAN mode, and ECO paused highlighting.
+ * temp is adjusted on an OFF unit, FAN mode, KEEP paused highlighting, and the unit's ECO preset toggle.
  * Separate jsdom instance from kiosk.test.js so device fixtures and
  * localStorage start clean.
  */
@@ -31,27 +31,34 @@ const dev = (host, name, extra, state) => ({
   state: { current_temperature: "24.5", target_temperature: "25.5", outdoor_temp: 30, ...state },
 });
 
-test("kiosk: temp units, power-on to last mode, FAN mode, ECO", async (t) => {
+test("kiosk: temp units, power-on to last mode, FAN mode, KEEP, ECO", async (t) => {
   const devices = {
     devices: [
       dev("off-heat.local", "Off Heat", { _last_active_mode: "HEAT" }, { mode: "OFF", target_temperature: "22" }),
       dev("off-new.local", "Off New", { _last_active_mode: null }, { mode: "OFF", target_temperature: "22" }),
       dev(
-        "eco.local",
-        "Eco",
-        { eco_mode: true, _eco_paused: true, _eco_target: 25.5, _eco_resume_mode: "COOL", _last_active_mode: "FAN_ONLY" },
+        "keep.local",
+        "Kept",
+        { keep_mode: true, _keep_paused: true, _keep_target: 25.5, _keep_resume_mode: "COOL", _last_active_mode: "FAN_ONLY" },
         { mode: "FAN_ONLY", target_temperature: "25.5" },
       ),
-      dev("fan.local", "Fan", { _last_active_mode: "FAN_ONLY" }, { mode: "FAN_ONLY" }),
+      dev("fan.local", "Fan", { _last_active_mode: "FAN_ONLY" }, { mode: "FAN_ONLY", preset: "ECO" }),
     ],
   };
   let cmdCalls = [];
+  const ecoCalls = [];
   const ok = (body) => ({ ok: true, status: 200, json: async () => body });
   const mockFetch = async (url, opts) => {
     const u = String(url);
     if (u.endsWith("/api/")) return ok({ status: "ok", version: "v0", git_sha: "x" });
     if (u.includes("/auth/login-pin"))
       return ok({ ok: true, token: "tok", username: "op", role: "operator", must_change_password: false });
+    if (u.includes("/eco/")) {
+      ecoCalls.push(u);
+      const d = devices.devices.find((x) => u.includes(`/devices/${x.host}/`));
+      if (d) d.state.preset = u.endsWith("/on") ? "ECO" : "NONE"; // backend updates preset optimistically
+      return ok({ ok: true });
+    }
     if (u.includes("/cmd")) {
       cmdCalls.push({ url: u, params: JSON.parse(opts.body).params });
       return ok({ ok: true });
@@ -106,14 +113,14 @@ test("kiosk: temp units, power-on to last mode, FAN mode, ECO", async (t) => {
     assert.equal(window.localStorage.getItem("kiosk_temp_unit"), "both");
   });
 
-  // ── ECO highlight / FAN mode ─────────────────────────────────
+  // ── KEEP highlight / FAN mode ─────────────────────────────────
 
-  await t.test("paused ECO tile shows ECO and its target, not FAN", () => {
-    const txt = tile("eco.local").textContent;
-    assert.match(txt, /ECO/);
+  await t.test("paused KEEP tile shows KEEP and its target, not FAN", () => {
+    const txt = tile("keep.local").textContent;
+    assert.match(txt, /KEEP/);
     assert.doesNotMatch(txt, /FAN/);
     assert.match(txt, /→ 25\.5°/);
-    assert.match(tile("eco.local").getAttribute("style"), /var\(--eco\)/);
+    assert.match(tile("keep.local").getAttribute("style"), /var\(--keep\)/);
   });
 
   await t.test("a unit in FAN_ONLY shows FAN on its tile", () => {
@@ -161,9 +168,38 @@ test("kiosk: temp units, power-on to last mode, FAN mode, ECO", async (t) => {
     assert.deepEqual(cmdCalls[0].params, { mode: "COOL", target_temperature: 22.5 });
   });
 
-  await t.test("ECO-paused unit (in fan) only changes its target", async () => {
-    await adjustOnce("eco.local");
+  await t.test("KEEP-paused unit (in fan) only changes its target", async () => {
+    await adjustOnce("keep.local");
     assert.deepEqual(cmdCalls[0].params, { target_temperature: 26 });
+  });
+
+  // ── ECO preset ──────────────────────────────────────────────
+
+  await t.test("tile shows a leaf only when the unit reports preset ECO", () => {
+    assert.match(tile("fan.local").innerHTML, /<svg/);
+    const leafCount = (h) => (tile(h).innerHTML.match(/M5 20c0-9/g) || []).length;
+    assert.equal(leafCount("fan.local"), 1);
+    assert.equal(leafCount("off-heat.local"), 0);
+  });
+
+  await t.test("detail ECO button reflects preset and calls eco/off then eco/on", async () => {
+    click(tile("fan.local"));
+    await wait(30);
+    const btn = () => $('[data-act="eco"]');
+    assert.match(btn().getAttribute("aria-label"), /ECO is on/);
+    click(btn());
+    await wait(30);
+    assert.match(ecoCalls.at(-1), /\/devices\/fan\.local\/eco\/off$/);
+    assert.match(btn().getAttribute("aria-label"), /ECO is off/);
+    click($("#sub-header"));
+    await wait(30);
+    click(tile("off-heat.local"));
+    await wait(30);
+    click(btn());
+    await wait(30);
+    assert.match(ecoCalls.at(-1), /\/devices\/off-heat\.local\/eco\/on$/);
+    click($("#sub-header"));
+    await wait(30);
   });
 
   window.close();

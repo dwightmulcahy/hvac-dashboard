@@ -87,8 +87,8 @@ DEVICE_DEFAULTS = {
     "locked_target_temp": None,
     # gates IR-dependent features (display toggle, etc.) — most units don't have one soldered on
     "has_ir_emitter": False,
-    # ECO: in COOL/HEAT, drop to FAN_ONLY once the room passes target, resume when it drifts back
-    "eco_mode": False,
+    # KEEP: in COOL/HEAT, drop to FAN_ONLY once the room passes target, resume when it drifts back
+    "keep_mode": False,
     "_max_temp_active": False,
     "_pre_autocool_mode": None,
     "_pre_autocool_temp": None,
@@ -97,10 +97,10 @@ DEVICE_DEFAULTS = {
     "_stale": False,
     "_last_mode": None,
     "_last_active_mode": None,    # last non-OFF mode seen/sent — kiosk turns an OFF unit back on in this
-    "_eco_paused": False,         # True while ECO has the unit in FAN_ONLY
-    "_eco_paused_at": None,       # epoch seconds, enforces the minimum fan-only time
-    "_eco_target": None,          # target °C captured at pause time
-    "_eco_resume_mode": None,     # COOL or HEAT — mode to return to
+    "_keep_paused": False,         # True while KEEP has the unit in FAN_ONLY
+    "_keep_paused_at": None,       # epoch seconds, enforces the minimum fan-only time
+    "_keep_target": None,          # target °C captured at pause time
+    "_keep_resume_mode": None,     # COOL or HEAT — mode to return to
     "_last_poll_epoch": None,
     "_on_time_minutes": 0.0,
     "_retry_queue": [],

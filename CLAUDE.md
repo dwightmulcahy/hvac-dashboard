@@ -29,7 +29,8 @@ npm run lint:js                 # eslint, scoped to tests-js/ only
 - **New module importing `_state`** → add it to the reload list in `tests/conftest.py`'s `api_module` fixture AND the copy in `tests/test_api_lifespan.py`, or tests break order-dependently.
 - **ruff target is py313, not py314** — py314 formatter corrupts `except (A, B):`. See `pyproject.toml`.
 - **Device commands can silently not apply.** An HTTP 2xx from the dongle does not mean the unit changed state (e.g. temp sent right after a mode change). Any code path that sets `target_temperature` must go through `worker._verify_temp_command` (re-poll after 1.5s, retry once, else `_retry_queue`). Currently wired into `_check_schedules`, `_check_missed_schedules`, and `/cmd` in `routers/devices_control.py`. The dashboard's `adjustTemp()` has its own client-side equivalent.
-- **ECO mode** (`worker._check_eco`, per-device `eco_mode`, COOL/HEAT): switches to FAN_ONLY once the room is 0.5°C past target (sensor reads intake air, so the fan keeps it accurate), returns to COOL/HEAT once it drifts 0.5°C back after ≥5 min in fan. Any `_send_cmd` mode command cancels the pause unless called with `eco=True` — so schedules/users/guard/vacation always win.
+- **KEEP mode** (`worker._check_keep`, per-device `keep_mode`, COOL/HEAT): switches to FAN_ONLY once the room is 0.5°C past target (sensor reads intake air, so the fan keeps it accurate), returns to COOL/HEAT once it drifts 0.5°C back after ≥5 min in fan. Any `_send_cmd` mode command cancels the pause unless called with `keep=True` — so schedules/users/guard/vacation always win.
+- **ECO** is the unit's own preset, not KEEP: `POST /devices/{host}/eco/{on|off}` presses firmware buttons `eco_on`/`eco_off` (not in `firmware/*.yaml`); state comes from the climate `preset` field.
 - `_verify_temp_command` sleeps inside the sequential worker loop; many devices firing in the same minute add ~1.5s each.
 
 ## Conventions

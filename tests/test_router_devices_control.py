@@ -262,3 +262,47 @@ def test_set_beeper_unknown_device_still_attempts(client, auth_headers, mocker):
 
     r = client.post("/devices/unknown.local/beeper/on", headers=auth_headers)
     assert r.status_code == 200
+
+
+# ── ECO preset (firmware eco_on / eco_off buttons) ──
+
+def _eco_setup(api_module, mocker, status_for=lambda url: 200):
+    api_module._state["devices"].append({"host": "ac1.local", "name": "Living Room"})
+    api_module._state["device_state"]["ac1.local"] = {"mode": "COOL", "preset": "NONE"}
+    calls = []
+
+    async def fake_post(self, url, *a, **kw):
+        calls.append(url)
+        return _FakeResponse(status_code=status_for(url))
+    mocker.patch.object(httpx.AsyncClient, "post", fake_post)
+    return calls
+
+
+def test_eco_on_presses_eco_on_button_and_sets_preset(client, auth_headers, api_module, mocker):
+    calls = _eco_setup(api_module, mocker, lambda url: 404 if "%20" in url else 200)
+    r = client.post("/devices/ac1.local/eco/on", headers=auth_headers)
+    assert r.json() == {"ok": True}
+    assert calls[-1] == "http://ac1.local/button/air_conditioner_eco_on/press"
+    assert api_module._state["device_state"]["ac1.local"]["preset"] == "ECO"
+
+
+def test_eco_off_presses_eco_off_button(client, auth_headers, api_module, mocker):
+    calls = _eco_setup(api_module, mocker, lambda url: 404 if "%20" in url else 200)
+    api_module._state["device_state"]["ac1.local"]["preset"] = "ECO"
+    r = client.post("/devices/ac1.local/eco/off", headers=auth_headers)
+    assert r.json() == {"ok": True}
+    assert calls[-1].endswith("/button/air_conditioner_eco_off/press")
+    assert api_module._state["device_state"]["ac1.local"]["preset"] == "NONE"
+
+
+def test_eco_unsupported_firmware_reports_failure(client, auth_headers, api_module, mocker):
+    _eco_setup(api_module, mocker, lambda url: 404)
+    r = client.post("/devices/ac1.local/eco/on", headers=auth_headers)
+    assert r.json()["ok"] is False
+    assert api_module._state["device_state"]["ac1.local"]["preset"] == "NONE"
+
+
+def test_eco_bad_state_and_unknown_device(client, auth_headers, api_module, mocker):
+    _eco_setup(api_module, mocker)
+    assert client.post("/devices/ac1.local/eco/maybe", headers=auth_headers).status_code == 400
+    assert client.post("/devices/nope.local/eco/on", headers=auth_headers).status_code == 404

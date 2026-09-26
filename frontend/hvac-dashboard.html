@@ -15,7 +15,7 @@
   --auto:#a855f7;--auto-bg:#3b1f5e;
   --fan:#10b981;--fan-bg:#0d3728;
   --dry:#ec4899;--dry-bg:#4a1030;
-  --ok:#22c55e;--warn:#f59e0b;--err:#ef4444;--eco:#84cc16;
+  --ok:#22c55e;--warn:#f59e0b;--err:#ef4444;--keep:#84cc16;
   --r:10px;--rl:14px;
 }
 :root.light{
@@ -27,7 +27,7 @@
   --auto:#9333ea;--auto-bg:#f3e8ff;
   --fan:#059669;--fan-bg:#d1fae5;
   --dry:#db2777;--dry-bg:#fce7f3;
-  --ok:#16a34a;--warn:#d97706;--err:#dc2626;--eco:#4d7c0f;
+  --ok:#16a34a;--warn:#d97706;--err:#dc2626;--keep:#4d7c0f;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:24px 20px;max-width:960px;margin:0 auto}
@@ -1447,7 +1447,7 @@ async function saveDeviceToAPI(d){
       body:JSON.stringify({host:d.host,name:d.name,btu:d.btu||24000,seer:d.seer||20,
         max_temp:d.maxTemp||null,beeper:d.beeper||'OFF',watchdog_minutes:d.watchdog_minutes||5,
         lock_temp:d.lock_temp||false,locked_target_temp:d.locked_target_temp||null,
-        has_ir_emitter:d.has_ir_emitter||false,eco_mode:d.eco_mode||false})
+        has_ir_emitter:d.has_ir_emitter||false,keep_mode:d.keep_mode||false})
     });
   }catch(_){}
 }
@@ -1933,6 +1933,25 @@ async function toggleLockTemp(i){
   }catch(e){addLog(`${d.name}: lock failed — ${e.message}`,'err');}
 }
 
+// Unit's built-in ECO preset — set via the firmware's eco_on/eco_off
+// buttons, read back from the climate state's preset field on each poll.
+function isEcoPreset(s){return String(s?.preset||'').toUpperCase()==='ECO';}
+
+async function toggleEco(i){
+  if(_authRole==='viewer'){addLog('Read-only access — cannot toggle ECO','warn');return;}
+  await withBusy(i,async d=>{
+    const newState=isEcoPreset(d.state)?'off':'on';
+    try{
+      const r=await fetch(`${API}/devices/${encodeURIComponent(d.host)}/eco/${newState}`,{method:'POST'});
+      const data=await r.json().catch(()=>({}));
+      if(r.ok&&data.ok){
+        if(d.state)d.state.preset=newState==='on'?'ECO':'NONE';
+        addLog(`${d.name}: ECO ${newState}`,'ok');
+      }else addLog(`${d.name}: ECO ${newState} failed — ${data.error||r.status}`,'err');
+    }catch(e){addLog(`${d.name}: ECO failed — ${e.message}`,'err');}
+  });
+}
+
 async function toggleBeeper(i){
   if(_authRole==='viewer'){addLog('Read-only access — cannot toggle beeper','warn');return;}
   await withBusy(i,async d=>{
@@ -2199,7 +2218,7 @@ function renderIPList(){
     <div class="dev-hcell">SEER</div>
     <div class="dev-hcell">Max${tempUnitLabel()}</div>
     <div class="dev-hcell" title="Has IR emitter — unlocks display toggle and swing step on the tile">IR</div>
-    <div class="dev-hcell" title="ECO — in COOL/HEAT, switch to fan only once the room is 0.5°C past target, back to COOL/HEAT when it drifts 0.5°C back">ECO</div>
+    <div class="dev-hcell" title="KEEP — in COOL/HEAT, switch to fan only once the room is 0.5°C past target, back to COOL/HEAT when it drifts 0.5°C back">Keep</div>
     <div class="dev-hcell"></div>`;
   document.getElementById('ip-list').innerHTML=header+devices.map((d,i)=>`
     <div class="irow" data-orig-host="${d.host}" data-idx="${i}" draggable="true"
@@ -2227,8 +2246,8 @@ function renderIPList(){
           style="width:16px;height:16px;cursor:pointer">
       </div>
       <div class="dev-cell" style="display:flex;justify-content:center">
-        <input type="checkbox" ${d.eco_mode?'checked':''} onchange="toggleEcoMode(${i})"
-          title="ECO — in COOL/HEAT, switch to fan only once the room is 0.5°C past target, back to COOL/HEAT when it drifts 0.5°C back"
+        <input type="checkbox" ${d.keep_mode?'checked':''} onchange="toggleKeepMode(${i})"
+          title="KEEP — in COOL/HEAT, switch to fan only once the room is 0.5°C past target, back to COOL/HEAT when it drifts 0.5°C back"
           style="width:16px;height:16px;cursor:pointer">
       </div>
       <div class="dev-cell" style="display:flex;gap:3px;flex-shrink:0;position:relative">
@@ -2296,7 +2315,7 @@ async function saveDeviceRow(i){
     seer:d.seer||20,max_temp:d.maxTemp||null,
     beeper:d.beeper||'OFF',watchdog_minutes:d.watchdog_minutes||5,
     lock_temp:d.lock_temp||false,locked_target_temp:d.locked_target_temp||null,
-    has_ir_emitter:d.has_ir_emitter||false,eco_mode:d.eco_mode||false};
+    has_ir_emitter:d.has_ir_emitter||false,keep_mode:d.keep_mode||false};
 
   try{
     if(hostChanged){
@@ -2387,7 +2406,7 @@ function buildTileHTML(d,i){
     const dis=(!on||busy||readOnly)?'disabled':'';
     const busyOrRO=(busy||readOnly)?'disabled':'';
     const x=d.extras||{};
-    return`<div id="tile-${i}" data-state-key="${stateKey}" class="tile ${on?'tile-on':''}" style="${d.stale?'border-color:var(--warn)':d._eco_paused?'border-color:var(--eco)':''}${readOnly?';opacity:0.85':''}">
+    return`<div id="tile-${i}" data-state-key="${stateKey}" class="tile ${on?'tile-on':''}" style="${d.stale?'border-color:var(--warn)':d._keep_paused?'border-color:var(--keep)':''}${readOnly?';opacity:0.85':''}">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:8px">
         <div style="display:flex;align-items:center;gap:6px;min-width:0;flex:1">
           <span class="dot ${on?'d-on':'d-off'}" style="flex-shrink:0"></span>
@@ -2396,15 +2415,16 @@ function buildTileHTML(d,i){
           ${readOnly?'<span style="font-size:9px;color:var(--text3);border:1px solid var(--border);padding:1px 5px;border-radius:4px" title="Read-only access">👁 view only</span>':''}
           ${d.stale?'<span style="font-size:10px;color:var(--warn);font-family:\'DM Mono\',monospace" title="Device not responding">⚠ stale</span>':''}
           ${d.stale&&d.consecutive_failures>1?`<span style="font-size:10px;color:var(--err);font-family:'DM Mono',monospace" title="${d.consecutive_failures} consecutive poll failures">⚠${d.consecutive_failures}</span>`:''}
-          ${d._eco_paused?`<span style="font-size:10px;color:var(--eco);border:1px solid var(--eco);padding:1px 5px;border-radius:4px" title="ECO: target ${d._eco_target}°C reached — fan only until the room drifts 0.5°C back, then ${d._eco_resume_mode}">🌿 eco</span>`:''}
+          ${d._keep_paused?`<span style="font-size:10px;color:var(--keep);border:1px solid var(--keep);padding:1px 5px;border-radius:4px" title="KEEP: target ${d._keep_target}°C reached — fan only until the room drifts 0.5°C back, then ${d._keep_resume_mode}">⏸ keep</span>`:''}
           ${d.retry_queue_depth?`<span style="font-size:10px;color:var(--warn);font-family:'DM Mono',monospace" title="${d.retry_queue_depth} command(s) queued for retry">↺${d.retry_queue_depth}</span>`:''}
           ${d._maintenanceOverdue?`<span style="font-size:10px;color:var(--err);cursor:pointer" title="Maintenance overdue — click for details" onclick="openSettings('maintenance')">🔧⚠</span>`:''}
         </div>
         <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
           ${readOnly?'':`<button class="btn bico" onclick="adjustTemp(${i},-1)" ${dis} style="width:24px;height:24px">−</button>`}
-          <div class="tdisp" style="line-height:1.2;text-align:center">${on&&s.target_temperature!=null?fmtTemp(s.target_temperature):d._eco_paused&&d._eco_target!=null?`<span style="color:var(--eco)">${fmtTemp(d._eco_target)}</span>`:'<span style="color:var(--text3);font-size:11px">off</span>'}</div>
+          <div class="tdisp" style="line-height:1.2;text-align:center">${on&&s.target_temperature!=null?fmtTemp(s.target_temperature):d._keep_paused&&d._keep_target!=null?`<span style="color:var(--keep)">${fmtTemp(d._keep_target)}</span>`:'<span style="color:var(--text3);font-size:11px">off</span>'}</div>
           ${readOnly?'':`<button class="btn bico" onclick="adjustTemp(${i},1)" ${dis} style="width:24px;height:24px">+</button>`}
           ${readOnly?(x.beeper!==undefined?`<span style="font-size:11px;opacity:0.5">${x.beeper?.value==='ON'?'🔔':'🔕'}</span>`:''):(x.beeper!==undefined?`<button class="beeper ${x.beeper?.value==='ON'?'on':''}" onclick="toggleBeeper(${i})" ${busyOrRO} style="font-size:11px;padding:0 7px;height:24px;border-radius:7px">🔔</button>`:'')}
+          ${readOnly?(isEcoPreset(s)?`<span style="font-size:11px" title="ECO on">🌿</span>`:''):`<button class="beeper ${isEcoPreset(s)?'on':''}" onclick="toggleEco(${i})" ${busyOrRO} title="ECO ${isEcoPreset(s)?'on':'off'} — tap to toggle" style="font-size:11px;padding:0 7px;height:24px;border-radius:7px">🌿</button>`}
           ${readOnly?`<span style="font-size:12px;opacity:0.5">${d.lock_temp?'🔒':'🔓'}</span>`:`<button onclick="toggleLockTemp(${i})" title="${d.lock_temp?'Locked at '+d.locked_target_temp+'°C — click to unlock':'Click to lock temp at current setpoint'}"
             style="width:24px;height:24px;border-radius:7px;border:1px solid ${d.lock_temp?'var(--warn)':'var(--border)'};background:transparent;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;color:${d.lock_temp?'var(--warn)':'var(--text3)'}">${d.lock_temp?'🔒':'🔓'}</button>`}
           ${d.has_ir_emitter?(readOnly?`<span style="font-size:11px;opacity:0.5" title="Toggle display">🖥</span>`:`<button class="btn bico" onclick="triggerDisplayToggle(${i})" title="Toggle display" style="width:24px;height:24px;font-size:11px">🖥</button>`):''}
@@ -2696,11 +2716,11 @@ async function otaDevice(i){
   input.click();
 }
 
-function toggleEcoMode(i){
+function toggleKeepMode(i){
   const d=devices[i];
-  d.eco_mode=!d.eco_mode;
+  d.keep_mode=!d.keep_mode;
   saveDeviceToAPI(d);
-  addLog(`${d.name}: ECO ${d.eco_mode?'enabled':'disabled'}`,'info');
+  addLog(`${d.name}: KEEP ${d.keep_mode?'enabled':'disabled'}`,'info');
   renderIPList();
 }
 

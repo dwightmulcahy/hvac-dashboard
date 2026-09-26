@@ -159,10 +159,10 @@ async def _fetch_exchange_rate() -> dict | None:
         _add_log(f"Exchange rate fetch failed: {e}", "warn")
     return None
 
-async def _send_cmd(host: str, params: dict, *, eco: bool = False) -> bool:
-    """Send a climate command. Any mode command not issued by ECO itself
-    (schedule, user, max-temp guard, vacation, retry queue) cancels an ECO
-    pause, so ECO never overrides a mode something else chose."""
+async def _send_cmd(host: str, params: dict, *, keep: bool = False) -> bool:
+    """Send a climate command. Any mode command not issued by KEEP itself
+    (schedule, user, max-temp guard, vacation, retry queue) cancels a KEEP
+    pause, so KEEP never overrides a mode something else chose."""
     qs = urlencode(params)
     for path in CLIMATE_PATHS:
         url = f"http://{host}/{path}/set?{qs}"
@@ -172,9 +172,9 @@ async def _send_cmd(host: str, params: dict, *, eco: bool = False) -> bool:
                 if r.status_code < 300:
                     if "target_temperature" in params:
                         device = next((d for d in _state["devices"] if d["host"] == host), None)
-                        if device is not None and device.get("_eco_paused"):
+                        if device is not None and device.get("_keep_paused"):
                             try:
-                                device["_eco_target"] = float(params["target_temperature"])
+                                device["_keep_target"] = float(params["target_temperature"])
                             except (TypeError, ValueError):
                                 pass
                     # update _last_mode immediately so the next poll doesn't
@@ -185,8 +185,8 @@ async def _send_cmd(host: str, params: dict, *, eco: bool = False) -> bool:
                             device["_last_mode"] = params["mode"]
                             if params["mode"] != "OFF":
                                 device["_last_active_mode"] = params["mode"]
-                            if not eco:
-                                _clear_eco_pause(device)
+                            if not keep:
+                                _clear_keep_pause(device)
                     return True
                 elif r.status_code == 404:
                     continue
@@ -575,48 +575,48 @@ async def _check_max_temp(device: dict):
                     device.setdefault("_retry_queue", []).append({"target_temperature": float(prev_temp)})
                     _add_log(f"{name}: max-temp guard recovery — temperature restore failed, queued for retry", "warn")
 
-# ── ECO mode ──────────────────────────────────────────────
+# ── KEEP mode ─────────────────────────────────────────────
 
-ECO_BAND = 0.5           # °C past target to pause, and to resume
-ECO_MIN_FAN_SECS = 300   # compressor short-cycle protection
-ECO_MODES = ("COOL", "HEAT")
-
-
-def _clear_eco_pause(device: dict):
-    device["_eco_paused"] = False
-    device["_eco_paused_at"] = None
-    device["_eco_target"] = None
-    device["_eco_resume_mode"] = None
+KEEP_BAND = 0.5           # °C past target to pause, and to resume
+KEEP_MIN_FAN_SECS = 300   # compressor short-cycle protection
+KEEP_MODES = ("COOL", "HEAT")
 
 
-def _eco_satisfied(mode: str, indoor: float, target: float) -> bool:
-    """Room is ECO_BAND past target in the direction the mode drives it."""
-    return indoor <= target - ECO_BAND if mode == "COOL" else indoor >= target + ECO_BAND
+def _clear_keep_pause(device: dict):
+    device["_keep_paused"] = False
+    device["_keep_paused_at"] = None
+    device["_keep_target"] = None
+    device["_keep_resume_mode"] = None
 
 
-def _eco_needs_resume(mode: str, indoor: float, target: float) -> bool:
-    return indoor >= target + ECO_BAND if mode == "COOL" else indoor <= target - ECO_BAND
+def _keep_satisfied(mode: str, indoor: float, target: float) -> bool:
+    """Room is KEEP_BAND past target in the direction the mode drives it."""
+    return indoor <= target - KEEP_BAND if mode == "COOL" else indoor >= target + KEEP_BAND
 
 
-async def _check_eco(device: dict):
-    """ECO mode — thermostat on top of the unit's own, for COOL and HEAT.
+def _keep_needs_resume(mode: str, indoor: float, target: float) -> bool:
+    return indoor >= target + KEEP_BAND if mode == "COOL" else indoor <= target - KEEP_BAND
+
+
+async def _check_keep(device: dict):
+    """KEEP mode — thermostat on top of the unit's own, for COOL and HEAT.
 
     The unit's temperature sensor reads intake air, so instead of powering
     off (which stops air flowing past the sensor) the unit drops to FAN_ONLY
-    once the room is ECO_BAND past target, and returns to its COOL/HEAT mode
-    once the room drifts ECO_BAND back the other way (after at least
-    ECO_MIN_FAN_SECS in fan)."""
+    once the room is KEEP_BAND past target, and returns to its COOL/HEAT mode
+    once the room drifts KEEP_BAND back the other way (after at least
+    KEEP_MIN_FAN_SECS in fan)."""
     host = device["host"]
     name = device["name"]
-    paused = device.get("_eco_paused", False)
+    paused = device.get("_keep_paused", False)
 
-    if not device.get("eco_mode"):
+    if not device.get("keep_mode"):
         if paused:
-            resume = device.get("_eco_resume_mode") or "COOL"
-            _add_log(f"{name}: ECO disabled while paused — resuming {resume}", "info")
+            resume = device.get("_keep_resume_mode") or "COOL"
+            _add_log(f"{name}: KEEP disabled while paused — resuming {resume}", "info")
             if not await _send_cmd(host, {"mode": resume}):
                 device.setdefault("_retry_queue", []).append({"mode": resume})
-            _clear_eco_pause(device)
+            _clear_keep_pause(device)
         return
 
     ds = _state["device_state"].get(host, {})
@@ -629,38 +629,38 @@ async def _check_eco(device: dict):
     cur_mode = ds.get("mode", "OFF")
 
     if paused:
-        resume = device.get("_eco_resume_mode")
-        target = device.get("_eco_target")
-        if cur_mode != "FAN_ONLY" or resume not in ECO_MODES or target is None:
+        resume = device.get("_keep_resume_mode")
+        target = device.get("_keep_target")
+        if cur_mode != "FAN_ONLY" or resume not in KEEP_MODES or target is None:
             # changed outside this process (physical remote) or bad pause state
             if cur_mode != "FAN_ONLY":
-                _add_log(f"{name}: ECO pause cancelled — unit now {cur_mode}", "info")
-            _clear_eco_pause(device)
+                _add_log(f"{name}: KEEP pause cancelled — unit now {cur_mode}", "info")
+            _clear_keep_pause(device)
             return
-        in_fan = _utcnow().timestamp() - (device.get("_eco_paused_at") or 0)
-        if _eco_needs_resume(resume, indoor, target) and in_fan >= ECO_MIN_FAN_SECS:
-            if await _send_cmd(host, {"mode": resume}, eco=True):
+        in_fan = _utcnow().timestamp() - (device.get("_keep_paused_at") or 0)
+        if _keep_needs_resume(resume, indoor, target) and in_fan >= KEEP_MIN_FAN_SECS:
+            if await _send_cmd(host, {"mode": resume}, keep=True):
                 ds["mode"] = resume
-                _clear_eco_pause(device)
-                _add_log(f"{name}: ▶ ECO — {indoor}°C, resuming {resume} (target {target}°C)", "ok")
+                _clear_keep_pause(device)
+                _add_log(f"{name}: ▶ KEEP — {indoor}°C, resuming {resume} (target {target}°C)", "ok")
                 await _verify_temp_command(host, device, name, target)
         return
 
-    if cur_mode not in ECO_MODES:
+    if cur_mode not in KEEP_MODES:
         return
     try:
         target = float(ds["target_temperature"])
     except (KeyError, TypeError, ValueError):
         return
-    if _eco_satisfied(cur_mode, indoor, target):
-        if await _send_cmd(host, {"mode": "FAN_ONLY"}, eco=True):
+    if _keep_satisfied(cur_mode, indoor, target):
+        if await _send_cmd(host, {"mode": "FAN_ONLY"}, keep=True):
             ds["mode"] = "FAN_ONLY"
-            device["_eco_paused"] = True
-            device["_eco_paused_at"] = _utcnow().timestamp()
-            device["_eco_target"] = target
-            device["_eco_resume_mode"] = cur_mode
-            _add_log(f"{name}: ⏸ ECO — {indoor}°C reached target {target}°C, fan only until it drifts "
-                     f"{ECO_BAND}°C back", "info")
+            device["_keep_paused"] = True
+            device["_keep_paused_at"] = _utcnow().timestamp()
+            device["_keep_target"] = target
+            device["_keep_resume_mode"] = cur_mode
+            _add_log(f"{name}: ⏸ KEEP — {indoor}°C reached target {target}°C, fan only until it drifts "
+                     f"{KEEP_BAND}°C back", "info")
 
 # ── Scheduler ─────────────────────────────────────────────
 
@@ -969,7 +969,7 @@ async def _background_worker():
             for device in _state["devices"]:
                 await _poll_device(device)
                 await _check_max_temp(device)
-                await _check_eco(device)
+                await _check_keep(device)
                 await _check_watchdog(device)
                 await asyncio.sleep(0.5)  # jitter between devices
 

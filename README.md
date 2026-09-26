@@ -22,6 +22,7 @@ See [`ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for how the backend is structure
 - Temperature +/− with debounce — rapid clicks batch into one command, confirmed against device after send
 - Power toggle per unit
 - Beeper toggle (persisted server-side, synced on every poll)
+- 🌿 ECO toggle — the unit's built-in ECO preset, via the firmware's `eco_on` / `eco_off` template buttons (`button/air_conditioner_eco_on/press`, `.../eco_off/press`); state read back from the climate `preset` field on each poll. Needs those buttons in the dongle firmware
 - 🔒 Temp lock — override protection: if someone changes the setpoint on the physical remote, the next poll auto-reverts to the locked value
 
 ### Tile Info
@@ -37,7 +38,7 @@ See [`ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for how the backend is structure
 ### Automation (server-side, 24/7)
 - **Schedules** — time + day-of-week per device, evaluated every minute server-side, resilient to poll-timing drift and missed-while-down recovery
 - **Max temp guard** — auto-turns on AC when room exceeds configurable threshold, off when cooled (with hysteresis to prevent rapid cycling; guard hours only block the trigger, never the auto-off recovery)
-- **ECO mode** — per-device (Settings → Devices → ECO): in COOL or HEAT, switches to fan only once the room is 0.5°C past target and back to COOL/HEAT when it drifts 0.5°C back (5-min minimum in fan). Fan keeps air moving over the intake-air sensor so readings stay accurate. Shown as ECO / 🌿 eco on the kiosk and dashboard tiles
+- **KEEP mode** — per-device (Settings → Devices → Keep): in COOL or HEAT, switches to fan only once the room is 0.5°C past target and back to COOL/HEAT when it drifts 0.5°C back (5-min minimum in fan). Fan keeps air moving over the intake-air sensor so readings stay accurate. Shown as KEEP / ⏸ keep on the kiosk and dashboard tiles
 - **Vacation mode** — turns off all units, sets high temp guard (configurable), pauses all schedules, optional auto-end after N days
 - **Beeper sync** — saved beeper state read from device, not pushed to it
 - **Reboot detection** — logs when dongle uptime resets

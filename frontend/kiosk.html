@@ -17,7 +17,8 @@
   --amber:#fbbf24;--orange:#fb923c;--violet:#a78bfa;--yellow:#facc15;
   --green:#4ade80;--teal:#2dd4bf;--gray:#4b5563;
   --fan:#10b981;--fan-bg:#0d3728;
-  --eco:#a3e635;--eco-bg:#26330f;
+  --keep:#a3e635;--keep-bg:#26330f;
+  --eco:#4ade80;
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;background:#000;overflow:hidden;height:100%}
@@ -161,6 +162,7 @@ const ICON_PATHS={
   'list':'<rect x="4" y="4" width="16" height="4.5" rx="1"/><rect x="4" y="10.5" width="16" height="4.5" rx="1"/><rect x="4" y="17" width="16" height="3" rx="1"/>',
   'wifi-off':'<path d="M3 3l18 18"/><path d="M8.5 16.5a5 5 0 0 1 5-1.3M5 12.5a10 10 0 0 1 3-1.9M19 12.5a10 10 0 0 0 -2.3-1.7M12 19v.01"/>',
   'suitcase':'<rect x="4" y="8" width="16" height="12" rx="1.5"/><path d="M9 8V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/><path d="M4 13h16"/>',
+  'leaf':'<path d="M5 20c0-9 6-15 15-15c0 9-6 15-14 15z"/><path d="M5 20l8-8"/>',
   'wrench':'<path d="M14.7 6.3a4 4 0 0 0-5.4 4.9L4 16.5V20h3.5l5.3-5.3a4 4 0 0 0 4.9-5.4l-2.8 2.8-2-2z"/>'
 };
 function svgIcon(name,size){
@@ -664,26 +666,27 @@ function renderGrid(){
   el.innerHTML=devices.map(d=>{
     const dim=d._stale;
     const mode=d.state?.mode||'OFF';
-    const eco=!!d._eco_paused&&!dim;
-    const bg=dim?'var(--bg2)':eco?'var(--eco-bg)':(MODE_BG[mode]||MODE_BG.OFF);
-    const border=dim?'var(--border)':eco?'var(--eco)':(MODE_COLOR[mode]||MODE_COLOR.OFF)+'44';
+    const keep=!!d._keep_paused&&!dim;
+    const bg=dim?'var(--bg2)':keep?'var(--keep-bg)':(MODE_BG[mode]||MODE_BG.OFF);
+    const border=dim?'var(--border)':keep?'var(--keep)':(MODE_COLOR[mode]||MODE_COLOR.OFF)+'44';
     const cur=safeFloat(d.state?.current_temperature);
-    const tgt=eco?safeFloat(d._eco_target):safeFloat(d.state?.target_temperature);
+    const tgt=keep?safeFloat(d._keep_target):safeFloat(d.state?.target_temperature);
     const deviceOverdue=maintenanceItems.some(m=>m.device_host===d.host&&m.status?.overdue);
     return `
     <div data-host="${d.host}" class="tile" style="background:${bg};border:0.5px solid ${border};opacity:${dim?0.55:1}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
         <span style="color:var(--text);font-size:14px;font-weight:500">${d.name}</span>
         <div style="display:flex;align-items:center;gap:5px">
+          ${isEcoPreset(d.state)&&!dim?iconSpan('leaf',12,'var(--eco)'):''}
           ${d.lock_temp&&!dim?iconSpan('lock',12,'var(--text2)'):''}
           ${deviceOverdue&&!dim?iconSpan('wrench',12,'var(--err)'):''}
           ${d._max_temp_active&&!dim?'<span style="width:6px;height:6px;border-radius:50%;background:var(--err);display:inline-block"></span>':''}
-          <span style="color:${dim?'var(--text2)':eco?'var(--eco)':(MODE_COLOR[mode]||MODE_COLOR.OFF)};font-size:11px;font-weight:500">${dim?'OFFLINE':eco?'ECO':modeLabel(mode)}</span>
+          <span style="color:${dim?'var(--text2)':keep?'var(--keep)':(MODE_COLOR[mode]||MODE_COLOR.OFF)};font-size:11px;font-weight:500">${dim?'OFFLINE':keep?'KEEP':modeLabel(mode)}</span>
         </div>
       </div>
       <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap">
         <span style="color:${dim?'var(--text2)':'var(--text)'};font-size:30px;font-weight:500">${fmtTempCompact(cur)}</span>
-        ${!dim&&mode!=='OFF'&&tgt!=null?`<span style="color:${eco?'var(--eco)':'var(--text2)'};font-size:14px">→ ${fmtTempCompact(tgt)}</span>`:''}
+        ${!dim&&mode!=='OFF'&&tgt!=null?`<span style="color:${keep?'var(--keep)':'var(--text2)'};font-size:14px">→ ${fmtTempCompact(tgt)}</span>`:''}
       </div>
       <div style="color:var(--text2);font-size:11px;min-height:13px">${!dim?fmtOnTime(usageToday[d.host]):''}</div>
     </div>`;
@@ -746,7 +749,7 @@ function wifiStatCard(dbm){
 // mid-adjustment can't make the display flicker back to the old
 // number. Temp taps are also debounced — five quick taps send one
 // command with the final value, not five.
-let pendingHost=null,pendingTarget=null,pendingMode=null,pendingBeeper=null;
+let pendingHost=null,pendingTarget=null,pendingMode=null,pendingBeeper=null,pendingEco=null;
 let tempDebounceTimer=null;
 
 function renderDetail(host){
@@ -756,7 +759,7 @@ function renderDetail(host){
   const isPending=pendingHost===host;
   const mode=(isPending&&pendingMode!=null)?pendingMode:(s.mode||'OFF');
   const tgt=(isPending&&pendingTarget!=null)?pendingTarget:
-    safeFloat(d._eco_paused&&d._eco_target!=null?d._eco_target:s.target_temperature);
+    safeFloat(d._keep_paused&&d._keep_target!=null?d._keep_target:s.target_temperature);
   const tgtFmt=fmtTempFull(tgt);
   const canControl=currentUser.role!=='viewer';
   const running=mode!=='OFF';
@@ -765,6 +768,7 @@ function renderDetail(host){
   const GRAY='var(--gray)';
   const outdoor=safeFloat(s.outdoor_temp);
   const beeperOn=(isPending&&pendingBeeper!=null)?pendingBeeper:(d.beeper==='ON');
+  const ecoOn=(isPending&&pendingEco!=null)?pendingEco:isEcoPreset(s);
   // A locked device's target gets unconditionally restored by the
   // worker on its next poll, regardless of what sent the change —
   // including the kiosk itself. Letting someone tap +/-, see it
@@ -778,8 +782,8 @@ function renderDetail(host){
   el.innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
       <span style="color:var(--text);font-size:17px;font-weight:500">${d.name}</span>
-      ${d._eco_paused&&!isPending
-        ?`<span style="color:var(--eco);font-size:13px;font-weight:500" title="ECO: target reached, running fan only until the room drifts 0.5°C back">ECO · fan</span>`
+      ${d._keep_paused&&!isPending
+        ?`<span style="color:var(--keep);font-size:13px;font-weight:500" title="KEEP: target reached, running fan only until the room drifts 0.5°C back">KEEP · fan</span>`
         :`<span style="color:${MODE_COLOR[mode]||MODE_COLOR.OFF};font-size:13px;font-weight:500">${modeLabel(mode)}</span>`}
     </div>
     <div style="display:flex;align-items:center;justify-content:center;gap:${canControl?'16px':'0'};margin:2px 0 2px">
@@ -790,6 +794,7 @@ function renderDetail(host){
       </div>
       ${canControl?`<button data-act="up" style="${tempBtnStyle()}">+</button>`:''}
       ${canControl?`<button data-act="beeper" title="Toggle beeper" aria-label="Beeper is ${beeperOn?'on':'off'}, tap to toggle" style="width:38px;height:38px;border-radius:50%;padding:0;display:flex;align-items:center;justify-content:center;color:${beeperOn?'var(--auto)':'var(--text2)'};border-color:${beeperOn?'var(--auto)':'var(--border)'}">${iconSpan('bell',17)}</button>`:''}
+      ${canControl?`<button data-act="eco" title="Toggle ECO" aria-label="ECO is ${ecoOn?'on':'off'}, tap to toggle" style="width:38px;height:38px;border-radius:50%;padding:0;display:flex;align-items:center;justify-content:center;color:${ecoOn?'var(--eco)':'var(--text2)'};border-color:${ecoOn?'var(--eco)':'var(--border)'}">${iconSpan('leaf',17)}</button>`:''}
       ${locked?`<span class="icon" title="Locked at ${fmtTempCompact(d.locked_target_temp)}" aria-label="Temperature locked at ${fmtTempCompact(d.locked_target_temp)}" style="width:38px;height:38px;border-radius:50%;border:0.5px solid var(--violet);display:flex;align-items:center;justify-content:center;color:var(--violet)">${svgIcon('lock',17)}</span>`:''}
     </div>
     ${canControl?`<div style="display:flex;gap:6px;justify-content:center;margin-bottom:6px">
@@ -813,6 +818,7 @@ function renderDetail(host){
     }
     el.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setMode(host,b.dataset.mode)));
     el.querySelector('[data-act="beeper"]').addEventListener('click',()=>toggleBeeperOptimistic(host,!beeperOn));
+    el.querySelector('[data-act="eco"]').addEventListener('click',()=>toggleEcoOptimistic(host,!ecoOn));
   }
 }
 
@@ -830,19 +836,19 @@ function adjustTemp(host,delta){
   const d=devices.find(x=>x.host===host);
   if(!d||!d.state)return;
   const step=safeFloat(d.state.step)||0.5;
-  const curTgt=d._eco_paused&&d._eco_target!=null?d._eco_target:d.state.target_temperature;
+  const curTgt=d._keep_paused&&d._keep_target!=null?d._keep_target:d.state.target_temperature;
   const base=(pendingHost===host&&pendingTarget!=null)?pendingTarget:(safeFloat(curTgt)||22);
   const minT=safeFloat(d.state.min_temp)||17;
   const maxT=safeFloat(d.state.max_temp)||30;
   const next=Math.round((Math.min(maxT,Math.max(minT,base+delta*step)))/step)*step;
 
   // An OFF unit powers on in the mode it last ran in (COOL if never seen
-  // running). A unit paused by ECO (in FAN_ONLY) isn't OFF, so it only
-  // gets a new target, which ECO then uses to decide when to resume.
+  // running). A unit paused by KEEP (in FAN_ONLY) isn't OFF, so it only
+  // gets a new target, which KEEP then uses to decide when to resume.
   const effMode=(pendingHost===host&&pendingMode!=null)?pendingMode:(d.state.mode||'OFF');
   const powerOn=effMode==='OFF'?(d._last_active_mode||'COOL'):null;
 
-  if(pendingHost!==host){pendingMode=null;pendingBeeper=null;}
+  if(pendingHost!==host){pendingMode=null;pendingBeeper=null;pendingEco=null;}
   pendingHost=host;
   pendingTarget=next;
   if(powerOn)pendingMode=powerOn;
@@ -876,6 +882,24 @@ function toggleBeeperOptimistic(host,turnOn){
   toggleBeeper(host,turnOn).then(()=>{
     if(pendingHost===host&&pendingBeeper===turnOn){pendingHost=null;pendingBeeper=null;}
   });
+}
+
+// Unit's built-in ECO preset (firmware eco_on/eco_off buttons), read back
+// from the climate state's preset field on each poll.
+function isEcoPreset(s){return String(s?.preset||'').toUpperCase()==='ECO';}
+
+function toggleEcoOptimistic(host,turnOn){
+  pendingHost=host;
+  pendingEco=turnOn;
+  touch();armIdleTimer(DETAIL_IDLE_SECONDS);
+  renderDetail(host);
+  (async()=>{
+    try{
+      await fetchT(`${API}/devices/${encodeURIComponent(host)}/eco/${turnOn?'on':'off'}`,{method:'POST',headers:authHeaders()});
+    }catch(e){}
+    if(pendingHost===host&&pendingEco===turnOn){pendingHost=null;pendingEco=null;}
+    await refreshAll();
+  })();
 }
 
 async function toggleBeeper(host,turnOn){
