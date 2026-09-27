@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
+import worker
+
 
 def test_latest_firmware_version_matches_yaml(worker_module):
     """Bumping firmware/packages/slwf-base.yaml without the backend constant
@@ -27,7 +29,7 @@ def test_parse_firmware(worker_module, raw, expected):
     assert worker_module._parse_firmware(raw) == expected
 
 
-@pytest.mark.parametrize("version,outdated", [("1.0.0", True), ("1.1.0", False), ("1.10.0", False), (None, True)])
+@pytest.mark.parametrize("version,outdated", [("1.0.0", True), ("1.1.0", True), (worker.LATEST_FIRMWARE_VERSION, False), ("1.10.0", False), (None, True)])
 def test_firmware_status_outdated(worker_module, version, outdated):
     fw = {"name": "X", "version": version} if version else None
     st = worker_module._firmware_status(fw)
@@ -41,13 +43,13 @@ async def test_poll_sets_firmware_fields_and_build_date(worker_module, mocker):
     worker_module._state["devices"] = [device]
     mocker.patch.object(worker_module, "_fetch_state", AsyncMock(return_value={"mode": "COOL"}))
     mocker.patch.object(worker_module, "_fetch_sensors", AsyncMock(return_value={
-        "firmware": {"state": "SMLIGHT.SLWF-01Pro-Pro 1.1.0"},
+        "firmware": {"state": "SMLIGHT.SLWF-01Pro-Pro 1.1.1"},
         "esphome_version": {"state": "2026.6.5 Sep 26 2026, 16:34:31"},
     }))
     await worker_module._poll_device(device)
     ds = worker_module._state["device_state"]["ac1.local"]
     assert ds["firmware_name"] == "SMLIGHT.SLWF-01Pro-Pro"
-    assert ds["firmware_version"] == "1.1.0"
+    assert ds["firmware_version"] == "1.1.1"
     assert ds["firmware_outdated"] is False
     assert ds["firmware_built"] == "Sep 26 2026, 16:34:31"
     assert ds["firmware_built_date"] == "2026-09-26"

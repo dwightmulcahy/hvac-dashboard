@@ -81,7 +81,7 @@ async def _fetch_state(host: str) -> dict | None:
 # Version of firmware/packages/slwf-base.yaml (esphome.project.version).
 # Dongles reporting an older version (or no air_conditioner_firmware sensor)
 # are flagged outdated. Kept in sync with the YAML by tests/test_worker_firmware.py.
-LATEST_FIRMWARE_VERSION = "1.1.0"
+LATEST_FIRMWARE_VERSION = "1.1.1"
 FIRMWARE_PATHS = [
     "text_sensor/Air%20Conditioner%20Firmware",
     "text_sensor/air_conditioner_firmware",

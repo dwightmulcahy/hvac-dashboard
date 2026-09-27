@@ -16,7 +16,7 @@ esphome:
     # Bump on every firmware change and update worker.LATEST_FIRMWARE_VERSION
     # to match (tests/test_worker_firmware.py enforces it). The dashboard flags
     # dongles reporting an older version and skips probing newer entities.
-    version: "1.1.0"
+    version: "1.1.1"
 
   platformio_options:
     board_build.flash_mode: dout
