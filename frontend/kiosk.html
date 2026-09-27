@@ -35,7 +35,12 @@ button:active{opacity:0.7}
 #grid-view{padding:14px;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr);gap:10px;height:328px}
 #grid-detail,#schedules-view,#devices-view{display:none;height:328px;padding:10px 20px;overflow:hidden}
 #footer-stats{height:40px;display:grid;grid-template-columns:0.55fr 1.25fr 1.25fr 0.95fr;align-items:center;padding:0 20px;border-top:0.5px solid var(--border);flex-shrink:0}
-#footer-meta{height:26px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-top:0.5px solid var(--border);flex-shrink:0}
+/* 3-column grid (not flex space-between) so the centered clock never shifts
+   when the "updated Xs ago" text on the right changes width each second */
+#footer-meta{height:26px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:0 16px;border-top:0.5px solid var(--border);flex-shrink:0}
+#footer-meta>:first-child{justify-self:start}
+#footer-meta>:last-child{justify-self:end}
+#footer-updated,#footer-clock{font-variant-numeric:tabular-nums}
 .tile{border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;justify-content:space-between;cursor:pointer}
 .stat-card{width:100%;background:var(--bg2);border-radius:10px;padding:12px 14px;display:flex;flex-direction:row;align-items:center;gap:11px}
 .icon{display:inline-flex;flex-shrink:0}

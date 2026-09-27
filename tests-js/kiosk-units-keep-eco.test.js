@@ -255,5 +255,13 @@ test("kiosk: temp units, power-on to last mode, FAN mode, KEEP, ECO", async (t) 
     await wait(30);
   });
 
+  // ── footer clock stays put ──
+
+  await t.test("footer is a 1fr/auto/1fr grid so the clock can't drift", () => {
+    const css = window.getComputedStyle($("#footer-meta"));
+    assert.equal(css.display, "grid");
+    assert.equal(css.gridTemplateColumns, "1fr auto 1fr");
+  });
+
   window.close();
 });
