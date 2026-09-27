@@ -12,7 +12,10 @@ const path = require("path");
 const fs = require("fs");
 const { JSDOM } = require("jsdom");
 
-const html = fs.readFileSync(path.join(__dirname, "..", "frontend", "kiosk.html"), "utf8");
+const html = fs.readFileSync(
+  path.join(__dirname, "..", "frontend", "kiosk.html"),
+  "utf8",
+);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const dev = (host, name, extra, state) => ({
@@ -28,26 +31,53 @@ const dev = (host, name, extra, state) => ({
   _max_temp_active: false,
   _firmware_version: "2026.7.0",
   ...extra,
-  state: { current_temperature: "24.5", target_temperature: "25.5", outdoor_temp: 30, ...state },
+  state: {
+    current_temperature: "24.5",
+    target_temperature: "25.5",
+    outdoor_temp: 30,
+    ...state,
+  },
 });
 
 test("kiosk: temp units, power-on to last mode, FAN mode, KEEP, ECO", async (t) => {
   const devices = {
     devices: [
-      dev("off-heat.local", "Off Heat", { _last_active_mode: "HEAT" }, { mode: "OFF", target_temperature: "22" }),
+      dev(
+        "off-heat.local",
+        "Off Heat",
+        { _last_active_mode: "HEAT" },
+        { mode: "OFF", target_temperature: "22" },
+      ),
       dev(
         "off-new.local",
         "Off New",
         { _last_active_mode: null },
-        { mode: "OFF", target_temperature: "22", firmware_version: "1.0.0", firmware_outdated: true, firmware_latest: "1.1.0" },
+        {
+          mode: "OFF",
+          target_temperature: "22",
+          firmware_version: "1.0.0",
+          firmware_outdated: true,
+          firmware_latest: "1.1.0",
+        },
       ),
       dev(
         "keep.local",
         "Kept",
-        { keep_mode: true, _keep_paused: true, _keep_target: 25.5, _keep_resume_mode: "COOL", _last_active_mode: "FAN_ONLY" },
+        {
+          keep_mode: true,
+          _keep_paused: true,
+          _keep_target: 25.5,
+          _keep_resume_mode: "COOL",
+          _last_active_mode: "FAN_ONLY",
+        },
         { mode: "FAN_ONLY", target_temperature: "25.5" },
       ),
-      dev("fan.local", "Fan", { _last_active_mode: "FAN_ONLY" }, { mode: "FAN_ONLY", eco: true, preset: "NONE" }),
+      dev(
+        "fan.local",
+        "Fan",
+        { _last_active_mode: "FAN_ONLY" },
+        { mode: "FAN_ONLY", eco: true, preset: "NONE" },
+      ),
       dev("legacy.local", "Legacy", {}, { mode: "COOL", preset: "ECO" }),
     ],
   };
@@ -57,9 +87,16 @@ test("kiosk: temp units, power-on to last mode, FAN mode, KEEP, ECO", async (t) 
   const ok = (body) => ({ ok: true, status: 200, json: async () => body });
   const mockFetch = async (url, opts) => {
     const u = String(url);
-    if (u.endsWith("/api/")) return ok({ status: "ok", version: "v0", git_sha: "x" });
+    if (u.endsWith("/api/"))
+      return ok({ status: "ok", version: "v0", git_sha: "x" });
     if (u.includes("/auth/login-pin"))
-      return ok({ ok: true, token: "tok", username: "op", role: "operator", must_change_password: false });
+      return ok({
+        ok: true,
+        token: "tok",
+        username: "op",
+        role: "operator",
+        must_change_password: false,
+      });
     if (u.includes("/eco/")) {
       ecoCalls.push(u);
       const d = devices.devices.find((x) => u.includes(`/devices/${x.host}/`));
@@ -71,7 +108,8 @@ test("kiosk: temp units, power-on to last mode, FAN mode, KEEP, ECO", async (t) 
       return ok({ ok: true });
     }
     if (u.includes("/api/devices")) return ok(devices);
-    if (u.includes("/api/settings")) return ok({ exchangeRate: 455, tiered: false, flatRate: 70 });
+    if (u.includes("/api/settings"))
+      return ok({ exchangeRate: 455, tiered: false, flatRate: 70 });
     if (u.includes("/api/schedules")) return ok({ schedules: mockSchedules });
     if (u.includes("/api/maintenance")) return ok({ maintenance: [] });
     if (u.includes("/api/usage/summary")) return ok({ devices: [] });
@@ -88,12 +126,19 @@ test("kiosk: temp units, power-on to last mode, FAN mode, KEEP, ECO", async (t) 
   });
   const { window } = dom;
   const $ = (s) => window.document.querySelector(s);
-  const click = (el) => el.dispatchEvent(new window.Event("click", { bubbles: true }));
+  const click = (el) =>
+    el.dispatchEvent(new window.Event("click", { bubbles: true }));
   const tile = (host) => $(`.tile[data-host="${host}"]`);
   await wait(50);
-  "4821".split("").forEach((d) =>
-    click([...window.document.querySelectorAll("[data-key]")].find((b) => b.dataset.key === d)),
-  );
+  "4821"
+    .split("")
+    .forEach((d) =>
+      click(
+        [...window.document.querySelectorAll("[data-key]")].find(
+          (b) => b.dataset.key === d,
+        ),
+      ),
+    );
   await wait(150);
 
   // ── Temp unit toggle ─────────────────────────────────────────
@@ -103,16 +148,19 @@ test("kiosk: temp units, power-on to last mode, FAN mode, KEEP, ECO", async (t) 
     assert.match(tile("off-heat.local").textContent, /24\.5°\/76°/);
   });
 
-  await t.test("tapping cycles both → C → F → both and re-renders tiles", () => {
-    click($("#unit-toggle"));
-    assert.equal($("#unit-toggle").textContent, "°C");
-    assert.match(tile("off-heat.local").textContent, /24\.5°C/);
-    assert.doesNotMatch(tile("off-heat.local").textContent, /°F/);
-    click($("#unit-toggle"));
-    assert.equal($("#unit-toggle").textContent, "°F");
-    assert.match(tile("off-heat.local").textContent, /76°F/);
-    assert.doesNotMatch(tile("off-heat.local").textContent, /°C/);
-  });
+  await t.test(
+    "tapping cycles both → C → F → both and re-renders tiles",
+    () => {
+      click($("#unit-toggle"));
+      assert.equal($("#unit-toggle").textContent, "°C");
+      assert.match(tile("off-heat.local").textContent, /24\.5°C/);
+      assert.doesNotMatch(tile("off-heat.local").textContent, /°F/);
+      click($("#unit-toggle"));
+      assert.equal($("#unit-toggle").textContent, "°F");
+      assert.match(tile("off-heat.local").textContent, /76°F/);
+      assert.doesNotMatch(tile("off-heat.local").textContent, /°C/);
+    },
+  );
 
   await t.test("choice persists in localStorage", () => {
     assert.equal(window.localStorage.getItem("kiosk_temp_unit"), "F");
@@ -135,22 +183,25 @@ test("kiosk: temp units, power-on to last mode, FAN mode, KEEP, ECO", async (t) 
     assert.doesNotMatch(tile("fan.local").textContent, /FAN_ONLY/);
   });
 
-  await t.test("detail mode bar is OFF/COOL/HEAT/FAN/AUTO and FAN sends FAN_ONLY", async () => {
-    click(tile("off-heat.local"));
-    await wait(30);
-    const btns = [...window.document.querySelectorAll("[data-mode]")];
-    assert.deepEqual(
-      btns.map((b) => b.textContent),
-      ["OFF", "COOL", "HEAT", "FAN", "AUTO"],
-    );
-    cmdCalls = [];
-    click(btns[3]);
-    await wait(30);
-    assert.deepEqual(cmdCalls[0].params, { mode: "FAN_ONLY" });
-    click($("#sub-header"));
-    await wait(30);
-    devices.devices[0].state.mode = "OFF";
-  });
+  await t.test(
+    "detail mode bar is OFF/COOL/HEAT/FAN/AUTO and FAN sends FAN_ONLY",
+    async () => {
+      click(tile("off-heat.local"));
+      await wait(30);
+      const btns = [...window.document.querySelectorAll("[data-mode]")];
+      assert.deepEqual(
+        btns.map((b) => b.textContent),
+        ["OFF", "COOL", "HEAT", "FAN", "AUTO"],
+      );
+      cmdCalls = [];
+      click(btns[3]);
+      await wait(30);
+      assert.deepEqual(cmdCalls[0].params, { mode: "FAN_ONLY" });
+      click($("#sub-header"));
+      await wait(30);
+      devices.devices[0].state.mode = "OFF";
+    },
+  );
 
   // ── Power on to last mode ────────────────────────────────────
 
@@ -164,96 +215,147 @@ test("kiosk: temp units, power-on to last mode, FAN mode, KEEP, ECO", async (t) 
     await wait(30);
   };
 
-  await t.test("OFF unit powers on in its last active mode with the new temp", async () => {
-    await adjustOnce("off-heat.local");
-    assert.equal(cmdCalls.length, 1);
-    assert.deepEqual(cmdCalls[0].params, { mode: "HEAT", target_temperature: 22.5 });
-  });
+  await t.test(
+    "OFF unit powers on in its last active mode with the new temp",
+    async () => {
+      await adjustOnce("off-heat.local");
+      assert.equal(cmdCalls.length, 1);
+      assert.deepEqual(cmdCalls[0].params, {
+        mode: "HEAT",
+        target_temperature: 22.5,
+      });
+    },
+  );
 
-  await t.test("OFF unit with no known last mode powers on in COOL", async () => {
-    await adjustOnce("off-new.local");
-    assert.deepEqual(cmdCalls[0].params, { mode: "COOL", target_temperature: 22.5 });
-  });
+  await t.test(
+    "OFF unit with no known last mode powers on in COOL",
+    async () => {
+      await adjustOnce("off-new.local");
+      assert.deepEqual(cmdCalls[0].params, {
+        mode: "COOL",
+        target_temperature: 22.5,
+      });
+    },
+  );
 
-  await t.test("KEEP-paused unit (in fan) only changes its target", async () => {
-    await adjustOnce("keep.local");
-    assert.deepEqual(cmdCalls[0].params, { target_temperature: 26 });
-  });
+  await t.test(
+    "KEEP-paused unit (in fan) only changes its target",
+    async () => {
+      await adjustOnce("keep.local");
+      assert.deepEqual(cmdCalls[0].params, { target_temperature: 26 });
+    },
+  );
 
   // ── ECO preset ──────────────────────────────────────────────
 
   await t.test("tile leaf follows eco_status (eco) over climate preset", () => {
     assert.match(tile("fan.local").innerHTML, /<svg/);
-    const leafCount = (h) => (tile(h).innerHTML.match(/M5 20c0-9/g) || []).length;
+    const leafCount = (h) =>
+      (tile(h).innerHTML.match(/M5 20c0-9/g) || []).length;
     assert.equal(leafCount("fan.local"), 1);
     assert.equal(leafCount("off-heat.local"), 0);
-    assert.equal(leafCount("legacy.local"), 1, "falls back to climate preset without eco_status sensor");
+    assert.equal(
+      leafCount("legacy.local"),
+      1,
+      "falls back to climate preset without eco_status sensor",
+    );
   });
 
-  await t.test("detail ECO button reflects preset and calls eco/off then eco/on", async () => {
-    click(tile("fan.local"));
-    await wait(30);
-    const btn = () => $('[data-act="eco"]');
-    assert.match(btn().getAttribute("aria-label"), /ECO is on/);
-    click(btn());
-    await wait(30);
-    assert.match(ecoCalls.at(-1), /\/devices\/fan\.local\/eco\/off$/);
-    assert.match(btn().getAttribute("aria-label"), /ECO is off/);
-    click($("#sub-header"));
-    await wait(30);
-    click(tile("off-heat.local"));
-    await wait(30);
-    click(btn());
-    await wait(30);
-    assert.match(ecoCalls.at(-1), /\/devices\/off-heat\.local\/eco\/on$/);
-    click($("#sub-header"));
-    await wait(30);
-  });
+  await t.test(
+    "detail ECO button reflects preset and calls eco/off then eco/on",
+    async () => {
+      click(tile("fan.local"));
+      await wait(30);
+      const btn = () => $('[data-act="eco"]');
+      assert.match(btn().getAttribute("aria-label"), /ECO is on/);
+      click(btn());
+      await wait(30);
+      assert.match(ecoCalls.at(-1), /\/devices\/fan\.local\/eco\/off$/);
+      assert.match(btn().getAttribute("aria-label"), /ECO is off/);
+      click($("#sub-header"));
+      await wait(30);
+      click(tile("off-heat.local"));
+      await wait(30);
+      click(btn());
+      await wait(30);
+      assert.match(ecoCalls.at(-1), /\/devices\/off-heat\.local\/eco\/on$/);
+      click($("#sub-header"));
+      await wait(30);
+    },
+  );
 
   // ── Firmware identity ───────────────────────────────────────
 
-  await t.test("detail footer shows firmware version, build date, and outdated marker", async () => {
-    devices.devices[0].state.firmware_version = "1.1.0";
-    devices.devices[0].state.firmware_outdated = false;
-    devices.devices[0].state.firmware_built = "2026-09-26 17:12:28 -0600";
-    devices.devices[0].state.firmware_built_date = "2026-09-26";
-    await window.refreshAll();
-    click(tile("off-heat.local"));
-    await wait(30);
-    let txt = $("#grid-detail").textContent;
-    assert.match(txt, /fw 1\.1\.0/);
-    assert.match(txt, /built 2026-09-26/);
-    assert.doesNotMatch(txt, /config hash|17:12/);
-    assert.doesNotMatch(txt, /⬆/);
-    click($("#sub-header"));
-    await wait(30);
-    click(tile("off-new.local"));
-    await wait(30);
-    txt = $("#grid-detail").textContent;
-    assert.match(txt, /fw 1\.0\.0 ⬆ 1\.1\.0/);
-    click($("#sub-header"));
-    await wait(30);
-  });
+  await t.test(
+    "detail footer shows firmware version, build date, and outdated marker",
+    async () => {
+      devices.devices[0].state.firmware_version = "1.1.0";
+      devices.devices[0].state.firmware_outdated = false;
+      devices.devices[0].state.firmware_built = "2026-09-26 17:12:28 -0600";
+      devices.devices[0].state.firmware_built_date = "2026-09-26";
+      await window.refreshAll();
+      click(tile("off-heat.local"));
+      await wait(30);
+      let txt = $("#grid-detail").textContent;
+      assert.match(txt, /fw 1\.1\.0/);
+      assert.match(txt, /built 2026-09-26/);
+      assert.doesNotMatch(txt, /config hash|17:12/);
+      assert.doesNotMatch(txt, /⬆/);
+      click($("#sub-header"));
+      await wait(30);
+      click(tile("off-new.local"));
+      await wait(30);
+      txt = $("#grid-detail").textContent;
+      assert.match(txt, /fw 1\.0\.0 ⬆ 1\.1\.0/);
+      click($("#sub-header"));
+      await wait(30);
+    },
+  );
 
   // ── Schedules with ECO action ───────────────────────────────
 
-  await t.test("schedules view shows ECO actions (alone and with a mode)", async () => {
-    const days = [0, 1, 2, 3, 4, 5, 6];
-    const base = { device_host: "off-heat.local", device_name: "Off Heat", days, enabled: true, end_time: null };
-    mockSchedules = [
-      { ...base, id: "1", time: "23:58", power: null, mode: null, temp: null, eco: "on" },
-      { ...base, id: "2", time: "23:59", power: "on", mode: "COOL", temp: 24, eco: "off" },
-    ];
-    await window.refreshAll();
-    window.showSub("schedules");
-    window.renderSchedulesView();
-    await wait(30);
-    const txt = $("#schedules-view").textContent;
-    assert.match(txt, /ECO on/);
-    assert.match(txt, /COOL 24°\/75° · ECO off/);
-    window.showSub("grid");
-    await wait(30);
-  });
+  await t.test(
+    "schedules view shows ECO actions (alone and with a mode)",
+    async () => {
+      const days = [0, 1, 2, 3, 4, 5, 6];
+      const base = {
+        device_host: "off-heat.local",
+        device_name: "Off Heat",
+        days,
+        enabled: true,
+        end_time: null,
+      };
+      mockSchedules = [
+        {
+          ...base,
+          id: "1",
+          time: "23:58",
+          power: null,
+          mode: null,
+          temp: null,
+          eco: "on",
+        },
+        {
+          ...base,
+          id: "2",
+          time: "23:59",
+          power: "on",
+          mode: "COOL",
+          temp: 24,
+          eco: "off",
+        },
+      ];
+      await window.refreshAll();
+      window.showSub("schedules");
+      window.renderSchedulesView();
+      await wait(30);
+      const txt = $("#schedules-view").textContent;
+      assert.match(txt, /ECO on/);
+      assert.match(txt, /COOL 24°\/75° · ECO off/);
+      window.showSub("grid");
+      await wait(30);
+    },
+  );
 
   // ── footer clock stays put ──
 
@@ -261,6 +363,17 @@ test("kiosk: temp units, power-on to last mode, FAN mode, KEEP, ECO", async (t) 
     const css = window.getComputedStyle($("#footer-meta"));
     assert.equal(css.display, "grid");
     assert.equal(css.gridTemplateColumns, "1fr auto 1fr");
+  });
+
+  await t.test("kiosk: KEEP highlight requires fan-only mode", () => {
+    assert.equal(
+      window.keepActive({ _keep_paused: true, state: { mode: "OFF" } }),
+      false,
+    );
+    assert.equal(
+      window.keepActive({ _keep_paused: true, state: { mode: "FAN_ONLY" } }),
+      true,
+    );
   });
 
   window.close();

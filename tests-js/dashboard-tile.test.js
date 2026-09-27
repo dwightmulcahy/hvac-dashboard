@@ -189,5 +189,41 @@ test("dashboard unit tile: KEEP in mode bar, compact firmware line", async (t) =
     },
   );
 
+  // ── KEEP highlight follows the actual mode ──
+
+  await t.test(
+    "turning a KEEP-paused unit off drops the KEEP highlight",
+    async () => {
+      window.fetch = async (url) => {
+        const u = String(url);
+        if (u.includes("/cmd")) return ok({ ok: true });
+        return mockFetch(url);
+      };
+      await window.togglePower(0);
+      await wait(20);
+      const t0 = window.document.querySelector("#tile-0");
+      assert.doesNotMatch(t0.getAttribute("style"), /--keep/);
+      assert.ok(!t0.textContent.includes("⏸ keep"));
+    },
+  );
+
+  await t.test(
+    "stale _keep_paused alone (unit not in fan) is not highlighted",
+    () => {
+      assert.equal(
+        window.keepActive({ _keep_paused: true, state: { mode: "OFF" } }),
+        false,
+      );
+      assert.equal(
+        window.keepActive({ _keep_paused: true, state: { mode: "COOL" } }),
+        false,
+      );
+      assert.equal(
+        window.keepActive({ _keep_paused: true, state: { mode: "FAN_ONLY" } }),
+        true,
+      );
+    },
+  );
+
   window.close();
 });

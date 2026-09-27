@@ -671,7 +671,7 @@ function renderGrid(){
   el.innerHTML=devices.map(d=>{
     const dim=d._stale;
     const mode=d.state?.mode||'OFF';
-    const keep=!!d._keep_paused&&!dim;
+    const keep=keepActive(d)&&!dim;
     const bg=dim?'var(--bg2)':keep?'var(--keep-bg)':(MODE_BG[mode]||MODE_BG.OFF);
     const border=dim?'var(--border)':keep?'var(--keep)':(MODE_COLOR[mode]||MODE_COLOR.OFF)+'44';
     const cur=safeFloat(d.state?.current_temperature);
@@ -764,7 +764,7 @@ function renderDetail(host){
   const isPending=pendingHost===host;
   const mode=(isPending&&pendingMode!=null)?pendingMode:(s.mode||'OFF');
   const tgt=(isPending&&pendingTarget!=null)?pendingTarget:
-    safeFloat(d._keep_paused&&d._keep_target!=null?d._keep_target:s.target_temperature);
+    safeFloat(keepActive(d)&&d._keep_target!=null?d._keep_target:s.target_temperature);
   const tgtFmt=fmtTempFull(tgt);
   const canControl=currentUser.role!=='viewer';
   const running=mode!=='OFF';
@@ -787,7 +787,7 @@ function renderDetail(host){
   el.innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
       <span style="color:var(--text);font-size:17px;font-weight:500">${d.name}</span>
-      ${d._keep_paused&&!isPending
+      ${keepActive(d)&&!isPending
         ?`<span style="color:var(--keep);font-size:13px;font-weight:500" title="KEEP: target reached, running fan only until the room drifts 0.5°C back">KEEP · fan</span>`
         :`<span style="color:${MODE_COLOR[mode]||MODE_COLOR.OFF};font-size:13px;font-weight:500">${modeLabel(mode)}</span>`}
     </div>
@@ -841,7 +841,7 @@ function adjustTemp(host,delta){
   const d=devices.find(x=>x.host===host);
   if(!d||!d.state)return;
   const step=safeFloat(d.state.step)||0.5;
-  const curTgt=d._keep_paused&&d._keep_target!=null?d._keep_target:d.state.target_temperature;
+  const curTgt=keepActive(d)&&d._keep_target!=null?d._keep_target:d.state.target_temperature;
   const base=(pendingHost===host&&pendingTarget!=null)?pendingTarget:(safeFloat(curTgt)||22);
   const minT=safeFloat(d.state.min_temp)||17;
   const maxT=safeFloat(d.state.max_temp)||30;
@@ -898,6 +898,9 @@ function fwLabel(s){
   return s.firmware_outdated?`${v} ⬆ ${s.firmware_latest}`:v;
 }
 function fwBuilt(s){return s?.firmware_built_date||null;}
+
+// KEEP only counts while the unit is actually in fan-only (see dashboard).
+function keepActive(d){return !!d?._keep_paused&&d?.state?.mode==='FAN_ONLY';}
 
 function isEcoPreset(s){return s?.eco!=null?!!s.eco:String(s?.preset||'').toUpperCase()==='ECO';}
 
