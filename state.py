@@ -101,6 +101,13 @@ DEVICE_DEFAULTS = {
     "_keep_paused_at": None,       # epoch seconds, enforces the minimum fan-only time
     "_keep_target": None,          # target °C captured at pause time
     "_keep_resume_mode": None,     # COOL or HEAT — mode to return to
+    # ECO intent: True/False once the user or a schedule sets ECO, None = never
+    # managed. The unit drops its ECO preset on mode/temp changes; while True,
+    # the worker re-applies it (worker._maintain_eco).
+    "eco_wanted": None,
+    "_eco_reapply_mode": None,    # mode the reapply attempts below were made in
+    "_eco_reapply_tries": 0,
+    "_eco_gave_up_mode": None,    # mode where the unit wouldn't hold ECO (logged once)
     "_last_poll_epoch": None,
     "_on_time_minutes": 0.0,
     "_retry_queue": [],

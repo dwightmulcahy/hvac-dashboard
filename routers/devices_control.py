@@ -13,6 +13,7 @@ from worker import (
     ECO_BUTTON_PATHS,
     _check_keep,
     _check_max_temp,
+    _maintain_eco,
     _poll_device,
     _send_cmd,
     _send_eco,
@@ -32,6 +33,7 @@ async def poll_device_now(host: str):
     await _poll_device(device)
     await _check_max_temp(device)
     await _check_keep(device)
+    await _maintain_eco(device)
     async with _lock:
         _save_raw(_state)
     ds = _state["device_state"].get(host, {})
@@ -64,6 +66,8 @@ async def send_device_cmd(host: str, payload: CommandPayload, authorization: str
             _add_log(f"{name}: set → {payload.params['target_temperature']}°C by {user}", "info")
             if device is not None:
                 await _verify_temp_command(host, device, name, payload.params["target_temperature"])
+        if device is not None and ("mode" in payload.params or "target_temperature" in payload.params):
+            await _maintain_eco(device, force=True)
     else:
         if device is not None:
             if "_retry_queue" not in device:

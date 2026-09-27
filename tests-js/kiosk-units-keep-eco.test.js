@@ -376,5 +376,22 @@ test("kiosk: temp units, power-on to last mode, FAN mode, KEEP, ECO", async (t) 
     );
   });
 
+  await t.test(
+    "kiosk ECO button shows 'armed' when wanted but dropped by the unit",
+    async () => {
+      devices.devices[0].eco_wanted = true;
+      devices.devices[0].state.eco = false;
+      await window.refreshAll();
+      click(tile("off-heat.local"));
+      await wait(30);
+      assert.match(
+        $('[data-act="eco"]').getAttribute("aria-label"),
+        /ECO is armed/,
+      );
+      click($("#sub-header"));
+      await wait(30);
+    },
+  );
+
   window.close();
 });

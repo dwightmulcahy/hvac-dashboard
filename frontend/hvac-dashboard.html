@@ -1993,15 +1993,25 @@ async function toggleLockTemp(i){
 function keepActive(d){return !!d?._keep_paused&&d?.state?.mode==='FAN_ONLY';}
 
 function isEcoPreset(s){return s?.eco!=null?!!s.eco:String(s?.preset||'').toUpperCase()==='ECO';}
+// ECO as the user sees it: the backend keeps re-applying ECO while eco_wanted
+// is true (the unit drops it on mode/temp changes and can't hold it while off
+// or in KEEP's fan-only pause). 'on' = active now, 'armed' = wanted but not
+// currently applied, 'off'. Devices never toggled (eco_wanted null) follow the unit.
+function ecoState(d){
+  const active=isEcoPreset(d?.state);
+  const wanted=d?.eco_wanted==null?active:d.eco_wanted===true;
+  return !wanted?'off':active?'on':'armed';
+}
 
 async function toggleEco(i){
   if(_authRole==='viewer'){addLog('Read-only access — cannot toggle ECO','warn');return;}
   await withBusy(i,async d=>{
-    const newState=isEcoPreset(d.state)?'off':'on';
+    const newState=ecoState(d)==='off'?'on':'off';
     try{
       const r=await fetch(`${API}/devices/${encodeURIComponent(d.host)}/eco/${newState}`,{method:'POST'});
       const data=await r.json().catch(()=>({}));
       if(r.ok&&data.ok){
+        d.eco_wanted=newState==='on';
         if(d.state){d.state.preset=newState==='on'?'ECO':'NONE';d.state.eco=newState==='on';}
         addLog(`${d.name}: ECO ${newState}`,'ok');
       }else addLog(`${d.name}: ECO ${newState} failed — ${data.error||r.status}`,'err');
@@ -2424,7 +2434,7 @@ function renderUnits(){
 
   devices.forEach((d,i)=>{
     const tileId=`tile-${i}`;
-    const stateKey=`${d.state?.mode}|${d.state?.target_temperature}|${d.state?.current_temperature}|${d.extras?.outdoor_temp?.value}|${d.busy}|${d.stale}|${d.lock_temp}|${d.retry_queue_depth}|${d.consecutive_failures}|${d._maintenanceOverdue}|${isEcoPreset(d.state)}|${d.extras?.beeper?.value}|${keepActive(d)}|${d.state?.firmware_version}|${d.state?.firmware_outdated}`;
+    const stateKey=`${d.state?.mode}|${d.state?.target_temperature}|${d.state?.current_temperature}|${d.extras?.outdoor_temp?.value}|${d.busy}|${d.stale}|${d.lock_temp}|${d.retry_queue_depth}|${d.consecutive_failures}|${d._maintenanceOverdue}|${ecoState(d)}|${d.extras?.beeper?.value}|${keepActive(d)}|${d.state?.firmware_version}|${d.state?.firmware_outdated}`;
     let tile=document.getElementById(tileId);
 
     if(!tile){
@@ -2481,7 +2491,7 @@ function buildTileHTML(d,i){
         <div style="display:flex;align-items:center;gap:6px;min-width:0;flex:1">
           <span class="dot ${on?'d-on':'d-off'}" style="flex-shrink:0"></span>
           <span class="uname" title="${d.name}">${d.name}</span>
-          ${isEcoPreset(s)?`<span class="tstat${readOnly?' ro':''}" title="ECO on${readOnly?'':' — tap to turn off'}" ${readOnly?'':`onclick="toggleEco(${i})"`}>🌿</span>`:''}
+          ${ecoState(d)!=='off'?`<span class="tstat${readOnly?' ro':''}" style="${ecoState(d)==='armed'?'opacity:.45':''}" title="${ecoState(d)==='on'?'ECO on':'ECO armed — re-enables when the unit runs again'}${readOnly?'':' — tap to turn off'}" ${readOnly?'':`onclick="toggleEco(${i})"`}>🌿</span>`:''}
           ${d.lock_temp?`<span class="tstat${readOnly?' ro':''}" title="Temp locked at ${d.locked_target_temp}°C${readOnly?'':' — tap to unlock'}" ${readOnly?'':`onclick="toggleLockTemp(${i})"`}>🔒</span>`:''}
           ${busy?'<span class="spinner"></span>':''}
           ${readOnly?'<span style="font-size:9px;color:var(--text3);border:1px solid var(--border);padding:1px 5px;border-radius:4px;flex-shrink:0" title="Read-only access">👁</span>':''}
@@ -2510,8 +2520,8 @@ function buildTileHTML(d,i){
       </div>
       <div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:8px">
         ${MODES.map(m=>`<button onclick="setMode(${i},'${m}')" ${busyOrRO?'disabled':''} style="flex:1;padding:3px 0;font-size:10px;border:none;border-right:1px solid var(--border);cursor:pointer;transition:all .15s;background:${s.mode===m?`var(--${m==='COOL'?'cool':m==='HEAT'?'heat':m==='HEAT_COOL'?'auto':m==='FAN_ONLY'?'fan':'dry'}-bg)`:'transparent'};color:${s.mode===m?`var(--${m==='COOL'?'cool':m==='HEAT'?'heat':m==='HEAT_COOL'?'auto':m==='FAN_ONLY'?'fan':'dry'})`:'var(--text3)'};font-weight:${s.mode===m?'600':'400'}" ${busy||readOnly||(!on&&m!==s.mode)?'disabled':''} ${keepActive(d)&&m==='FAN_ONLY'?`title="KEEP: target ${d._keep_target}°C reached — fan only until the room drifts 0.5°C back, then ${String(d._keep_resume_mode||'').toLowerCase()}"`:''}>${keepActive(d)&&m==='FAN_ONLY'?'<span style="color:var(--keep)">⏸ keep</span>':MODE_LABEL[m]}</button>`).join('')}
-        <button class="eco-seg" onclick="toggleEco(${i})" ${busy||readOnly||!on?'disabled':''} title="ECO ${isEcoPreset(s)?'on':'off'}${!on?' (turn the unit on first)':' — tap to toggle'}"
-          style="flex:0 0 30px;padding:3px 0;font-size:11px;border:none;cursor:pointer;transition:all .15s;background:${isEcoPreset(s)?'var(--eco-bg)':'transparent'};opacity:${isEcoPreset(s)?1:0.45};filter:${isEcoPreset(s)?'none':'grayscale(1)'}">🌿</button>
+        ${(()=>{const e=ecoState(d);return`<button class="eco-seg" data-eco="${e}" onclick="toggleEco(${i})" ${busy||readOnly?'disabled':''} title="${e==='on'?'ECO on':e==='armed'?'ECO armed — re-enables automatically when the unit runs (it drops ECO when off, in fan, or after a mode/temp change)':'ECO off'}${readOnly?'':' — tap to toggle'}"
+          style="flex:0 0 30px;padding:3px 0;font-size:11px;border:none;cursor:pointer;transition:all .15s;background:${e==='on'?'var(--eco-bg)':'transparent'};opacity:${e==='on'?1:e==='armed'?0.7:0.45};filter:${e==='off'?'grayscale(1)':'none'};${e==='armed'?'outline:1px dashed var(--eco);outline-offset:-3px;':''}">🌿</button>`;})()}
       </div>
       <div style="display:flex;gap:5px">
         <div class="stat" style="flex:1;text-align:center"><div class="slabel">In</div><div class="sval">${fmtCF(s.current_temperature)}</div></div>

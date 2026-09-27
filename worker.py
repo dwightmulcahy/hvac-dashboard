@@ -287,12 +287,20 @@ ECO_BUTTON_PATHS = {
 }
 
 
-async def _send_eco(host: str, state: str) -> bool:
+async def _send_eco(host: str, state: str, *, remember: bool = True) -> bool:
     """Set the unit's ECO preset via the firmware's eco_on/eco_off buttons.
     Updates device_state optimistically; the eco_status sensor confirms on
-    the next poll."""
+    the next poll. remember=True (user/schedule) records the intent in
+    device["eco_wanted"] so _maintain_eco keeps it applied; the reapply path
+    itself passes remember=False."""
     if state not in ECO_BUTTON_PATHS:
         return False
+    if remember:
+        device = next((d for d in _state["devices"] if d["host"] == host), None)
+        if device is not None:
+            device["eco_wanted"] = state == "on"
+            device["_eco_reapply_tries"] = 0
+            device["_eco_gave_up_mode"] = None
     for path in ECO_BUTTON_PATHS[state]:
         try:
             async with httpx.AsyncClient(timeout=5) as client:
@@ -306,6 +314,58 @@ async def _send_eco(host: str, state: str) -> bool:
         except Exception:
             pass
     return False
+
+
+ECO_REAPPLY_MAX_TRIES = 2          # per mode, when a poll shows the unit dropped ECO
+ECO_NO_REAPPLY_MODES = ("OFF", "FAN_ONLY")
+
+
+def _eco_reported(ds: dict) -> bool:
+    if ds.get("eco") is not None:
+        return bool(ds["eco"])
+    return str(ds.get("preset") or "").upper() == "ECO"
+
+
+async def _maintain_eco(device: dict, *, force: bool = False):
+    """Keep the unit's ECO preset on while device["eco_wanted"] is True.
+
+    Midea units silently drop ECO when the mode or setpoint changes (and it
+    can't apply in fan-only / off). force=True is used right after we changed
+    mode/temp ourselves — the cached eco flag is stale then, so press eco_on
+    without waiting for a poll. Otherwise re-press only when a poll shows ECO
+    off, at most ECO_REAPPLY_MAX_TRIES times per mode, so a mode the unit
+    won't run ECO in (it keeps reporting OFF) isn't retried forever."""
+    if device.get("eco_wanted") is not True:
+        return
+    host, name = device["host"], device["name"]
+    ds = _state["device_state"].get(host, {})
+    if ds.get("error"):
+        return
+    mode = ds.get("mode", "OFF")
+    if mode in ECO_NO_REAPPLY_MODES:
+        return
+    if device.get("_eco_reapply_mode") != mode:
+        device["_eco_reapply_mode"] = mode
+        device["_eco_reapply_tries"] = 0
+    if force:
+        if await _send_eco(host, "on", remember=False):
+            _verbose(f"{name}: 🌿 ECO re-applied after {mode} command", "info")
+        return
+    if _eco_reported(ds):
+        device["_eco_reapply_tries"] = 0
+        return
+    if device.get("_eco_reapply_tries", 0) >= ECO_REAPPLY_MAX_TRIES:
+        if device.get("_eco_gave_up_mode") != mode:
+            device["_eco_gave_up_mode"] = mode
+            _add_log(f"{name}: 🌿 unit won't hold ECO in {mode} — will retry after the next mode change", "warn")
+        return
+    device["_eco_reapply_tries"] = device.get("_eco_reapply_tries", 0) + 1
+    if await _send_eco(host, "on", remember=False):
+        _add_log(f"{name}: 🌿 ECO re-enabled (unit dropped it)", "info")
+
+
+def _commands_touch_climate(commands) -> bool:
+    return any("mode" in c or "target_temperature" in c for c in commands)
 
 
 async def _send_action(host: str, cmd: dict) -> bool:
@@ -782,6 +842,7 @@ async def _check_keep(device: dict):
                 _clear_keep_pause(device)
                 _add_log(f"{name}: ▶ KEEP — {indoor}°C, resuming {resume} (target {target}°C)", "ok")
                 await _verify_temp_command(host, device, name, target)
+                await _maintain_eco(device, force=True)
         return
 
     if cur_mode not in KEEP_MODES:
@@ -930,6 +991,9 @@ async def _check_schedules():
                 device["_retry_queue"].append(cmd)
                 _add_log(f"{name}: schedule command failed — queued for retry: {cmd}", "warn")
 
+        if sch.get("eco") not in ("on", "off") and _commands_touch_climate(commands):
+            await _maintain_eco(device, force=True)
+
         if not all_ok:
             msg = f"{name}: schedule @ {sch['time']} partially failed — {len(device['_retry_queue'])} cmd(s) queued"
             _add_log(msg, "warn")
@@ -1032,6 +1096,9 @@ async def _check_missed_schedules():
             elif "target_temperature" in cmd:
                 await _verify_temp_command(host, device, name, cmd["target_temperature"])
 
+        if sch.get("eco") not in ("on", "off") and _commands_touch_climate(commands):
+            await _maintain_eco(device, force=True)
+
         sch["last_run"] = f"{today} {_ts()}"
 
     # ── Check for missed schedule END times (e.g. overnight shutoff) ──
@@ -1119,6 +1186,7 @@ async def _background_worker():
                 await _poll_device(device)
                 await _check_max_temp(device)
                 await _check_keep(device)
+                await _maintain_eco(device)
                 await _check_watchdog(device)
                 await asyncio.sleep(0.5)  # jitter between devices
 

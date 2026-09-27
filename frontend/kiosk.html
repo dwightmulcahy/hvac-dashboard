@@ -682,7 +682,7 @@ function renderGrid(){
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
         <span style="color:var(--text);font-size:14px;font-weight:500">${d.name}</span>
         <div style="display:flex;align-items:center;gap:5px">
-          ${isEcoPreset(d.state)&&!dim?iconSpan('leaf',12,'var(--eco)'):''}
+          ${ecoState(d)!=='off'&&!dim?iconSpan('leaf',12,'var(--eco)',ecoState(d)==='armed'?'opacity:.45':''):''}
           ${d.lock_temp&&!dim?iconSpan('lock',12,'var(--text2)'):''}
           ${deviceOverdue&&!dim?iconSpan('wrench',12,'var(--err)'):''}
           ${d._max_temp_active&&!dim?'<span style="width:6px;height:6px;border-radius:50%;background:var(--err);display:inline-block"></span>':''}
@@ -773,7 +773,8 @@ function renderDetail(host){
   const GRAY='var(--gray)';
   const outdoor=safeFloat(s.outdoor_temp);
   const beeperOn=(isPending&&pendingBeeper!=null)?pendingBeeper:(d.beeper==='ON');
-  const ecoOn=(isPending&&pendingEco!=null)?pendingEco:isEcoPreset(s);
+  const ecoOn=(isPending&&pendingEco!=null)?pendingEco:ecoState(d)!=='off';
+  const ecoArmed=!(isPending&&pendingEco!=null)&&ecoState(d)==='armed';
   // A locked device's target gets unconditionally restored by the
   // worker on its next poll, regardless of what sent the change —
   // including the kiosk itself. Letting someone tap +/-, see it
@@ -799,7 +800,7 @@ function renderDetail(host){
       </div>
       ${canControl?`<button data-act="up" style="${tempBtnStyle()}">+</button>`:''}
       ${canControl?`<button data-act="beeper" title="Toggle beeper" aria-label="Beeper is ${beeperOn?'on':'off'}, tap to toggle" style="width:38px;height:38px;border-radius:50%;padding:0;display:flex;align-items:center;justify-content:center;color:${beeperOn?'var(--auto)':'var(--text2)'};border-color:${beeperOn?'var(--auto)':'var(--border)'}">${iconSpan('bell',17)}</button>`:''}
-      ${canControl?`<button data-act="eco" title="Toggle ECO" aria-label="ECO is ${ecoOn?'on':'off'}, tap to toggle" style="width:38px;height:38px;border-radius:50%;padding:0;display:flex;align-items:center;justify-content:center;color:${ecoOn?'var(--eco)':'var(--text2)'};border-color:${ecoOn?'var(--eco)':'var(--border)'}">${iconSpan('leaf',17)}</button>`:''}
+      ${canControl?`<button data-act="eco" title="Toggle ECO" aria-label="ECO is ${ecoOn?(ecoArmed?'armed':'on'):'off'}, tap to toggle" style="width:38px;height:38px;border-radius:50%;padding:0;display:flex;align-items:center;justify-content:center;color:${ecoOn?'var(--eco)':'var(--text2)'};border-color:${ecoOn?'var(--eco)':'var(--border)'};${ecoArmed?'border-style:dashed;opacity:.7;':''}">${iconSpan('leaf',17)}</button>`:''}
       ${locked?`<span class="icon" title="Locked at ${fmtTempCompact(d.locked_target_temp)}" aria-label="Temperature locked at ${fmtTempCompact(d.locked_target_temp)}" style="width:38px;height:38px;border-radius:50%;border:0.5px solid var(--violet);display:flex;align-items:center;justify-content:center;color:var(--violet)">${svgIcon('lock',17)}</span>`:''}
     </div>
     ${canControl?`<div style="display:flex;gap:6px;justify-content:center;margin-bottom:6px">
@@ -903,6 +904,15 @@ function fwBuilt(s){return s?.firmware_built_date||null;}
 function keepActive(d){return !!d?._keep_paused&&d?.state?.mode==='FAN_ONLY';}
 
 function isEcoPreset(s){return s?.eco!=null?!!s.eco:String(s?.preset||'').toUpperCase()==='ECO';}
+// ECO as the user sees it: the backend keeps re-applying ECO while eco_wanted
+// is true (the unit drops it on mode/temp changes and can't hold it while off
+// or in KEEP's fan-only pause). 'on' = active now, 'armed' = wanted but not
+// currently applied, 'off'. Devices never toggled (eco_wanted null) follow the unit.
+function ecoState(d){
+  const active=isEcoPreset(d?.state);
+  const wanted=d?.eco_wanted==null?active:d.eco_wanted===true;
+  return !wanted?'off':active?'on':'armed';
+}
 
 function toggleEcoOptimistic(host,turnOn){
   pendingHost=host;
@@ -913,6 +923,7 @@ function toggleEcoOptimistic(host,turnOn){
     try{
       await fetchT(`${API}/devices/${encodeURIComponent(host)}/eco/${turnOn?'on':'off'}`,{method:'POST',headers:authHeaders()});
     }catch(e){}
+    const dev=devices.find(x=>x.host===host);if(dev)dev.eco_wanted=turnOn;
     if(pendingHost===host&&pendingEco===turnOn){pendingHost=null;pendingEco=null;}
     await refreshAll();
   })();

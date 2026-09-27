@@ -178,14 +178,29 @@ test("dashboard unit tile: KEEP in mode bar, compact firmware line", async (t) =
   });
 
   await t.test(
-    "mode bar ends with an ECO leaf toggle, disabled while off",
+    "mode bar ends with an ECO leaf toggle reflecting ECO state",
     () => {
       const eco0 = tile.querySelector(".eco-seg");
       const eco1 = tile1.querySelector(".eco-seg");
       assert.equal(eco0.textContent.trim(), "🌿");
       assert.equal(eco0.getAttribute("onclick"), "toggleEco(0)");
-      assert.ok(!eco0.disabled);
-      assert.ok(eco1.disabled);
+      assert.equal(eco0.dataset.eco, "off");
+      assert.equal(eco1.dataset.eco, "on");
+      // enabled even while the unit is off, so ECO intent can still be changed
+      assert.ok(!eco1.disabled);
+    },
+  );
+
+  await t.test(
+    "ecoState: on / armed / off from intent + reported state",
+    () => {
+      const st = (eco_wanted, eco) =>
+        window.ecoState({ eco_wanted, state: { eco } });
+      assert.equal(st(true, true), "on");
+      assert.equal(st(true, false), "armed"); // unit dropped it (off, fan, mode/temp change)
+      assert.equal(st(false, true), "off");
+      assert.equal(st(null, true), "on"); // never toggled: follow the unit
+      assert.equal(st(undefined, false), "off");
     },
   );
 
