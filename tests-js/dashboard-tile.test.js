@@ -52,6 +52,18 @@ const DEVICE = {
   },
 };
 
+const OFF_DEVICE = {
+  ...DEVICE,
+  host: "ac2.local",
+  name: "A Very Long Bedroom Name",
+  beeper: "ON",
+  keep_mode: false,
+  _keep_paused: false,
+  lock_temp: true,
+  locked_target_temp: 23,
+  state: { ...DEVICE.state, mode: "OFF", target_temperature: 23, eco: true },
+};
+
 test("dashboard unit tile: KEEP in mode bar, compact firmware line", async (t) => {
   const ok = (body) => ({ ok: true, status: 200, json: async () => body });
   const mockFetch = async (url) => {
@@ -65,7 +77,7 @@ test("dashboard unit tile: KEEP in mode bar, compact firmware line", async (t) =
         must_change_password: false,
       });
     if (u.includes("/vacation")) return ok({ vacation_mode: false });
-    if (u.includes("/devices")) return ok({ devices: [DEVICE] });
+    if (u.includes("/devices")) return ok({ devices: [DEVICE, OFF_DEVICE] });
     if (u.includes("/schedules")) return ok({ schedules: [] });
     if (u.includes("/settings")) return ok({});
     if (u.includes("/logs")) return ok({ logs: [] });
@@ -113,6 +125,69 @@ test("dashboard unit tile: KEEP in mode bar, compact firmware line", async (t) =
     assert.match(fw.getAttribute("title"), /Built 2026-09-26 17:12:28 -0600/);
     assert.match(fw.getAttribute("title"), /Config hash 0xbd538c66/);
   });
+
+  // ── decluttered header ──
+  const tile1 = window.document.querySelector("#tile-1");
+  const headerButtons = (t) =>
+    [...t.firstElementChild.querySelectorAll(":scope > div > button")].map(
+      (b) => b.textContent.trim(),
+    );
+
+  await t.test("header keeps only −, +, ⋯ and power as buttons", () => {
+    const btns = headerButtons(tile);
+    assert.deepEqual(btns.slice(0, 3), ["−", "+", "⋯"]);
+    assert.equal(btns.length, 4);
+  });
+
+  await t.test("⋯ menu holds beeper and lock with ✓ state", () => {
+    const menu = window.document.querySelector("#tile-menu-1");
+    const items = [...menu.querySelectorAll(".menu-item")].map((m) =>
+      m.textContent.trim(),
+    );
+    assert.deepEqual(items, ["✓🔔 Beeper", "✓🔒 Locked at 23°C"]);
+    assert.equal(menu.style.display, "");
+    window.toggleTileMenu(1);
+    assert.equal(menu.style.display, "block");
+    window.closeTileMenus();
+    assert.equal(menu.style.display, "none");
+  });
+
+  await t.test(
+    "ECO and lock show as status icons after the name only when on",
+    () => {
+      const stats = [...tile1.querySelectorAll(".tstat")].map(
+        (e) => e.textContent,
+      );
+      assert.deepEqual(stats, ["🌿", "🔒"]);
+      assert.equal(tile.querySelectorAll(".tstat").length, 0);
+    },
+  );
+
+  await t.test(
+    "long name truncates via .uname with full name in tooltip",
+    () => {
+      const name = tile1.querySelector(".uname");
+      assert.equal(name.getAttribute("title"), "A Very Long Bedroom Name");
+    },
+  );
+
+  await t.test("off unit shows greyed target instead of 'off'", () => {
+    const tdisp = tile1.querySelector(".tdisp");
+    assert.doesNotMatch(tdisp.textContent, /off/);
+    assert.match(tdisp.innerHTML, /var\(--text3\)/);
+  });
+
+  await t.test(
+    "mode bar ends with an ECO leaf toggle, disabled while off",
+    () => {
+      const eco0 = tile.querySelector(".eco-seg");
+      const eco1 = tile1.querySelector(".eco-seg");
+      assert.equal(eco0.textContent.trim(), "🌿");
+      assert.equal(eco0.getAttribute("onclick"), "toggleEco(0)");
+      assert.ok(!eco0.disabled);
+      assert.ok(eco1.disabled);
+    },
+  );
 
   window.close();
 });

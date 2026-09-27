@@ -15,7 +15,7 @@
   --auto:#a855f7;--auto-bg:#3b1f5e;
   --fan:#10b981;--fan-bg:#0d3728;
   --dry:#ec4899;--dry-bg:#4a1030;
-  --ok:#22c55e;--warn:#f59e0b;--err:#ef4444;--keep:#84cc16;
+  --ok:#22c55e;--warn:#f59e0b;--err:#ef4444;--keep:#84cc16;--eco:#4ade80;--eco-bg:#14301f;
   --r:10px;--rl:14px;
 }
 :root.light{
@@ -27,7 +27,7 @@
   --auto:#9333ea;--auto-bg:#f3e8ff;
   --fan:#059669;--fan-bg:#d1fae5;
   --dry:#db2777;--dry-bg:#fce7f3;
-  --ok:#16a34a;--warn:#d97706;--err:#dc2626;--keep:#4d7c0f;
+  --ok:#16a34a;--warn:#d97706;--err:#dc2626;--keep:#4d7c0f;--eco:#15803d;--eco-bg:#dcfce7;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:24px 20px;max-width:960px;margin:0 auto}
@@ -68,7 +68,11 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
 .ucard{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rl);padding:0 16px;margin-bottom:20px}
 .urow{padding:16px 0;border-bottom:1px solid var(--border)}
 .urow:last-child{border-bottom:none}
-.uname{font-size:14px;font-weight:500}
+.uname{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.tstat{font-size:11px;cursor:pointer;flex-shrink:0;line-height:1}
+.tstat.ro{cursor:default}
+.tile-menu{display:none;position:absolute;top:100%;right:0;margin-top:4px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;z-index:50;box-shadow:0 4px 12px rgba(0,0,0,.35);min-width:170px}
+.tile-menu .menu-item .ck{display:inline-block;width:14px;color:var(--ok)}
 .uhost{font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:2px}
 .pill-row{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px;align-items:center}
 .pill-label{font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;min-width:38px}
@@ -2047,6 +2051,17 @@ function closeDeviceMenus(except=-1){
   devices.forEach((_,i)=>{if(i!==except){const m=document.getElementById(`dev-menu-${i}`);if(m)m.style.display='none';}});
 }
 function closeDeviceMenusAll(){closeDeviceMenus();}
+function closeTileMenus(except){
+  document.querySelectorAll('.tile-menu').forEach(m=>{if(m.id!==except)m.style.display='none';});
+}
+function toggleTileMenu(i,ev){
+  if(ev)ev.stopPropagation();
+  const id=`tile-menu-${i}`;
+  closeTileMenus(id);
+  const m=document.getElementById(id);if(!m)return;
+  m.style.display=m.style.display==='block'?'none':'block';
+  if(m.style.display==='block')setTimeout(()=>document.addEventListener('click',()=>closeTileMenus(),{once:true}),0);
+}
 
 async function testAllDevices(){
   const resultsEl=document.getElementById('test-all-results');
@@ -2403,7 +2418,7 @@ function renderUnits(){
 
   devices.forEach((d,i)=>{
     const tileId=`tile-${i}`;
-    const stateKey=`${d.state?.mode}|${d.state?.target_temperature}|${d.state?.current_temperature}|${d.extras?.outdoor_temp?.value}|${d.busy}|${d.stale}|${d.lock_temp}|${d.retry_queue_depth}|${d.consecutive_failures}|${d._maintenanceOverdue}`;
+    const stateKey=`${d.state?.mode}|${d.state?.target_temperature}|${d.state?.current_temperature}|${d.extras?.outdoor_temp?.value}|${d.busy}|${d.stale}|${d.lock_temp}|${d.retry_queue_depth}|${d.consecutive_failures}|${d._maintenanceOverdue}|${isEcoPreset(d.state)}|${d.extras?.beeper?.value}|${d._keep_paused}|${d.state?.firmware_version}|${d.state?.firmware_outdated}`;
     let tile=document.getElementById(tileId);
 
     if(!tile){
@@ -2459,24 +2474,27 @@ function buildTileHTML(d,i){
       <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:8px">
         <div style="display:flex;align-items:center;gap:6px;min-width:0;flex:1">
           <span class="dot ${on?'d-on':'d-off'}" style="flex-shrink:0"></span>
-          <span class="uname">${d.name}</span>
+          <span class="uname" title="${d.name}">${d.name}</span>
+          ${isEcoPreset(s)?`<span class="tstat${readOnly?' ro':''}" title="ECO on${readOnly?'':' — tap to turn off'}" ${readOnly?'':`onclick="toggleEco(${i})"`}>🌿</span>`:''}
+          ${d.lock_temp?`<span class="tstat${readOnly?' ro':''}" title="Temp locked at ${d.locked_target_temp}°C${readOnly?'':' — tap to unlock'}" ${readOnly?'':`onclick="toggleLockTemp(${i})"`}>🔒</span>`:''}
           ${busy?'<span class="spinner"></span>':''}
-          ${readOnly?'<span style="font-size:9px;color:var(--text3);border:1px solid var(--border);padding:1px 5px;border-radius:4px" title="Read-only access">👁 view only</span>':''}
-          ${d.stale?'<span style="font-size:10px;color:var(--warn);font-family:\'DM Mono\',monospace" title="Device not responding">⚠ stale</span>':''}
-          ${d.stale&&d.consecutive_failures>1?`<span style="font-size:10px;color:var(--err);font-family:'DM Mono',monospace" title="${d.consecutive_failures} consecutive poll failures">⚠${d.consecutive_failures}</span>`:''}
-          ${d.retry_queue_depth?`<span style="font-size:10px;color:var(--warn);font-family:'DM Mono',monospace" title="${d.retry_queue_depth} command(s) queued for retry">↺${d.retry_queue_depth}</span>`:''}
-          ${d._maintenanceOverdue?`<span style="font-size:10px;color:var(--err);cursor:pointer" title="Maintenance overdue — click for details" onclick="openSettings('maintenance')">🔧⚠</span>`:''}
+          ${readOnly?'<span style="font-size:9px;color:var(--text3);border:1px solid var(--border);padding:1px 5px;border-radius:4px;flex-shrink:0" title="Read-only access">👁</span>':''}
+          ${d.stale?'<span style="font-size:10px;color:var(--warn);font-family:\'DM Mono\',monospace;flex-shrink:0" title="Device not responding">⚠ stale</span>':''}
+          ${d.stale&&d.consecutive_failures>1?`<span style="font-size:10px;color:var(--err);font-family:'DM Mono',monospace;flex-shrink:0" title="${d.consecutive_failures} consecutive poll failures">⚠${d.consecutive_failures}</span>`:''}
+          ${d.retry_queue_depth?`<span style="font-size:10px;color:var(--warn);font-family:'DM Mono',monospace;flex-shrink:0" title="${d.retry_queue_depth} command(s) queued for retry">↺${d.retry_queue_depth}</span>`:''}
+          ${d._maintenanceOverdue?`<span style="font-size:10px;color:var(--err);cursor:pointer;flex-shrink:0" title="Maintenance overdue — click for details" onclick="openSettings('maintenance')">🔧⚠</span>`:''}
         </div>
-        <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
+        <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;position:relative">
           ${readOnly?'':`<button class="btn bico" onclick="adjustTemp(${i},-1)" ${dis} style="width:24px;height:24px">−</button>`}
-          <div class="tdisp" style="line-height:1.2;text-align:center">${on&&s.target_temperature!=null?fmtTemp(s.target_temperature):d._keep_paused&&d._keep_target!=null?`<span style="color:var(--keep)">${fmtTemp(d._keep_target)}</span>`:'<span style="color:var(--text3);font-size:11px">off</span>'}</div>
+          <div class="tdisp" style="line-height:1.2;text-align:center">${on&&s.target_temperature!=null?fmtTemp(s.target_temperature):d._keep_paused&&d._keep_target!=null?`<span style="color:var(--keep)">${fmtTemp(d._keep_target)}</span>`:s.target_temperature!=null?`<span style="color:var(--text3)" title="Target when turned on">${fmtTemp(s.target_temperature)}</span>`:'<span style="color:var(--text3)">—</span>'}</div>
           ${readOnly?'':`<button class="btn bico" onclick="adjustTemp(${i},1)" ${dis} style="width:24px;height:24px">+</button>`}
-          ${readOnly?(x.beeper!==undefined?`<span style="font-size:11px;opacity:0.5">${x.beeper?.value==='ON'?'🔔':'🔕'}</span>`:''):(x.beeper!==undefined?`<button class="beeper ${x.beeper?.value==='ON'?'on':''}" onclick="toggleBeeper(${i})" ${busyOrRO} style="font-size:11px;padding:0 7px;height:24px;border-radius:7px">🔔</button>`:'')}
-          ${readOnly?(isEcoPreset(s)?`<span style="font-size:11px" title="ECO on">🌿</span>`:''):`<button class="beeper ${isEcoPreset(s)?'on':''}" onclick="toggleEco(${i})" ${busyOrRO} title="ECO ${isEcoPreset(s)?'on':'off'} — tap to toggle" style="font-size:11px;padding:0 7px;height:24px;border-radius:7px">🌿</button>`}
-          ${readOnly?`<span style="font-size:12px;opacity:0.5">${d.lock_temp?'🔒':'🔓'}</span>`:`<button onclick="toggleLockTemp(${i})" title="${d.lock_temp?'Locked at '+d.locked_target_temp+'°C — click to unlock':'Click to lock temp at current setpoint'}"
-            style="width:24px;height:24px;border-radius:7px;border:1px solid ${d.lock_temp?'var(--warn)':'var(--border)'};background:transparent;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;color:${d.lock_temp?'var(--warn)':'var(--text3)'}">${d.lock_temp?'🔒':'🔓'}</button>`}
-          ${d.has_ir_emitter?(readOnly?`<span style="font-size:11px;opacity:0.5" title="Toggle display">🖥</span>`:`<button class="btn bico" onclick="triggerDisplayToggle(${i})" title="Toggle display" style="width:24px;height:24px;font-size:11px">🖥</button>`):''}
-          ${d.has_ir_emitter?(readOnly?`<span style="font-size:11px;opacity:0.5" title="Swing step">↕</span>`:`<button class="btn bico" onclick="triggerSwingStep(${i})" title="Swing step" style="width:24px;height:24px;font-size:11px">↕</button>`):''}
+          ${readOnly?'':`<button class="btn bico" onclick="toggleTileMenu(${i},event)" ${busy?'disabled':''} title="More" style="width:24px;height:24px;font-size:11px">⋯</button>
+          <div class="tile-menu" id="tile-menu-${i}">
+            ${x.beeper!==undefined?`<div class="menu-item" onclick="closeTileMenus();toggleBeeper(${i})"><span class="ck">${x.beeper?.value==='ON'?'✓':''}</span>🔔 Beeper</div>`:''}
+            <div class="menu-item" onclick="closeTileMenus();toggleLockTemp(${i})"><span class="ck">${d.lock_temp?'✓':''}</span>🔒 ${d.lock_temp?`Locked at ${d.locked_target_temp}°C`:'Lock temp'}</div>
+            ${d.has_ir_emitter?`<div class="menu-item" onclick="closeTileMenus();triggerDisplayToggle(${i})"><span class="ck"></span>🖥 Toggle display</div>
+            <div class="menu-item" onclick="closeTileMenus();triggerSwingStep(${i})"><span class="ck"></span>↕ Swing step</div>`:''}
+          </div>`}
           ${readOnly?`<span class="pbtn ${on?'on':'off'}" style="width:24px;height:24px;opacity:0.6;display:flex;align-items:center;justify-content:center">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18.36 6.64A9 9 0 1 1 5.64 6.64"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
           </span>`:`<button class="pbtn ${on?'on':'off'}" onclick="togglePower(${i})" ${busy?'disabled':''} style="width:24px;height:24px">
@@ -2486,6 +2504,8 @@ function buildTileHTML(d,i){
       </div>
       <div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:8px">
         ${MODES.map(m=>`<button onclick="setMode(${i},'${m}')" ${busyOrRO?'disabled':''} style="flex:1;padding:3px 0;font-size:10px;border:none;border-right:1px solid var(--border);cursor:pointer;transition:all .15s;background:${s.mode===m?`var(--${m==='COOL'?'cool':m==='HEAT'?'heat':m==='HEAT_COOL'?'auto':m==='FAN_ONLY'?'fan':'dry'}-bg)`:'transparent'};color:${s.mode===m?`var(--${m==='COOL'?'cool':m==='HEAT'?'heat':m==='HEAT_COOL'?'auto':m==='FAN_ONLY'?'fan':'dry'})`:'var(--text3)'};font-weight:${s.mode===m?'600':'400'}" ${busy||readOnly||(!on&&m!==s.mode)?'disabled':''} ${d._keep_paused&&m==='FAN_ONLY'&&s.mode===m?`title="KEEP: target ${d._keep_target}°C reached — fan only until the room drifts 0.5°C back, then ${String(d._keep_resume_mode||'').toLowerCase()}"`:''}>${d._keep_paused&&m==='FAN_ONLY'&&s.mode===m?'<span style="color:var(--keep)">⏸ keep</span>':MODE_LABEL[m]}</button>`).join('')}
+        <button class="eco-seg" onclick="toggleEco(${i})" ${busy||readOnly||!on?'disabled':''} title="ECO ${isEcoPreset(s)?'on':'off'}${!on?' (turn the unit on first)':' — tap to toggle'}"
+          style="flex:0 0 30px;padding:3px 0;font-size:11px;border:none;cursor:pointer;transition:all .15s;background:${isEcoPreset(s)?'var(--eco-bg)':'transparent'};opacity:${isEcoPreset(s)?1:0.45};filter:${isEcoPreset(s)?'none':'grayscale(1)'}">🌿</button>
       </div>
       <div style="display:flex;gap:5px">
         <div class="stat" style="flex:1;text-align:center"><div class="slabel">In</div><div class="sval">${fmtCF(s.current_temperature)}</div></div>
