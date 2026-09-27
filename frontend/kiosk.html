@@ -168,6 +168,7 @@ const ICON_PATHS={
   'wifi-off':'<path d="M3 3l18 18"/><path d="M8.5 16.5a5 5 0 0 1 5-1.3M5 12.5a10 10 0 0 1 3-1.9M19 12.5a10 10 0 0 0 -2.3-1.7M12 19v.01"/>',
   'suitcase':'<rect x="4" y="8" width="16" height="12" rx="1.5"/><path d="M9 8V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/><path d="M4 13h16"/>',
   'leaf':'<path d="M5 20c0-9 6-15 15-15c0 9-6 15-14 15z"/><path d="M5 20l8-8"/>',
+  'enter':'<path d="M20 5v7a3 3 0 0 1-3 3H6"/><path d="M10 11l-4 4l4 4"/>',
   'wrench':'<path d="M14.7 6.3a4 4 0 0 0-5.4 4.9L4 16.5V20h3.5l5.3-5.3a4 4 0 0 0 4.9-5.4l-2.8 2.8-2-2z"/>'
 };
 function svgIcon(name,size){
@@ -302,11 +303,15 @@ function estCostDay(watts){
 
 // ── PIN entry ────────────────────────────────────────────────
 
+// PINs are 4–6 digits (auth.PIN_MIN_LENGTH/PIN_MAX_LENGTH), so entry is
+// submitted with ⏎ rather than auto-submitting at 4 (which made 5–6 digit PINs
+// impossible to enter). Reaching the 6-digit maximum still submits on its own.
+const PIN_MIN=4,PIN_MAX=6;
 function renderKeypad(){
-  const keys=['1','2','3','4','5','6','7','8','9','','0','back'];
+  const keys=['1','2','3','4','5','6','7','8','9','back','0','enter'];
   document.getElementById('keypad').innerHTML=keys.map(k=>{
-    if(k==='')return'<span></span>';
-    if(k==='back')return `<button data-key="back" style="width:64px;height:52px;border-radius:8px;padding:0;display:flex;align-items:center;justify-content:center">${svgIcon('backspace',18)}</button>`;
+    if(k==='back')return `<button data-key="back" aria-label="Backspace" style="width:64px;height:52px;border-radius:8px;padding:0;display:flex;align-items:center;justify-content:center">${svgIcon('backspace',18)}</button>`;
+    if(k==='enter')return `<button data-key="enter" aria-label="Enter" style="width:64px;height:52px;border-radius:8px;padding:0;display:flex;align-items:center;justify-content:center;color:var(--cool);border-color:var(--cool)">${svgIcon('enter',18)}</button>`;
     return `<button data-key="${k}" style="width:64px;height:52px;border-radius:8px;font-size:19px;font-weight:500;padding:0">${k}</button>`;
   }).join('');
   document.getElementById('keypad').querySelectorAll('[data-key]').forEach(b=>b.addEventListener('click',()=>onKey(b.dataset.key)));
@@ -315,16 +320,22 @@ function renderKeypad(){
 function renderDots(err){
   const el=document.getElementById('pin-dots');
   if(!el)return;
-  el.innerHTML=[0,1,2,3].map(i=>`<span style="width:12px;height:12px;border-radius:50%;display:inline-block;background:${i<entered.length?(err?'var(--err)':'var(--cool)'):'transparent'};border:1.5px solid ${err?'var(--err)':(i<entered.length?'var(--cool)':'#3a3d45')}"></span>`).join('');
+  const slots=Math.max(PIN_MIN,entered.length);
+  el.innerHTML=Array.from({length:slots},(_,i)=>i).map(i=>`<span style="width:12px;height:12px;border-radius:50%;display:inline-block;background:${i<entered.length?(err?'var(--err)':'var(--cool)'):'transparent'};border:1.5px solid ${err?'var(--err)':(i<entered.length?'var(--cool)':'#3a3d45')}"></span>`).join('');
 }
 
 function onKey(k){
   if(Date.now()<lockoutUntil)return;
   if(k==='back'){entered=entered.slice(0,-1);renderDots();return;}
-  if(entered.length>=4)return;
+  if(k==='enter'){
+    if(entered.length>=PIN_MIN)attemptPinLogin();
+    else{renderDots(true);setTimeout(()=>renderDots(),400);}
+    return;
+  }
+  if(entered.length>=PIN_MAX)return;
   entered+=k;
   renderDots();
-  if(entered.length===4)attemptPinLogin();
+  if(entered.length===PIN_MAX)attemptPinLogin();
 }
 
 async function attemptPinLogin(){

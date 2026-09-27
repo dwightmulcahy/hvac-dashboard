@@ -129,9 +129,9 @@ Reboot after editing. If touch input ends up mismatched from the (correctly rota
 
 ## 6. Assign PINs
 
-This is the one step that happens on the *dashboard* side, not the Pi. The kiosk has no PINs configured out of the box — go to **Settings → Users** on the main dashboard and set a 4-digit PIN for each household member who should have kiosk access.
+This is the one step that happens on the *dashboard* side, not the Pi. The kiosk has no PINs configured out of the box — go to **Settings → Users** on the main dashboard and set a 4–6 digit PIN for each household member who should have kiosk access.
 
-**Must be exactly 4 digits.** The backend accepts 4-6 digit PINs for flexibility, but the kiosk's on-screen keypad only ever submits 4 — a longer PIN would silently never work here.
+**4–6 digits.** Enter the digits and tap ⏎ (bottom-right; ⌫ bottom-left deletes). A 6-digit PIN submits automatically on the last digit.
 
 ---
 
@@ -198,4 +198,4 @@ Nothing to do here. `kiosk.html` is served live from the same container as the m
 | Layout is letterboxed or cropped | Panel isn't actually 800×480 — check its native resolution; the layout doesn't reflow to other sizes |
 | Taps land in the wrong place | Touch calibration, not display rotation — see [step 5](#5-touchscreen-orientation) |
 | Visible mouse cursor sitting on screen | `unclutter` not installed, or not added to the autostart entry |
-| PIN entry does nothing after 4 digits | Confirm the PIN was set as exactly 4 digits in Settings → Users, not more |
+| PIN entry does nothing after the last digit | Tap ⏎ (bottom-right) to submit — only 6-digit PINs submit on their own |

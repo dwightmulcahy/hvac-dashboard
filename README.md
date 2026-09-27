@@ -303,7 +303,7 @@ Open `··· → Users` (admin only) to add, delete, or change roles for users.
 
 ### Kiosk PINs
 
-For the wall-mounted touchscreen panel (see [`KIOSK.md`](./docs/KIOSK.md)), assign each user a 4-digit PIN from the same Users screen. PIN login uses the same role permissions and the same lockout rules as password login (5 failed attempts locks that PIN's client IP for 15 minutes) — it's a separate credential on the same account, not a separate access tier. PINs must be exactly 4 digits; the kiosk's on-screen keypad won't accept longer ones even though the API allows up to 6.
+For the wall-mounted touchscreen panel (see [`KIOSK.md`](./docs/KIOSK.md)), assign each user a 4–6 digit PIN from the same Users screen. PIN login uses the same role permissions and the same lockout rules as password login (5 failed attempts locks that PIN's client IP for 15 minutes) — it's a separate credential on the same account, not a separate access tier. On the kiosk keypad, ⌫ (bottom-left) deletes and ⏎ (bottom-right) submits.
 
 ### Forgot Password
 

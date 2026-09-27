@@ -31,7 +31,10 @@ const path = require("path");
 const fs = require("fs");
 const { JSDOM } = require("jsdom");
 
-const html = fs.readFileSync(path.join(__dirname, "..", "frontend", "kiosk.html"), "utf8");
+const html = fs.readFileSync(
+  path.join(__dirname, "..", "frontend", "kiosk.html"),
+  "utf8",
+);
 
 const MOCK_DEVICES = {
   devices: [
@@ -211,7 +214,8 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   const mockFetch = async (url, opts) => {
     if (simulateNetworkDown) throw new Error("simulated network failure");
     const u = String(url);
-    if (u.endsWith("/api/")) return { ok: true, status: 200, json: async () => MOCK_ROOT };
+    if (u.endsWith("/api/"))
+      return { ok: true, status: 200, json: async () => MOCK_ROOT };
     if (u.includes("/api/auth/login-pin")) {
       const body = JSON.parse(opts.body);
       if (body.pin === "4821")
@@ -238,7 +242,11 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
             must_change_password: false,
           }),
         };
-      return { ok: false, status: 401, json: async () => ({ detail: "Incorrect PIN" }) };
+      return {
+        ok: false,
+        status: 401,
+        json: async () => ({ detail: "Incorrect PIN" }),
+      };
     }
     if (u.includes("/api/auth/logout"))
       return { ok: true, status: 200, json: async () => ({ ok: true }) };
@@ -248,7 +256,10 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
       return {
         ok: true,
         status: 200,
-        json: async () => ({ ok: true, vacation_mode: MOCK_SETTINGS.vacation_mode }),
+        json: async () => ({
+          ok: true,
+          vacation_mode: MOCK_SETTINGS.vacation_mode,
+        }),
       };
     }
     if (u.includes("/beeper/")) {
@@ -266,11 +277,16 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
       maintenanceCompleteCalls.push(u);
       const id = u.split("/maintenance/")[1].split("/complete")[0];
       const item = MOCK_MAINTENANCE.find((m) => m.id === id);
-      if (item) item.status = { ...item.status, overdue: false, due_soon: false };
+      if (item)
+        item.status = { ...item.status, overdue: false, due_soon: false };
       return { ok: true, status: 200, json: async () => ({ ok: true }) };
     }
     if (u.includes("/api/maintenance"))
-      return { ok: true, status: 200, json: async () => ({ maintenance: MOCK_MAINTENANCE }) };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ maintenance: MOCK_MAINTENANCE }),
+      };
     if (u.includes("/api/devices"))
       return { ok: true, status: 200, json: async () => MOCK_DEVICES };
     if (u.includes("/api/settings"))
@@ -324,8 +340,15 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
 
   // ── PIN entry / unlock ─────────────────────────────────────
 
-  "4821".split("").forEach(tap);
+  [..."4821", "enter"].forEach(tap);
   await wait(100);
+
+  await t.test("keypad bottom row is backspace, 0, enter", () => {
+    const keys = [...window.document.querySelectorAll("#keypad > *")].map(
+      (b) => b.dataset.key,
+    );
+    assert.deepEqual(keys.slice(-3), ["back", "0", "enter"]);
+  });
 
   await t.test("unlocks successfully with the correct PIN", () => {
     assert.ok(
@@ -334,20 +357,28 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
     );
   });
 
-  await t.test("header badge shows username alongside role, not just role", () => {
-    const text = $("#version-badge").textContent;
-    assert.match(text, /dwight/);
-    assert.match(text, /Operator/);
-  });
+  await t.test(
+    "header badge shows username alongside role, not just role",
+    () => {
+      const text = $("#version-badge").textContent;
+      assert.match(text, /dwight/);
+      assert.match(text, /Operator/);
+    },
+  );
 
-  await t.test("no external CDN dependency remains — icons are self-contained SVG", () => {
-    // The kiosk previously depended on a live fetch to
-    // cdnjs.cloudflare.com for every icon; on a device that may sit on
-    // a restricted or offline home network, that CDN call can silently
-    // fail and every icon in the UI just doesn't render.
-    assert.ok(!html.includes("<link") || !html.includes("cdnjs.cloudflare.com"));
-    assert.match($("#relock-btn").innerHTML, /<svg/);
-  });
+  await t.test(
+    "no external CDN dependency remains — icons are self-contained SVG",
+    () => {
+      // The kiosk previously depended on a live fetch to
+      // cdnjs.cloudflare.com for every icon; on a device that may sit on
+      // a restricted or offline home network, that CDN call can silently
+      // fail and every icon in the UI just doesn't render.
+      assert.ok(
+        !html.includes("<link") || !html.includes("cdnjs.cloudflare.com"),
+      );
+      assert.match($("#relock-btn").innerHTML, /<svg/);
+    },
+  );
 
   // ── Grid overview ────────────────────────────────────────────
 
@@ -363,22 +394,25 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
     assert.ok(parseInt(window.getComputedStyle(tileTemp).fontSize) > 22);
   });
 
-  await t.test("grid tile on-time shows today's runtime, not the all-time cumulative total", () => {
-    // Regression test: the ON-TIME figure used to show
-    // device._on_time_minutes, which accumulates forever since the
-    // device was first added (weeks of runtime) rather than resetting
-    // daily — genuinely not what "on-time" reads as at a glance on a
-    // wall panel. It now comes from GET /usage/summary scoped to
-    // today's date specifically.
-    const mainLrTile = [...window.document.querySelectorAll(".tile")].find((tile) =>
-      tile.textContent.includes("Main LR"),
-    );
-    assert.ok(
-      mainLrTile.textContent.includes("15m"),
-      `expected today's 15m runtime, not the cumulative 42m (tile text: "${mainLrTile.textContent.replace(/\s+/g, " ")}")`,
-    );
-    assert.ok(!mainLrTile.textContent.includes("42m"));
-  });
+  await t.test(
+    "grid tile on-time shows today's runtime, not the all-time cumulative total",
+    () => {
+      // Regression test: the ON-TIME figure used to show
+      // device._on_time_minutes, which accumulates forever since the
+      // device was first added (weeks of runtime) rather than resetting
+      // daily — genuinely not what "on-time" reads as at a glance on a
+      // wall panel. It now comes from GET /usage/summary scoped to
+      // today's date specifically.
+      const mainLrTile = [...window.document.querySelectorAll(".tile")].find(
+        (tile) => tile.textContent.includes("Main LR"),
+      );
+      assert.ok(
+        mainLrTile.textContent.includes("15m"),
+        `expected today's 15m runtime, not the cumulative 42m (tile text: "${mainLrTile.textContent.replace(/\s+/g, " ")}")`,
+      );
+      assert.ok(!mainLrTile.textContent.includes("42m"));
+    },
+  );
 
   // ── Device detail view ───────────────────────────────────────
 
@@ -391,27 +425,36 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
     assert.match(detailHtml, /°F/);
   });
 
-  await t.test("all five modes (OFF/COOL/HEAT/FAN/AUTO) render as buttons", () => {
-    const detailHtml = $("#grid-detail").innerHTML;
-    for (const m of ["OFF", "COOL", "HEAT", "FAN", "AUTO"]) {
-      assert.ok(detailHtml.includes(`>${m}<`), `missing ${m} button`);
-    }
-  });
+  await t.test(
+    "all five modes (OFF/COOL/HEAT/FAN/AUTO) render as buttons",
+    () => {
+      const detailHtml = $("#grid-detail").innerHTML;
+      for (const m of ["OFF", "COOL", "HEAT", "FAN", "AUTO"]) {
+        assert.ok(detailHtml.includes(`>${m}<`), `missing ${m} button`);
+      }
+    },
+  );
 
-  await t.test("beeper is a control in the main row, not a separate labeled row", () => {
-    const detailHtml = $("#grid-detail").innerHTML;
-    assert.ok(detailHtml.includes('data-act="beeper"'));
-    assert.match(detailHtml, /Beeper is on/); // aria-label reflects state; icon-only, no visible text
-  });
+  await t.test(
+    "beeper is a control in the main row, not a separate labeled row",
+    () => {
+      const detailHtml = $("#grid-detail").innerHTML;
+      assert.ok(detailHtml.includes('data-act="beeper"'));
+      assert.match(detailHtml, /Beeper is on/); // aria-label reflects state; icon-only, no visible text
+    },
+  );
 
-  await t.test("wifi stat shows the actual dBm meter and value, not just a word", () => {
-    const detailHtml = $("#grid-detail").innerHTML;
-    assert.match(detailHtml, /dBm/);
-    const wifiBars = [...$("#grid-detail").querySelectorAll("span")].filter(
-      (s) => s.style.width === "5px",
-    );
-    assert.equal(wifiBars.length, 4);
-  });
+  await t.test(
+    "wifi stat shows the actual dBm meter and value, not just a word",
+    () => {
+      const detailHtml = $("#grid-detail").innerHTML;
+      assert.match(detailHtml, /dBm/);
+      const wifiBars = [...$("#grid-detail").querySelectorAll("span")].filter(
+        (s) => s.style.width === "5px",
+      );
+      assert.equal(wifiBars.length, 4);
+    },
+  );
 
   await t.test(
     "detail ON TODAY stat shows today's runtime, correctly labeled, calls usage/summary with today's date",
@@ -437,20 +480,26 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
     assert.ok(parseInt(window.getComputedStyle(heroTemp).fontSize) > 34);
   });
 
-  await t.test("stat cards use a row layout (icon left, 2 lines of text right)", () => {
-    const firstCard = $(".stat-card");
-    assert.equal(window.getComputedStyle(firstCard).flexDirection, "row");
-    assert.ok(firstCard.querySelector("svg") !== null);
-  });
+  await t.test(
+    "stat cards use a row layout (icon left, 2 lines of text right)",
+    () => {
+      const firstCard = $(".stat-card");
+      assert.equal(window.getComputedStyle(firstCard).flexDirection, "row");
+      assert.ok(firstCard.querySelector("svg") !== null);
+    },
+  );
 
-  await t.test("stat cards align in a real CSS grid, not centered flex-wrap", () => {
-    // flex-wrap + justify-content:center centers whatever's left on a
-    // second row independently of the row above — the actual bug that
-    // prompted this: a trailing 2-card row floating unaligned under
-    // nothing in particular from the row above it.
-    const statContainer = $(".stat-card").parentElement;
-    assert.equal(window.getComputedStyle(statContainer).display, "grid");
-  });
+  await t.test(
+    "stat cards align in a real CSS grid, not centered flex-wrap",
+    () => {
+      // flex-wrap + justify-content:center centers whatever's left on a
+      // second row independently of the row above — the actual bug that
+      // prompted this: a trailing 2-card row floating unaligned under
+      // nothing in particular from the row above it.
+      const statContainer = $(".stat-card").parentElement;
+      assert.equal(window.getComputedStyle(statContainer).display, "grid");
+    },
+  );
 
   // ── Temp adjustment: step, debounce, coalescing ──────────────
 
@@ -462,14 +511,17 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   upBtn.dispatchEvent(new window.Event("click", { bubbles: true }));
   await wait(30);
 
-  await t.test("tapping + updates the display instantly, before any network round trip", () => {
-    assert.ok($("#grid-detail").textContent.includes("22.5°C"));
-    assert.equal(
-      cmdCalls.length,
-      0,
-      "command should not have been sent yet — still inside the debounce window",
-    );
-  });
+  await t.test(
+    "tapping + updates the display instantly, before any network round trip",
+    () => {
+      assert.ok($("#grid-detail").textContent.includes("22.5°C"));
+      assert.equal(
+        cmdCalls.length,
+        0,
+        "command should not have been sent yet — still inside the debounce window",
+      );
+    },
+  );
 
   await wait(650);
 
@@ -491,23 +543,32 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   upBtn.dispatchEvent(new window.Event("click", { bubbles: true }));
   await wait(650);
 
-  await t.test("three rapid taps coalesce into one command with the final value, not three", () => {
-    assert.equal(cmdCalls.length, 1);
-    assert.equal(cmdCalls[0].body.params.target_temperature, 24);
-  });
+  await t.test(
+    "three rapid taps coalesce into one command with the final value, not three",
+    () => {
+      assert.equal(cmdCalls.length, 1);
+      assert.equal(cmdCalls[0].body.params.target_temperature, 24);
+    },
+  );
 
-  await t.test("detail back-header renders a real SVG chevron and reads 'All units'", () => {
-    assert.match($("#sub-header-back-icon").innerHTML, /<svg/);
-    assert.ok($("#sub-header").textContent.includes("All units"));
-  });
+  await t.test(
+    "detail back-header renders a real SVG chevron and reads 'All units'",
+    () => {
+      assert.match($("#sub-header-back-icon").innerHTML, /<svg/);
+      assert.ok($("#sub-header").textContent.includes("All units"));
+    },
+  );
 
   const beeperBtn = $('[data-act="beeper"]');
   beeperBtn.dispatchEvent(new window.Event("click", { bubbles: true }));
   await wait(50);
 
-  await t.test("beeper toggle calls the correct on/off endpoint for the right device", () => {
-    assert.ok(beeperCalls.some((u) => u.includes("ac1.local/beeper/off")));
-  });
+  await t.test(
+    "beeper toggle calls the correct on/off endpoint for the right device",
+    () => {
+      assert.ok(beeperCalls.some((u) => u.includes("ac1.local/beeper/off")));
+    },
+  );
 
   $("#sub-header").dispatchEvent(new window.Event("click", { bubbles: true }));
   await wait(50);
@@ -523,23 +584,35 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   nextCell.dispatchEvent(new window.Event("click", { bubbles: true }));
   await wait(50);
 
-  await t.test("tapping NEXT opens the schedules view listing enabled schedules only", () => {
-    assert.equal(window.getComputedStyle($("#schedules-view")).display, "block");
-    const schedText = $("#schedules-view").textContent;
-    assert.ok(schedText.includes("Kitchen"));
-    assert.ok(!schedText.includes("Disabled One"));
-  });
+  await t.test(
+    "tapping NEXT opens the schedules view listing enabled schedules only",
+    () => {
+      assert.equal(
+        window.getComputedStyle($("#schedules-view")).display,
+        "block",
+      );
+      const schedText = $("#schedules-view").textContent;
+      assert.ok(schedText.includes("Kitchen"));
+      assert.ok(!schedText.includes("Disabled One"));
+    },
+  );
 
-  await t.test("days are formatted as a readable summary, not a raw array", () => {
-    const schedText = $("#schedules-view").textContent;
-    assert.ok(schedText.includes("Every day"));
-    assert.ok(schedText.includes("Weekdays"));
-  });
+  await t.test(
+    "days are formatted as a readable summary, not a raw array",
+    () => {
+      const schedText = $("#schedules-view").textContent;
+      assert.ok(schedText.includes("Every day"));
+      assert.ok(schedText.includes("Weekdays"));
+    },
+  );
 
-  await t.test("a schedule with an end_time shows the full start-to-end time range", () => {
-    const schedText = $("#schedules-view").textContent;
-    assert.match(schedText, /\d{2}:\d{2} → \d{2}:\d{2}/);
-  });
+  await t.test(
+    "a schedule with an end_time shows the full start-to-end time range",
+    () => {
+      const schedText = $("#schedules-view").textContent;
+      assert.match(schedText, /\d{2}:\d{2} → \d{2}:\d{2}/);
+    },
+  );
 
   const activeRow = [...$("#schedules-view").querySelectorAll("div")]
     .find((d) => d.textContent === "Currently Active")
@@ -571,10 +644,13 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   await t.test(
     "schedule row text is readably large (device name >=16px) and sub-header retitles to 'Schedules'",
     () => {
-      const scheduleNameEl = [...$("#schedules-view").querySelectorAll("div")].find(
-        (d) => d.textContent.trim() === "Kitchen",
+      const scheduleNameEl = [
+        ...$("#schedules-view").querySelectorAll("div"),
+      ].find((d) => d.textContent.trim() === "Kitchen");
+      assert.ok(
+        scheduleNameEl &&
+          parseInt(window.getComputedStyle(scheduleNameEl).fontSize) >= 16,
       );
-      assert.ok(scheduleNameEl && parseInt(window.getComputedStyle(scheduleNameEl).fontSize) >= 16);
       assert.ok($("#sub-header").textContent.includes("Schedules"));
     },
   );
@@ -583,9 +659,9 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
 
   $("#sub-header").dispatchEvent(new window.Event("click", { bubbles: true }));
   await wait(50);
-  const onlineCell = [...window.document.querySelectorAll("[data-action]")].find(
-    (c) => c.dataset.action === "devices",
-  );
+  const onlineCell = [
+    ...window.document.querySelectorAll("[data-action]"),
+  ].find((c) => c.dataset.action === "devices");
   await t.test("ONLINE footer stat is tappable", () => {
     assert.ok(onlineCell !== undefined);
   });
@@ -595,7 +671,10 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   await t.test(
     "tapping ONLINE opens the devices view listing all devices, online and offline",
     () => {
-      assert.equal(window.getComputedStyle($("#devices-view")).display, "block");
+      assert.equal(
+        window.getComputedStyle($("#devices-view")).display,
+        "block",
+      );
       const devText = $("#devices-view").textContent;
       assert.ok(devText.includes("Main LR") && devText.includes("Kitchen"));
       assert.ok(devText.includes("OFFLINE"));
@@ -608,7 +687,10 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   await wait(50);
   window.showScreensaver();
   await wait(30);
-  const pos1 = { left: $("#saver-content").style.left, top: $("#saver-content").style.top };
+  const pos1 = {
+    left: $("#saver-content").style.left,
+    top: $("#saver-content").style.top,
+  };
 
   await t.test(
     "showing the screensaver immediately positions the clock, not left at a default spot",
@@ -618,7 +700,10 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   );
 
   window.moveSaverContent();
-  const pos2 = { left: $("#saver-content").style.left, top: $("#saver-content").style.top };
+  const pos2 = {
+    left: $("#saver-content").style.left,
+    top: $("#saver-content").style.top,
+  };
 
   await t.test(
     "the screensaver clock moves to a new position on each move call, for burn-in mitigation",
@@ -641,30 +726,39 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
 
   // ── Vacation mode toggle ─────────────────────────────────────
 
-  "4821".split("").forEach(tap);
+  [..."4821", "enter"].forEach(tap);
   await wait(100);
   const vacBtn = $("#vacation-btn");
 
-  await t.test("vacation toggle is visible for a non-viewer (operator) role and starts off", () => {
-    assert.notEqual(window.getComputedStyle(vacBtn).display, "none");
-    assert.match(vacBtn.getAttribute("aria-label"), /off/);
-  });
+  await t.test(
+    "vacation toggle is visible for a non-viewer (operator) role and starts off",
+    () => {
+      assert.notEqual(window.getComputedStyle(vacBtn).display, "none");
+      assert.match(vacBtn.getAttribute("aria-label"), /off/);
+    },
+  );
 
   vacBtn.dispatchEvent(new window.Event("click", { bubbles: true }));
   await wait(50);
 
-  await t.test("tapping the vacation toggle calls vacation/on and reflects the new state", () => {
-    assert.ok(vacationCalls.some((u) => u.includes("/vacation/on")));
-    assert.match(vacBtn.getAttribute("aria-label"), /on/);
-  });
+  await t.test(
+    "tapping the vacation toggle calls vacation/on and reflects the new state",
+    () => {
+      assert.ok(vacationCalls.some((u) => u.includes("/vacation/on")));
+      assert.match(vacBtn.getAttribute("aria-label"), /on/);
+    },
+  );
 
   vacationCalls = [];
   vacBtn.dispatchEvent(new window.Event("click", { bubbles: true }));
   await wait(50);
 
-  await t.test("tapping it again correctly calls vacation/off, not vacation/on again", () => {
-    assert.ok(vacationCalls.some((u) => u.includes("/vacation/off")));
-  });
+  await t.test(
+    "tapping it again correctly calls vacation/off, not vacation/on again",
+    () => {
+      assert.ok(vacationCalls.some((u) => u.includes("/vacation/off")));
+    },
+  );
 
   // ── Maintenance reminders ────────────────────────────────────
 
@@ -672,35 +766,55 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   await wait(20);
   const maintBtn = $("#maintenance-btn");
 
-  await t.test("maintenance icon is visible and red when an overdue item exists", () => {
-    assert.notEqual(window.getComputedStyle(maintBtn).display, "none");
-    assert.match(maintBtn.getAttribute("aria-label"), /overdue/);
-  });
+  await t.test(
+    "maintenance icon is visible and red when an overdue item exists",
+    () => {
+      assert.notEqual(window.getComputedStyle(maintBtn).display, "none");
+      assert.match(maintBtn.getAttribute("aria-label"), /overdue/);
+    },
+  );
 
   maintBtn.dispatchEvent(new window.Event("click", { bubbles: true }));
   await wait(50);
 
-  await t.test("tapping the maintenance icon opens the maintenance view", () => {
-    assert.equal(window.getComputedStyle($("#maintenance-view")).display, "block");
-    assert.ok($("#sub-header").textContent.includes("Maintenance"));
-  });
+  await t.test(
+    "tapping the maintenance icon opens the maintenance view",
+    () => {
+      assert.equal(
+        window.getComputedStyle($("#maintenance-view")).display,
+        "block",
+      );
+      assert.ok($("#sub-header").textContent.includes("Maintenance"));
+    },
+  );
 
-  await t.test("items are sorted overdue-first, ahead of a due-soon or clean item", () => {
-    const rowNames = [...$("#maintenance-view").querySelectorAll("div")]
-      .map((d) => d.textContent.trim())
-      .filter((t) => t === "Clean filters" || t === "Coil check" || t === "Annual service");
-    const overdueIdx = rowNames.indexOf("Clean filters");
-    const cleanIdx = rowNames.indexOf("Coil check");
-    assert.ok(
-      overdueIdx !== -1 && cleanIdx !== -1 && overdueIdx < cleanIdx,
-      `expected overdue item before the clean item (order: ${rowNames.join(", ")})`,
-    );
-  });
+  await t.test(
+    "items are sorted overdue-first, ahead of a due-soon or clean item",
+    () => {
+      const rowNames = [...$("#maintenance-view").querySelectorAll("div")]
+        .map((d) => d.textContent.trim())
+        .filter(
+          (t) =>
+            t === "Clean filters" ||
+            t === "Coil check" ||
+            t === "Annual service",
+        );
+      const overdueIdx = rowNames.indexOf("Clean filters");
+      const cleanIdx = rowNames.indexOf("Coil check");
+      assert.ok(
+        overdueIdx !== -1 && cleanIdx !== -1 && overdueIdx < cleanIdx,
+        `expected overdue item before the clean item (order: ${rowNames.join(", ")})`,
+      );
+    },
+  );
 
-  await t.test("a whole-house item (no device_host) still appears in the list", () => {
-    assert.ok($("#maintenance-view").textContent.includes("Annual service"));
-    assert.ok($("#maintenance-view").textContent.includes("Whole house"));
-  });
+  await t.test(
+    "a whole-house item (no device_host) still appears in the list",
+    () => {
+      assert.ok($("#maintenance-view").textContent.includes("Annual service"));
+      assert.ok($("#maintenance-view").textContent.includes("Whole house"));
+    },
+  );
 
   // Check the tile badge WHILE the item is still genuinely overdue —
   // completing it below clears the flag, which would make this
@@ -712,14 +826,14 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
     "the device-scoped overdue item (Main LR) shows a wrench badge on its own grid tile, while it's actually overdue",
     () => {
       const wrenchPathFragment = "14.7 6.3";
-      const mainLrTile = [...window.document.querySelectorAll(".tile")].find((tile) =>
-        tile.textContent.includes("Main LR"),
+      const mainLrTile = [...window.document.querySelectorAll(".tile")].find(
+        (tile) => tile.textContent.includes("Main LR"),
       );
-      const masterBrTile = [...window.document.querySelectorAll(".tile")].find((tile) =>
-        tile.textContent.includes("Master BR"),
+      const masterBrTile = [...window.document.querySelectorAll(".tile")].find(
+        (tile) => tile.textContent.includes("Master BR"),
       );
-      const kitchenTile = [...window.document.querySelectorAll(".tile")].find((tile) =>
-        tile.textContent.includes("Kitchen"),
+      const kitchenTile = [...window.document.querySelectorAll(".tile")].find(
+        (tile) => tile.textContent.includes("Kitchen"),
       );
       assert.ok(
         mainLrTile.innerHTML.includes(wrenchPathFragment),
@@ -740,26 +854,37 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   window.renderMaintenanceView();
   await wait(20);
   const doneBtn = $('[data-complete="m-overdue"]');
-  await t.test("a Done button exists for the operator role and targets the right item", () => {
-    assert.ok(doneBtn !== null);
-  });
+  await t.test(
+    "a Done button exists for the operator role and targets the right item",
+    () => {
+      assert.ok(doneBtn !== null);
+    },
+  );
 
   doneBtn.dispatchEvent(new window.Event("click", { bubbles: true }));
   await wait(50);
 
-  await t.test("tapping Done calls the correct /maintenance/{id}/complete endpoint", () => {
-    assert.ok(
-      maintenanceCompleteCalls.some((u) => u.includes("/maintenance/m-overdue/complete")),
-      `calls: ${JSON.stringify(maintenanceCompleteCalls)}`,
-    );
-  });
+  await t.test(
+    "tapping Done calls the correct /maintenance/{id}/complete endpoint",
+    () => {
+      assert.ok(
+        maintenanceCompleteCalls.some((u) =>
+          u.includes("/maintenance/m-overdue/complete"),
+        ),
+        `calls: ${JSON.stringify(maintenanceCompleteCalls)}`,
+      );
+    },
+  );
 
   await t.test(
     "after completing, the maintenance icon reflects the change (no longer red-overdue, since the mock cleared it)",
     () => {
       // m-soon (whole-house, due_soon) is still due_soon, so the icon
       // should now show amber rather than disappearing entirely.
-      assert.notEqual(window.getComputedStyle($("#maintenance-btn")).display, "none");
+      assert.notEqual(
+        window.getComputedStyle($("#maintenance-btn")).display,
+        "none",
+      );
       assert.doesNotMatch(maintBtn.getAttribute("aria-label"), /overdue/);
     },
   );
@@ -768,23 +893,34 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   // everyone) but never a Done button (completing is operator+, same
   // as the backend enforces on POST /maintenance/{id}/complete).
   window.relock();
-  "1357".split("").forEach(tap);
+  [..."1357", "enter"].forEach(tap);
   await wait(100);
 
   await t.test(
     "maintenance icon is still visible for a viewer role (status is not admin-only)",
     () => {
-      assert.notEqual(window.getComputedStyle($("#maintenance-btn")).display, "none");
+      assert.notEqual(
+        window.getComputedStyle($("#maintenance-btn")).display,
+        "none",
+      );
     },
   );
 
-  $("#maintenance-btn").dispatchEvent(new window.Event("click", { bubbles: true }));
+  $("#maintenance-btn").dispatchEvent(
+    new window.Event("click", { bubbles: true }),
+  );
   await wait(50);
 
-  await t.test("viewer sees the maintenance list but no Done buttons on any item", () => {
-    assert.ok($("#maintenance-view").textContent.includes("Clean filters"));
-    assert.equal($("#maintenance-view").querySelectorAll("[data-complete]").length, 0);
-  });
+  await t.test(
+    "viewer sees the maintenance list but no Done buttons on any item",
+    () => {
+      assert.ok($("#maintenance-view").textContent.includes("Clean filters"));
+      assert.equal(
+        $("#maintenance-view").querySelectorAll("[data-complete]").length,
+        0,
+      );
+    },
+  );
 
   // ── Staleness indicator ──────────────────────────────────────
 
@@ -792,28 +928,46 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   await window.refreshAll();
   await wait(20);
 
-  await t.test("a single failed poll does not yet dim the display or show the banner", () => {
-    // Avoids over-reacting to one transient blip.
-    assert.equal(window.getComputedStyle($("#grid-view")).opacity, "1");
-    assert.equal(window.getComputedStyle($("#loading-banner")).display, "none");
-  });
+  await t.test(
+    "a single failed poll does not yet dim the display or show the banner",
+    () => {
+      // Avoids over-reacting to one transient blip.
+      assert.equal(window.getComputedStyle($("#grid-view")).opacity, "1");
+      assert.equal(
+        window.getComputedStyle($("#loading-banner")).display,
+        "none",
+      );
+    },
+  );
 
   await window.refreshAll();
   await wait(20);
 
-  await t.test("a second consecutive failed poll dims the display and shows the banner", () => {
-    assert.notEqual(window.getComputedStyle($("#grid-view")).opacity, "1");
-    assert.equal(window.getComputedStyle($("#loading-banner")).display, "block");
-  });
+  await t.test(
+    "a second consecutive failed poll dims the display and shows the banner",
+    () => {
+      assert.notEqual(window.getComputedStyle($("#grid-view")).opacity, "1");
+      assert.equal(
+        window.getComputedStyle($("#loading-banner")).display,
+        "block",
+      );
+    },
+  );
 
   simulateNetworkDown = false;
   await window.refreshAll();
   await wait(20);
 
-  await t.test("display and banner both recover as soon as a poll succeeds again", () => {
-    assert.equal(window.getComputedStyle($("#grid-view")).opacity, "1");
-    assert.equal(window.getComputedStyle($("#loading-banner")).display, "none");
-  });
+  await t.test(
+    "display and banner both recover as soon as a poll succeeds again",
+    () => {
+      assert.equal(window.getComputedStyle($("#grid-view")).opacity, "1");
+      assert.equal(
+        window.getComputedStyle($("#loading-banner")).display,
+        "none",
+      );
+    },
+  );
 
   // ── Reliability: fetch timeout + request coalescing ──────────
 
@@ -825,7 +979,11 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
     if (String(url).includes("/api/devices")) deviceFetchCount++;
     return originalFetch(url, opts);
   };
-  await Promise.all([window.refreshAll(), window.refreshAll(), window.refreshAll()]);
+  await Promise.all([
+    window.refreshAll(),
+    window.refreshAll(),
+    window.refreshAll(),
+  ]);
   window.fetch = originalFetch;
 
   await t.test(
@@ -850,9 +1008,12 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   window.showSub("grid");
   const idleBadge = $("#idle-badge");
 
-  await t.test("idle badge is hidden on the grid (no auto-return timer applies there)", () => {
-    assert.equal(window.getComputedStyle(idleBadge).display, "none");
-  });
+  await t.test(
+    "idle badge is hidden on the grid (no auto-return timer applies there)",
+    () => {
+      assert.equal(window.getComputedStyle(idleBadge).display, "none");
+    },
+  );
 
   $(".tile").dispatchEvent(new window.Event("click", { bubbles: true }));
   await wait(20);
@@ -862,9 +1023,9 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   });
 
   window.showSub("grid");
-  const nextCellAgain = [...window.document.querySelectorAll("[data-action]")].find(
-    (c) => c.dataset.action === "schedules",
-  );
+  const nextCellAgain = [
+    ...window.document.querySelectorAll("[data-action]"),
+  ].find((c) => c.dataset.action === "schedules");
   nextCellAgain.dispatchEvent(new window.Event("click", { bubbles: true }));
   await wait(20);
 
@@ -883,21 +1044,24 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   // ── Role gating: viewer sees no admin-level controls ─────────
 
   window.relock();
-  "1357".split("").forEach(tap);
+  [..."1357", "enter"].forEach(tap);
   await wait(100);
 
-  await t.test("vacation toggle is hidden entirely for a viewer role, not just disabled", () => {
-    assert.equal(window.getComputedStyle($("#vacation-btn")).display, "none");
-  });
+  await t.test(
+    "vacation toggle is hidden entirely for a viewer role, not just disabled",
+    () => {
+      assert.equal(window.getComputedStyle($("#vacation-btn")).display, "none");
+    },
+  );
 
   // ── Locked device: indicator placement + disabled +/- ────────
 
   window.relock();
-  "4821".split("").forEach(tap);
+  [..."4821", "enter"].forEach(tap);
   await wait(100);
 
-  const lockedTile = [...window.document.querySelectorAll(".tile")].find((tile) =>
-    tile.textContent.includes("Master BR"),
+  const lockedTile = [...window.document.querySelectorAll(".tile")].find(
+    (tile) => tile.textContent.includes("Master BR"),
   );
   lockedTile.dispatchEvent(new window.Event("click", { bubbles: true }));
   await wait(30);
@@ -915,10 +1079,13 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   const downBtnLocked = $('[data-act="down"]');
   const upBtnLocked = $('[data-act="up"]');
 
-  await t.test("+/- buttons are visually grayed out when the device is locked", () => {
-    assert.equal(downBtnLocked.style.color, "var(--gray)");
-    assert.equal(upBtnLocked.style.color, "var(--gray)");
-  });
+  await t.test(
+    "+/- buttons are visually grayed out when the device is locked",
+    () => {
+      assert.equal(downBtnLocked.style.color, "var(--gray)");
+      assert.equal(upBtnLocked.style.color, "var(--gray)");
+    },
+  );
 
   const cmdCallsBeforeLocked = cmdCalls.length;
   upBtnLocked.dispatchEvent(new window.Event("click", { bubbles: true }));
@@ -959,15 +1126,21 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
     assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 23, 0)), false);
   });
 
-  await t.test("overnight window: inside the window on both sides of midnight", () => {
-    const cfg = {
-      kiosk_quiet_hours_enabled: true,
-      kiosk_quiet_start: "22:00",
-      kiosk_quiet_end: "07:00",
-    };
-    assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 23, 30)), true); // 11:30pm
-    assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 5, 0)), true); // 5:00am
-  });
+  await t.test(
+    "overnight window: inside the window on both sides of midnight",
+    () => {
+      const cfg = {
+        kiosk_quiet_hours_enabled: true,
+        kiosk_quiet_start: "22:00",
+        kiosk_quiet_end: "07:00",
+      };
+      assert.equal(
+        window.isQuietHours(cfg, new Date(2026, 0, 1, 23, 30)),
+        true,
+      ); // 11:30pm
+      assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 5, 0)), true); // 5:00am
+    },
+  );
 
   await t.test("overnight window: outside the window during the day", () => {
     const cfg = {
@@ -978,15 +1151,18 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
     assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 14, 0)), false); // 2:00pm
   });
 
-  await t.test("overnight window: boundaries are start-inclusive, end-exclusive", () => {
-    const cfg = {
-      kiosk_quiet_hours_enabled: true,
-      kiosk_quiet_start: "22:00",
-      kiosk_quiet_end: "07:00",
-    };
-    assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 22, 0)), true); // exactly start
-    assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 7, 0)), false); // exactly end
-  });
+  await t.test(
+    "overnight window: boundaries are start-inclusive, end-exclusive",
+    () => {
+      const cfg = {
+        kiosk_quiet_hours_enabled: true,
+        kiosk_quiet_start: "22:00",
+        kiosk_quiet_end: "07:00",
+      };
+      assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 22, 0)), true); // exactly start
+      assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 7, 0)), false); // exactly end
+    },
+  );
 
   await t.test("same-day window (not spanning midnight) works too", () => {
     const cfg = {
@@ -998,34 +1174,46 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
     assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 20, 0)), false);
   });
 
-  await t.test("identical start and end is treated as no quiet window at all", () => {
-    const cfg = {
-      kiosk_quiet_hours_enabled: true,
-      kiosk_quiet_start: "10:00",
-      kiosk_quiet_end: "10:00",
-    };
-    assert.equal(window.isQuietHours(cfg, new Date(2026, 0, 1, 10, 0)), false);
-  });
+  await t.test(
+    "identical start and end is treated as no quiet window at all",
+    () => {
+      const cfg = {
+        kiosk_quiet_hours_enabled: true,
+        kiosk_quiet_start: "10:00",
+        kiosk_quiet_end: "10:00",
+      };
+      assert.equal(
+        window.isQuietHours(cfg, new Date(2026, 0, 1, 10, 0)),
+        false,
+      );
+    },
+  );
 
-  await t.test("malformed time strings fail closed (never quiet) rather than throwing", () => {
-    const cfg = {
-      kiosk_quiet_hours_enabled: true,
-      kiosk_quiet_start: "not-a-time",
-      kiosk_quiet_end: "07:00",
-    };
-    assert.doesNotThrow(() => window.isQuietHours(cfg, new Date()));
-    assert.equal(window.isQuietHours(cfg, new Date()), false);
-  });
+  await t.test(
+    "malformed time strings fail closed (never quiet) rather than throwing",
+    () => {
+      const cfg = {
+        kiosk_quiet_hours_enabled: true,
+        kiosk_quiet_start: "not-a-time",
+        kiosk_quiet_end: "07:00",
+      };
+      assert.doesNotThrow(() => window.isQuietHours(cfg, new Date()));
+      assert.equal(window.isQuietHours(cfg, new Date()), false);
+    },
+  );
 
   // ── Last-updated indicator (fmtAgo) ───────────────────────────
 
-  await t.test("fmtAgo formats seconds and minutes, and handles no-data gracefully", () => {
-    const now = Date.now();
-    assert.equal(window.fmtAgo(null), "");
-    assert.equal(window.fmtAgo(new Date(now)), "0s ago");
-    assert.equal(window.fmtAgo(new Date(now - 5000)), "5s ago");
-    assert.equal(window.fmtAgo(new Date(now - 125000)), "2m ago");
-  });
+  await t.test(
+    "fmtAgo formats seconds and minutes, and handles no-data gracefully",
+    () => {
+      const now = Date.now();
+      assert.equal(window.fmtAgo(null), "");
+      assert.equal(window.fmtAgo(new Date(now)), "0s ago");
+      assert.equal(window.fmtAgo(new Date(now - 5000)), "5s ago");
+      assert.equal(window.fmtAgo(new Date(now - 125000)), "2m ago");
+    },
+  );
 
   // kiosk.html runs several setInterval timers forever by design
   // (the on-screen clock, background polling) — correct for a real

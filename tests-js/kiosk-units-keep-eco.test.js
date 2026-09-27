@@ -130,15 +130,13 @@ test("kiosk: temp units, power-on to last mode, FAN mode, KEEP, ECO", async (t) 
     el.dispatchEvent(new window.Event("click", { bubbles: true }));
   const tile = (host) => $(`.tile[data-host="${host}"]`);
   await wait(50);
-  "4821"
-    .split("")
-    .forEach((d) =>
-      click(
-        [...window.document.querySelectorAll("[data-key]")].find(
-          (b) => b.dataset.key === d,
-        ),
+  [..."4821", "enter"].forEach((d) =>
+    click(
+      [...window.document.querySelectorAll("[data-key]")].find(
+        (b) => b.dataset.key === d,
       ),
-    );
+    ),
+  );
   await wait(150);
 
   // ── Temp unit toggle ─────────────────────────────────────────
