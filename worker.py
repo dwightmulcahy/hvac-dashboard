@@ -863,9 +863,9 @@ async def _check_keep(device: dict):
 
 # ── Scheduler ─────────────────────────────────────────────
 
-# Must exceed the dongle's midea `period` (5s in firmware/packages/slwf-base.yaml),
+# Must exceed the dongle's midea `period` (1s in firmware/packages/slwf-base.yaml),
 # or the re-poll can read the pre-command value and trigger a needless retry.
-VERIFY_DELAY_SECS = 6.0
+VERIFY_DELAY_SECS = 1.5
 
 
 async def _verify_temp_command(host: str, device: dict, name: str, target) -> bool:

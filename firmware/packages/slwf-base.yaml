@@ -82,9 +82,9 @@ climate:
     id: midea_climate
     # Dashboard waits worker.VERIFY_DELAY_SECS (6s) before re-reading a temp
     # command — keep this below that.
-    period: 5s
+    period: 1s
     timeout: 2s
-    num_attempts: 3
+    num_attempts: 2
     autoconf: false                            # use the explicit lists below
     beeper: false                              # controlled by the beeper switch
     visual:

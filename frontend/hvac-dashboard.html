@@ -1776,9 +1776,9 @@ function tempFromDisplayUnit(raw){
 }
 // ── TESTABLE:watts-temp:end ──
 
-// Must exceed the dongle's midea `period` (5s) so the confirm re-read sees
+// Must exceed the dongle's midea `period` (1s) so the confirm re-read sees
 // the new value, not the pre-command one. Matches worker.VERIFY_DELAY_SECS.
-const VERIFY_DELAY_MS=6000;
+const VERIFY_DELAY_MS=1500;
 
 // Dongle firmware identity from the air_conditioner_firmware sensor (slwf-base
 // package version) + build date from the ESPHome version sensor. Legacy
