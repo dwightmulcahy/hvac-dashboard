@@ -42,7 +42,7 @@ wifi:
   ap:
     ssid: "${friendly_name} Fallback"
     password: "slwf01pro"
-  output_power: 17.5dBm # Prevents the small ESP module from screaming too loud
+  output_power: 19.0dBm # Prevents the small ESP module from screaming too loud
 
 captive_portal:
 
