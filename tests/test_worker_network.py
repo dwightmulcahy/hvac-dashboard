@@ -235,7 +235,7 @@ async def test_send_switch_non_beeper_path_exception_returns_false(worker_module
 
 
 def test_verify_delay_exceeds_dongle_poll_period():
-    """Firmware polls the unit every 1.5s (midea period); verifying sooner reads
+    """Firmware polls the unit every 1s (midea period); verifying sooner reads
     the pre-command value and triggers a needless retry."""
     import re
     from pathlib import Path

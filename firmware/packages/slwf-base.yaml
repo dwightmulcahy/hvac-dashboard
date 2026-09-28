@@ -80,7 +80,7 @@ climate:
   - platform: midea
     name: "air_conditioner"                    # → /climate/air_conditioner
     id: midea_climate
-    # Dashboard waits worker.VERIFY_DELAY_SECS (6s) before re-reading a temp
+    # Dashboard waits worker.VERIFY_DELAY_SECS (1.5s) before re-reading a temp
     # command — keep this below that.
     period: 1s
     timeout: 2s
