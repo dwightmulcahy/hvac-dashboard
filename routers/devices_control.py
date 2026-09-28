@@ -30,7 +30,7 @@ async def poll_device_now(host: str):
     device = next((d for d in _state["devices"] if d["host"] == host), None)
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    await _poll_device(device)
+    await _poll_device(device, full=True)  # manual poll/test: re-read diagnostics too
     await _check_max_temp(device)
     await _check_keep(device)
     await _maintain_eco(device)

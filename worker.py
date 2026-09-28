@@ -17,6 +17,8 @@ import asyncio
 import datetime
 import logging
 import re
+import time
+from collections import deque
 from urllib.parse import urlencode
 
 import httpx
@@ -55,27 +57,150 @@ def _record_health_event(device: dict, event: str):
 # ── AC communication ──────────────────────────────────────
 
 # ESPHome entity paths — new firmware uses friendly name with spaces,
-# old firmware uses underscored slugs. Try both.
+# old firmware uses underscored slugs. Try both; the one that works is cached
+# per host (see _path_cache) so later requests don't pay a 404 first.
 CLIMATE_PATHS = [
     "climate/Air%20Conditioner",
     "climate/air_conditioner",
 ]
 
-async def _fetch_state(host: str) -> dict | None:
-    for path in CLIMATE_PATHS:
-        url = f"http://{host}/{path}"
-        for attempt in range(3):
+# ── Dongle HTTP: timeouts, path cache, latency stats ─────────────────
+#
+# The ESP8266 web server answers LAN requests in well under a second and
+# closes every connection ("Connection: close"), so there's nothing to gain
+# from long timeouts or a shared keep-alive client. A dead dongle used to cost
+# ~40s (2 paths × 3 tries × 5s + backoff), stalling polling of every other
+# unit; it now fails in ~3.5s. The next poll, watchdog and retry queue handle
+# recovery.
+HTTP_TIMEOUT = httpx.Timeout(connect=1.5, read=2.5, write=2.5, pool=1.0)
+POLL_ATTEMPTS = 2
+RETRY_DELAY_SECS = 0.5
+# An entity that 404s on every path (e.g. power_usage on units that don't
+# report it) is re-probed only after this long.
+PATH_MISS_TTL_SECS = 300
+# wifi / uptime / beeper / firmware / ESPHome version change slowly — read
+# them every 5 min (and on the first poll after startup or reconnect), not
+# every poll. The firmware itself only publishes wifi every 63s, uptime 67s.
+DIAGNOSTIC_INTERVAL_SECS = 300
+LATENCY_WINDOW = 50
+
+_MISSING = object()
+_path_cache: dict = {}      # host -> {key: path | (_MISSING, epoch)}
+_http_stats: dict = {}      # host -> {"samples": deque[ms | None], "last_ms": float | None}
+_diag_at: dict = {}         # host -> epoch of last diagnostics read
+
+
+class DongleUnreachable(Exception):
+    """Transport-level failure talking to a dongle (connect/read timeout,
+    refused). Other paths/entities on the same host won't do better this round."""
+
+
+def _record_latency(host: str, ms):
+    st = _http_stats.setdefault(host, {"samples": deque(maxlen=LATENCY_WINDOW), "last_ms": None})
+    st["samples"].append(ms)
+    if ms is not None:
+        st["last_ms"] = ms
+
+
+def _latency_summary(host: str) -> dict:
+    st = _http_stats.get(host)
+    if not st or not st["samples"]:
+        return {}
+    ok = [m for m in st["samples"] if m is not None]
+    return {
+        "http_ms_last": round(st["last_ms"]) if st["last_ms"] is not None else None,
+        "http_ms_avg": round(sum(ok) / len(ok)) if ok else None,
+        "http_ms_max": round(max(ok)) if ok else None,
+        "http_fail": len(st["samples"]) - len(ok),
+        "http_requests": len(st["samples"]),
+    }
+
+
+async def _request(client: httpx.AsyncClient, method: str, host: str, path: str) -> httpx.Response:
+    """One timed request. Transport errors become DongleUnreachable."""
+    t0 = time.monotonic()
+    try:
+        r = await getattr(client, method)(f"http://{host}/{path}")
+    except Exception as e:
+        _record_latency(host, None)
+        log.debug(f"{host} {method.upper()} {path} failed after {(time.monotonic() - t0) * 1000:.0f}ms: {e}")
+        raise DongleUnreachable(str(e)) from e
+    ms = (time.monotonic() - t0) * 1000
+    _record_latency(host, ms)
+    log.debug(f"{host} {method.upper()} {path} → {r.status_code} in {ms:.0f}ms")
+    return r
+
+
+def _candidate_paths(host: str, key: str, paths) -> list:
+    cached = _path_cache.get(host, {}).get(key)
+    if isinstance(cached, str):
+        return [cached] + [p for p in paths if p != cached]
+    return list(paths)
+
+
+def _is_known_missing(host: str, key: str) -> bool:
+    cached = _path_cache.get(host, {}).get(key)
+    return isinstance(cached, tuple) and time.time() - cached[1] < PATH_MISS_TTL_SECS
+
+
+def _forget_host_paths(host: str):
+    """Drop cached paths (e.g. the dongle came back online — possibly reflashed)."""
+    _path_cache.pop(host, None)
+
+
+async def _resolve(client, method: str, host: str, key: str, paths, suffix: str = "",
+                   *, cache_missing: bool = True):
+    """Request the first path that exists for `key`, trying the cached one
+    first. Returns the response, or None if every path 404s. A cached path
+    that starts 404ing is dropped and the others are tried."""
+    if cache_missing and _is_known_missing(host, key):
+        return None
+    cache = _path_cache.setdefault(host, {})
+    for path in _candidate_paths(host, key, paths):
+        r = await _request(client, method, host, path + suffix)
+        if r.status_code == 404:
+            if cache.get(key) == path:
+                cache.pop(key, None)
+            continue
+        if r.status_code < 300:
+            cache[key] = path
+        return r
+    if cache_missing:
+        cache[key] = (_MISSING, time.time())
+    return None
+
+
+async def _post_command(host: str, key: str, paths, suffix: str = ""):
+    """POST a command (climate set / button press / switch) with one retry on a
+    transport error. Returns the response, or None if unreachable or every
+    path 404s. Commands are absolute (set X / press ECO-on / beeper-on), so a
+    retry can't double-apply anything."""
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+        for attempt in range(POLL_ATTEMPTS):
             try:
-                async with httpx.AsyncClient(timeout=5) as client:
-                    r = await client.get(url)
-                    if r.status_code == 200:
-                        return r.json()
-                    elif r.status_code == 404:
-                        break  # try next path
-            except Exception as e:
-                if attempt == 2:
+                return await _resolve(client, "post", host, key, paths, suffix, cache_missing=False)
+            except DongleUnreachable as e:
+                if attempt == POLL_ATTEMPTS - 1:
+                    log.warning(f"{host} {key} command failed: {e}")
+                    return None
+                await asyncio.sleep(RETRY_DELAY_SECS)
+    return None
+
+
+async def _fetch_state(host: str) -> dict | None:
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+        for attempt in range(POLL_ATTEMPTS):
+            try:
+                r = await _resolve(client, "get", host, "climate", CLIMATE_PATHS, cache_missing=False)
+                if r is None:
+                    return None
+                if r.status_code == 200:
+                    return r.json()
+            except DongleUnreachable as e:
+                if attempt == POLL_ATTEMPTS - 1:
                     log.warning(f"{host} fetch failed: {e}")
-                await asyncio.sleep(0.8 * (attempt + 1))
+                    return None
+            await asyncio.sleep(RETRY_DELAY_SECS)
     return None
 
 # Version of firmware/packages/slwf-base.yaml (esphome.project.version).
@@ -146,85 +271,75 @@ def _firmware_status(fw: dict | None) -> dict:
     }
 
 
-async def _fetch_sensors(host: str) -> dict:
-    # Try new firmware (space-encoded) and old firmware (underscored) paths
-    path_candidates = {
-        "outdoor_temp": [
-            "sensor/Air%20Conditioner%20Outdoor%20Temperature",
-            "sensor/air_conditioner_outdoor_temperature",
-        ],
-        "uptime_days": [
-            "sensor/Air%20Conditioner%20Uptime%20Days",
-            "sensor/air_conditioner_uptime_days",
-        ],
-        "power_usage": [
-            "sensor/Air%20Conditioner%20Power%20Usage",
-            "sensor/air_conditioner_power_usage",
-        ],
-        # ESPHome exposes a switch's current state via GET on its base
-        # path (POST .../turn_on and .../turn_off are actions, not
-        # reads) — same base paths BEEPER_PATHS uses for writes.
-        "beeper": [
-            "switch/Air%20Conditioner%20Beeper",
-            "switch/air_conditioner_beeper",
-        ],
-        # unit's ECO preset, "ON"/"OFF" — firmware with eco_on/eco_off buttons
-        "eco_status": [
-            "text_sensor/Air%20Conditioner%20Eco%20Status",
-            "text_sensor/air_conditioner_eco_status",
-        ],
-    }
-    wifi_paths = [
+# Sensors read every poll vs. every DIAGNOSTIC_INTERVAL_SECS.
+LIVE_SENSOR_PATHS = {
+    "outdoor_temp": [
+        "sensor/Air%20Conditioner%20Outdoor%20Temperature",
+        "sensor/air_conditioner_outdoor_temperature",
+    ],
+    "power_usage": [
+        "sensor/Air%20Conditioner%20Power%20Usage",
+        "sensor/air_conditioner_power_usage",
+    ],
+    # unit's ECO preset, "ON"/"OFF" — firmware with eco_on/eco_off buttons
+    "eco_status": [
+        "text_sensor/Air%20Conditioner%20Eco%20Status",
+        "text_sensor/air_conditioner_eco_status",
+    ],
+}
+DIAGNOSTIC_SENSOR_PATHS = {
+    "uptime_days": [
+        "sensor/Air%20Conditioner%20Uptime%20Days",
+        "sensor/air_conditioner_uptime_days",
+    ],
+    # ESPHome exposes a switch's current state via GET on its base path
+    # (POST .../turn_on and .../turn_off are actions) — same as BEEPER_PATHS.
+    "beeper": [
+        "switch/Air%20Conditioner%20Beeper",
+        "switch/air_conditioner_beeper",
+    ],
+    "wifi_signal": [
         "sensor/Air%20Conditioner%20Wi-Fi%20Signal",
         "sensor/air_conditioner_wi-fi_signal",
         "sensor/air_conditioner_wi_fi_signal",
         "sensor/wifi_signal",
-    ]
-    esphome_version_paths = [
+    ],
+    "esphome_version": [
         "text_sensor/Air%20Conditioner%20ESPHome%20Version",
         "text_sensor/air_conditioner_esphome_version",
         "text_sensor/esphome_version",
-    ]
+    ],
+}
+
+
+async def _fetch_sensors(host: str, *, diagnostics: bool = True, firmware_version: str | None = None) -> dict:
+    """Read the dongle's sensors one request at a time (the ESP8266 web server
+    handles concurrent requests poorly). Live sensors every call; firmware +
+    DIAGNOSTIC_SENSOR_PATHS only when diagnostics=True. `firmware_version`
+    (last known) gates MIN_FIRMWARE_FOR when firmware isn't re-read. Stops at
+    the first transport error and marks the result "_aborted" — the caller
+    keeps the previous values rather than waiting out every remaining timeout."""
     out = {}
-    async with httpx.AsyncClient(timeout=3) as client:
-        for fp in FIRMWARE_PATHS:
-            try:
-                r = await client.get(f"http://{host}/{fp}")
-                if r.status_code == 200:
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            if diagnostics:
+                r = await _resolve(client, "get", host, "firmware", FIRMWARE_PATHS)
+                if r is not None and r.status_code == 200:
                     out["firmware"] = r.json()
-                    break
-            except Exception:
-                pass
-        fw = _parse_firmware((out.get("firmware") or {}).get("state") or (out.get("firmware") or {}).get("value"))
-        fw_version = _parse_version(fw["version"]) if fw and fw.get("version") else None
-        for key, paths in path_candidates.items():
-            min_fw = MIN_FIRMWARE_FOR.get(key)
-            if min_fw and fw_version is not None and fw_version < _parse_version(min_fw):
-                continue
-            for path in paths:
-                try:
-                    r = await client.get(f"http://{host}/{path}")
-                    if r.status_code == 200:
+                    fw = _parse_firmware(out["firmware"].get("state") or out["firmware"].get("value"))
+                    firmware_version = fw.get("version") if fw else None
+            fw_version = _parse_version(firmware_version) if firmware_version else None
+            groups = [LIVE_SENSOR_PATHS] + ([DIAGNOSTIC_SENSOR_PATHS] if diagnostics else [])
+            for group in groups:
+                for key, paths in group.items():
+                    min_fw = MIN_FIRMWARE_FOR.get(key)
+                    if min_fw and fw_version is not None and fw_version < _parse_version(min_fw):
+                        continue
+                    r = await _resolve(client, "get", host, key, paths)
+                    if r is not None and r.status_code == 200:
                         out[key] = r.json()
-                        break
-                except Exception:
-                    pass
-        for wp in wifi_paths:
-            try:
-                r = await client.get(f"http://{host}/{wp}")
-                if r.status_code == 200:
-                    out["wifi_signal"] = r.json()
-                    break
-            except Exception:
-                pass
-        for vp in esphome_version_paths:
-            try:
-                r = await client.get(f"http://{host}/{vp}")
-                if r.status_code == 200:
-                    out["esphome_version"] = r.json()
-                    break
-            except Exception:
-                pass
+    except DongleUnreachable:
+        out["_aborted"] = True
     return out
 
 async def _fetch_exchange_rate() -> dict | None:
@@ -250,36 +365,27 @@ async def _send_cmd(host: str, params: dict, *, keep: bool = False) -> bool:
     """Send a climate command. Any mode command not issued by KEEP itself
     (schedule, user, max-temp guard, vacation, retry queue) cancels a KEEP
     pause, so KEEP never overrides a mode something else chose."""
-    qs = urlencode(params)
-    for path in CLIMATE_PATHS:
-        url = f"http://{host}/{path}/set?{qs}"
-        try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                r = await client.post(url)
-                if r.status_code < 300:
-                    if "target_temperature" in params:
-                        device = next((d for d in _state["devices"] if d["host"] == host), None)
-                        if device is not None and device.get("_keep_paused"):
-                            try:
-                                device["_keep_target"] = float(params["target_temperature"])
-                            except (TypeError, ValueError):
-                                pass
-                    # update _last_mode immediately so the next poll doesn't
-                    # re-log this as a separate "detected externally"/"turned off" event
-                    if "mode" in params:
-                        device = next((d for d in _state["devices"] if d["host"] == host), None)
-                        if device is not None:
-                            device["_last_mode"] = params["mode"]
-                            if params["mode"] != "OFF":
-                                device["_last_active_mode"] = params["mode"]
-                            if not keep:
-                                _clear_keep_pause(device)
-                    return True
-                elif r.status_code == 404:
-                    continue
-        except Exception as e:
-            log.warning(f"{host} cmd failed: {e}")
-    return False
+    r = await _post_command(host, "climate", CLIMATE_PATHS, f"/set?{urlencode(params)}")
+    if r is None or r.status_code >= 300:
+        return False
+    if "target_temperature" in params:
+        device = next((d for d in _state["devices"] if d["host"] == host), None)
+        if device is not None and device.get("_keep_paused"):
+            try:
+                device["_keep_target"] = float(params["target_temperature"])
+            except (TypeError, ValueError):
+                pass
+    # update _last_mode immediately so the next poll doesn't
+    # re-log this as a separate "detected externally"/"turned off" event
+    if "mode" in params:
+        device = next((d for d in _state["devices"] if d["host"] == host), None)
+        if device is not None:
+            device["_last_mode"] = params["mode"]
+            if params["mode"] != "OFF":
+                device["_last_active_mode"] = params["mode"]
+            if not keep:
+                _clear_keep_pause(device)
+    return True
 
 ECO_BUTTON_PATHS = {
     "on": ("button/Air%20Conditioner%20Eco%20On/press", "button/air_conditioner_eco_on/press"),
@@ -301,19 +407,14 @@ async def _send_eco(host: str, state: str, *, remember: bool = True) -> bool:
             device["eco_wanted"] = state == "on"
             device["_eco_reapply_tries"] = 0
             device["_eco_gave_up_mode"] = None
-    for path in ECO_BUTTON_PATHS[state]:
-        try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                r = await client.post(f"http://{host}/{path}")
-            if r.status_code < 300:
-                ds = _state["device_state"].get(host)
-                if ds is not None and not ds.get("error"):
-                    ds["preset"] = "ECO" if state == "on" else "NONE"
-                    ds["eco"] = state == "on"
-                return True
-        except Exception:
-            pass
-    return False
+    r = await _post_command(host, f"eco_{state}", ECO_BUTTON_PATHS[state])
+    if r is None or r.status_code >= 300:
+        return False
+    ds = _state["device_state"].get(host)
+    if ds is not None and not ds.get("error"):
+        ds["preset"] = "ECO" if state == "on" else "NONE"
+        ds["eco"] = state == "on"
+    return True
 
 
 ECO_REAPPLY_MAX_TRIES = 2          # per mode, when a poll shows the unit dropped ECO
@@ -385,27 +486,34 @@ async def _send_switch(host: str, path: str) -> bool:
     # if path contains a known beeper slug, try both variants
     if "beeper" in path.lower():
         action = path.split("/")[-1]  # turn_on / turn_off
-        for base in BEEPER_PATHS:
-            try:
-                async with httpx.AsyncClient(timeout=3) as client:
-                    r = await client.post(f"http://{host}/{base}/{action}")
-                    if r.status_code < 300:
-                        return True
-                    elif r.status_code == 404:
-                        continue
-            except Exception:
-                pass
-        return False
+        # same cache key as the beeper state read in _fetch_sensors
+        r = await _post_command(host, "beeper", BEEPER_PATHS, f"/{action}")
+        return r is not None and r.status_code < 300
     try:
-        async with httpx.AsyncClient(timeout=3) as client:
-            r = await client.post(f"http://{host}/{path}")
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            r = await _request(client, "post", host, path)
             return r.status_code < 300
-    except Exception:
+    except DongleUnreachable:
         return False
 
 # ── Poll a single device ──────────────────────────────────
 
-async def _poll_device(device: dict):
+# device_state fields that come from diagnostic sensors (or are derived from
+# them). Carried over from the previous poll when diagnostics aren't re-read.
+DIAGNOSTIC_FIELDS = (
+    "uptime_days", "wifi_signal", "beeper", "esphome_version",
+    "firmware_name", "firmware_version", "firmware_built", "firmware_built_date",
+    "firmware_config_hash",
+)
+# live-sensor fields kept from the previous poll if this round's sensor read
+# was cut short by a transport error
+LIVE_FIELDS = ("outdoor_temp", "actual_power_watts", "eco")
+
+
+async def _poll_device(device: dict, *, full: bool = False):
+    """Poll one dongle. Climate state + live sensors every call; diagnostics
+    every DIAGNOSTIC_INTERVAL_SECS, on the first poll after startup or after
+    the dongle comes back online, or when full=True (manual poll/test)."""
     host = device["host"]
     name = device["name"]
 
@@ -431,7 +539,9 @@ async def _poll_device(device: dict):
         return
 
     # ── watchdog: mark recovered if was stale ─────────────
-    if device.get("_stale"):
+    recovered = bool(device.get("_stale"))
+    if recovered:
+        _forget_host_paths(host)  # may have been reflashed with different entity names
         failures = device.get("_consecutive_failures", 0)
         device["_stale"] = False
         device["_consecutive_failures"] = 0
@@ -442,10 +552,24 @@ async def _poll_device(device: dict):
     device["_last_seen"] = _now_iso()
     device["_stale"] = False
 
-    sensors = await _fetch_sensors(host)
+    prev_ds = _state["device_state"].get(host, {})
+    now_mono = time.monotonic()
+    want_diag = (full or recovered or host not in _diag_at
+                 or now_mono - _diag_at[host] >= DIAGNOSTIC_INTERVAL_SECS)
+    sensors = await _fetch_sensors(
+        host, diagnostics=want_diag,
+        firmware_version=None if want_diag else prev_ds.get("firmware_version"),
+    )
+    got_diag = want_diag and not sensors.get("_aborted")
+    if got_diag:
+        _diag_at[host] = now_mono
 
     # merge into device_state
     ds = {**state, "host": host}
+    if not got_diag:
+        ds.update({k: prev_ds[k] for k in DIAGNOSTIC_FIELDS if k in prev_ds})
+    if sensors.get("_aborted"):
+        ds.update({k: prev_ds[k] for k in LIVE_FIELDS if k in prev_ds})
     if "outdoor_temp" in sensors:
         ds["outdoor_temp"] = sensors["outdoor_temp"].get("value")
     if "uptime_days" in sensors:
@@ -476,9 +600,15 @@ async def _poll_device(device: dict):
             device["_firmware_version"] = fw.split(" ")[0] if fw else None
     # firmware identity (air_conditioner_firmware) + build time from the
     # ESPHome version sensor ("2026.6.5 Sep 26 2026, 16:34:31")
-    fw_raw = sensors.get("firmware", {})
-    ds.update(_firmware_status(_parse_firmware(fw_raw.get("state") or fw_raw.get("value"))))
+    if got_diag:
+        fw_raw = sensors.get("firmware", {})
+        fw = _parse_firmware(fw_raw.get("state") or fw_raw.get("value"))
+    else:
+        fw = {"name": ds.get("firmware_name"), "version": ds.get("firmware_version")} \
+            if ds.get("firmware_version") or ds.get("firmware_name") else None
+    ds.update(_firmware_status(fw))  # outdated flag always vs. the current LATEST
     ds.update(_parse_esphome_version(ds.get("esphome_version")))
+    ds.update(_latency_summary(host))
     # actual power_usage — use if non-zero, otherwise fall back to estimation
     if "power_usage" in sensors:
         raw_power = sensors["power_usage"].get("value")

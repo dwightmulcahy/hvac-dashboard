@@ -1990,6 +1990,12 @@ async function toggleLockTemp(i){
 // KEEP only counts while the unit is actually in fan-only. The backend clears
 // _keep_paused on any other mode change, but the local copy can lag until the
 // next /devices refresh — so never highlight an OFF/COOL/HEAT unit as KEEP.
+// Dongle HTTP latency (worker._latency_summary, last 50 requests) for tooltips.
+function latencyLabel(s){
+  if(!s||s.http_ms_avg==null)return'';
+  return ` · ${s.http_ms_avg}ms avg / ${s.http_ms_max}ms max${s.http_fail?` · ${s.http_fail}/${s.http_requests} failed`:''}`;
+}
+
 function keepActive(d){return !!d?._keep_paused&&d?.state?.mode==='FAN_ONLY';}
 
 function isEcoPreset(s){return s?.eco!=null?!!s.eco:String(s?.preset||'').toUpperCase()==='ECO';}
@@ -2530,7 +2536,7 @@ function buildTileHTML(d,i){
       </div>
       <div style="margin-top:5px;font-size:10px;font-family:'DM Mono',monospace;color:var(--text3);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <span title="Time this unit has run today">on <span style="color:var(--text2)">${fmtOnTime(_usageToday[d.host]||0)}</span></span>
-        ${(()=>{const sig=x.wifi_signal?.value??d.state?.wifi_signal;const w=fmtWifi(sig);return sig!=null?(w?`<span>·</span><span title="${w.label}" style="color:${w.color}">${w.bar}</span>`:`<span>·</span><span style="color:var(--text3);font-size:10px">${sig}dBm</span>`):'';})()}
+        ${(()=>{const sig=x.wifi_signal?.value??d.state?.wifi_signal;const w=fmtWifi(sig);return sig!=null?(w?`<span>·</span><span title="${w.label}${latencyLabel(d.state)}" style="color:${w.color}">${w.bar}</span>`:`<span>·</span><span style="color:var(--text3);font-size:10px">${sig}dBm</span>`):'';})()}
         ${fwInfo(d.state)?`<span>·</span>${fwHtml(d.state)}`:''}
         ${d.maxTemp!=null?`<span>·</span><span>max <span style="color:${safeFloat(s.current_temperature)>=d.maxTemp?'var(--err)':'var(--text2)'}">${fmtTemp(d.maxTemp)}</span>${d._maxTempActive?' <span style="color:var(--err)">●</span>':''}</span>`:''}
         ${(()=>{
@@ -2662,7 +2668,7 @@ function renderTempsModalBody(){
       <span style="font-size:11px;font-weight:500;color:${modeColor};min-width:44px;text-align:right">${offline?'—':MODE_LABEL[mode]||mode}</span>
       <span style="font-size:12px;color:var(--text2);min-width:76px;text-align:right">${offline||s.current_temperature==null?'—':fmtTemp(s.current_temperature)}</span>
       <span style="display:flex;align-items:center;justify-content:flex-end;gap:5px;min-width:70px">
-        ${!offline&&w?`<span style="color:${w.color};font-size:12px" title="${w.label}">${w.bar}</span>`:'<span style="color:var(--text3);font-size:11px">—</span>'}
+        ${!offline&&w?`<span style="color:${w.color};font-size:12px" title="${w.label}${latencyLabel(s)}">${w.bar}</span>`:'<span style="color:var(--text3);font-size:11px">—</span>'}
       </span>
       <span style="font-size:10px;min-width:50px;text-align:right;font-family:'DM Mono',monospace">${offline?'—':fwHtml(s)}</span>
     </div>`;

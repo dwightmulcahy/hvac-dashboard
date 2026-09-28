@@ -10,7 +10,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from state import _add_log, _lock, _now_iso, _save_raw, _state, _utcnow
-from worker import _send_cmd
+from worker import _latency_summary, _send_cmd
 
 router = APIRouter(tags=["system"])
 
@@ -83,6 +83,9 @@ async def health():
             "indoor_temp": ds.get("current_temperature"),
             "firmware": d.get("_firmware_version"),
             "max_temp_active": d.get("_max_temp_active", False),
+            # HTTP request latency to the dongle over the last 50 requests:
+            # http_ms_last/avg/max, http_fail (of http_requests)
+            **_latency_summary(d["host"]),
         })
     stale_count = sum(1 for d in device_health if d["stale"])
     all_ok = stale_count == 0 and len(_state["devices"]) > 0
