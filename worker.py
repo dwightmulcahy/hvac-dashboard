@@ -438,6 +438,8 @@ async def _maintain_eco(device: dict, *, force: bool = False):
     won't run ECO in (it keeps reporting OFF) isn't retried forever."""
     if device.get("eco_wanted") is not True:
         return
+    if device.get("lock_temp"):
+        return  # temp lock restores its setpoint, which drops ECO — let the lock win
     host, name = device["host"], device["name"]
     ds = _state["device_state"].get(host, {})
     if ds.get("error"):
@@ -467,6 +469,33 @@ async def _maintain_eco(device: dict, *, force: bool = False):
 
 def _commands_touch_climate(commands) -> bool:
     return any("mode" in c or "target_temperature" in c for c in commands)
+
+
+def _cancel_eco_for_explicit_temp(device: dict, source: str):
+    """On these Midea units ECO and a user-chosen setpoint are mutually
+    exclusive: ECO forces its own setpoint (24°C in COOL here) and any temp
+    change drops ECO. An explicit temperature from the user or a schedule
+    therefore wins — stop re-applying ECO, or the unit would immediately
+    jump back to the ECO setpoint and throw the requested temp away."""
+    if device.get("eco_wanted") is True:
+        device["eco_wanted"] = False
+        _add_log(f"{device['name']}: 🌿 ECO off — temperature set explicitly ({source})", "info")
+
+
+def _learn_eco_target(device: dict, ds: dict):
+    """Record the setpoint the unit itself uses while ECO is on, per mode
+    (read back from the unit rather than assuming 24°C)."""
+    if not _eco_reported(ds):
+        return
+    mode = ds.get("mode")
+    try:
+        tgt = float(ds.get("target_temperature"))
+    except (TypeError, ValueError):
+        return
+    if mode in ("COOL", "HEAT", "HEAT_COOL", "AUTO", "DRY"):
+        targets = device.setdefault("eco_targets", {})
+        if targets.get(mode) != tgt:
+            targets[mode] = tgt
 
 
 async def _send_action(host: str, cmd: dict) -> bool:
@@ -639,6 +668,10 @@ async def _poll_device(device: dict, *, full: bool = False):
             ds["eco"] = eco
             if prev is not None and prev != eco:
                 _verbose(f"{name}: 🌿 ECO {'on' if eco else 'off'} (reported by unit)", "info")
+
+    _learn_eco_target(device, ds)
+    if device.get("eco_targets"):
+        ds["eco_targets"] = device["eco_targets"]
 
     # on-time tracking
     now_epoch = _utcnow().timestamp()
@@ -971,8 +1004,10 @@ async def _check_keep(device: dict):
                 ds["mode"] = resume
                 _clear_keep_pause(device)
                 _add_log(f"{name}: ▶ KEEP — {indoor}°C, resuming {resume} (target {target}°C)", "ok")
-                await _verify_temp_command(host, device, name, target)
-                await _maintain_eco(device, force=True)
+                if device.get("eco_wanted") is True and not device.get("lock_temp"):
+                    await _maintain_eco(device, force=True)  # ECO sets its own setpoint
+                else:
+                    await _verify_temp_command(host, device, name, target)
         return
 
     if cur_mode not in KEEP_MODES:
@@ -1034,6 +1069,18 @@ async def _verify_temp_command(host: str, device: dict, name: str, target) -> bo
         device["_retry_queue"] = []
     device["_retry_queue"].append({"target_temperature": target})
     return False
+
+
+async def _eco_after_schedule(device: dict, sch: dict, commands: list):
+    """A schedule's own ECO action already ran (sent last). Otherwise: an
+    explicit temperature cancels ECO (it would be overridden by ECO's own
+    setpoint); a mode-only change re-applies a wanted ECO the unit dropped."""
+    if sch.get("eco") in ("on", "off"):
+        return
+    if any("target_temperature" in c for c in commands):
+        _cancel_eco_for_explicit_temp(device, f"schedule @ {sch.get('time')}")
+    elif _commands_touch_climate(commands):
+        await _maintain_eco(device, force=True)
 
 
 def _build_schedule_commands(sch: dict) -> list:
@@ -1121,8 +1168,7 @@ async def _check_schedules():
                 device["_retry_queue"].append(cmd)
                 _add_log(f"{name}: schedule command failed — queued for retry: {cmd}", "warn")
 
-        if sch.get("eco") not in ("on", "off") and _commands_touch_climate(commands):
-            await _maintain_eco(device, force=True)
+        await _eco_after_schedule(device, sch, commands)
 
         if not all_ok:
             msg = f"{name}: schedule @ {sch['time']} partially failed — {len(device['_retry_queue'])} cmd(s) queued"
@@ -1226,8 +1272,7 @@ async def _check_missed_schedules():
             elif "target_temperature" in cmd:
                 await _verify_temp_command(host, device, name, cmd["target_temperature"])
 
-        if sch.get("eco") not in ("on", "off") and _commands_touch_climate(commands):
-            await _maintain_eco(device, force=True)
+        await _eco_after_schedule(device, sch, commands)
 
         sch["last_run"] = f"{today} {_ts()}"
 

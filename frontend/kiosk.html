@@ -805,8 +805,9 @@ function renderDetail(host){
     </div>
     <div style="display:flex;align-items:center;justify-content:center;gap:${canControl?'16px':'0'};margin:2px 0 2px">
       ${canControl?`<button data-act="down" style="${tempBtnStyle()}">−</button>`:''}
-      <div style="min-width:220px;text-align:center">
-        <span style="color:var(--text);font-size:52px;font-weight:500">${tgtFmt.c}</span>
+      <div style="min-width:220px;text-align:center;position:relative">
+        ${ecoState(d)==='on'&&!(isPending&&pendingTarget!=null)?`<div data-eco-setpoint style="position:absolute;left:0;right:0;top:-4px;color:var(--eco);font-size:10px;font-weight:600;letter-spacing:.06em">ECO SETPOINT · +/− TURNS ECO OFF</div>`:''}
+        <span style="color:${ecoState(d)==='on'&&!(isPending&&pendingTarget!=null)?'var(--eco)':'var(--text)'};font-size:52px;font-weight:500">${tgtFmt.c}</span>
         <span style="color:var(--text2);font-size:20px;margin-left:8px">${tgtFmt.f}</span>
       </div>
       ${canControl?`<button data-act="up" style="${tempBtnStyle()}">+</button>`:''}
@@ -866,6 +867,7 @@ function adjustTemp(host,delta){
   const powerOn=effMode==='OFF'?(d._last_active_mode||'COOL'):null;
 
   if(pendingHost!==host){pendingMode=null;pendingBeeper=null;pendingEco=null;}
+  if(d.eco_wanted===true)d.eco_wanted=false; // explicit temp turns ECO off (backend clears it too)
   pendingHost=host;
   pendingTarget=next;
   if(powerOn)pendingMode=powerOn;

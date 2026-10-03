@@ -240,5 +240,36 @@ test("dashboard unit tile: KEEP in mode bar, compact firmware line", async (t) =
     },
   );
 
+  await t.test(
+    "ECO on: target shown as ECO setpoint, +/− warn it turns ECO off",
+    async () => {
+      window.eval(
+        "devices[1].state.mode='COOL';devices[1].state.eco=true;devices[1].eco_wanted=true;renderUnits();",
+      );
+      const t1 = window.document.querySelector("#tile-1");
+      const tdisp = t1.querySelector(".tdisp");
+      assert.match(tdisp.textContent, /^ECO/);
+      assert.match(tdisp.innerHTML, /var\(--eco\)/);
+      const plus = [...t1.querySelectorAll("button")].find(
+        (b) => b.getAttribute("onclick") === "adjustTemp(1,1)",
+      );
+      assert.match(plus.getAttribute("title"), /turns ECO off/);
+    },
+  );
+
+  await t.test("schedule modal warns when Temp and ECO On are both set", () => {
+    window.openScheduleModal(null);
+    const $id = (x) => window.document.getElementById(x);
+    $id("sch-temp-en").checked = true;
+    $id("sch-eco-en").checked = true;
+    $id("sch-eco").value = "on";
+    window.updateSchEcoHint();
+    assert.equal($id("sch-eco-hint").style.display, "block");
+    $id("sch-eco").value = "off";
+    window.updateSchEcoHint();
+    assert.equal($id("sch-eco-hint").style.display, "none");
+    window.closeSchModal();
+  });
+
   window.close();
 });

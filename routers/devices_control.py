@@ -11,6 +11,7 @@ from models import CommandPayload
 from state import _add_log, _lock, _save_raw, _state
 from worker import (
     ECO_BUTTON_PATHS,
+    _cancel_eco_for_explicit_temp,
     _check_keep,
     _check_max_temp,
     _maintain_eco,
@@ -66,8 +67,12 @@ async def send_device_cmd(host: str, payload: CommandPayload, authorization: str
             _add_log(f"{name}: set → {payload.params['target_temperature']}°C by {user}", "info")
             if device is not None:
                 await _verify_temp_command(host, device, name, payload.params["target_temperature"])
-        if device is not None and ("mode" in payload.params or "target_temperature" in payload.params):
-            await _maintain_eco(device, force=True)
+        if device is not None:
+            if "target_temperature" in payload.params:
+                # explicit temp wins over ECO (ECO would override it with its own setpoint)
+                _cancel_eco_for_explicit_temp(device, user)
+            elif "mode" in payload.params:
+                await _maintain_eco(device, force=True)
     else:
         if device is not None:
             if "_retry_queue" not in device:

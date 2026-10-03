@@ -637,11 +637,12 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
       <div style="display:flex;align-items:center;gap:8px;font-size:13px" title="Unit's built-in ECO preset. Sent after mode/temp; ignored when the schedule powers the unit off.">
         <input type="checkbox" id="sch-eco-en">
         <label for="sch-eco-en">🌿 ECO</label>
-        <select id="sch-eco" class="inp" style="margin-left:4px">
+        <select id="sch-eco" class="inp" style="margin-left:4px" onchange="updateSchEcoHint()">
           <option value="on">On</option>
           <option value="off">Off</option>
         </select>
       </div>
+      <div id="sch-eco-hint" style="display:none;font-size:11px;color:var(--warn);margin:-2px 0 0 24px">⚠ ECO sets the unit to its own temperature — the Temp above will be overridden.</div>
     </div>
 
     <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -1859,6 +1860,8 @@ async function adjustTemp(i,delta){
   const maxT=safeFloat(d.state.max_temp)||30;
   const next=Math.round((Math.min(maxT,Math.max(minT,base+delta*step)))/step)*step;
   pendingTemps[i]=next;
+  // an explicit temp turns ECO off (the backend clears eco_wanted; ECO would override it)
+  if(d.eco_wanted===true)d.eco_wanted=false;
   // optimistic display immediately
   d.state.target_temperature=String(next);
   renderUnits();updateSummary();
@@ -2507,9 +2510,9 @@ function buildTileHTML(d,i){
           ${d._maintenanceOverdue?`<span style="font-size:10px;color:var(--err);cursor:pointer;flex-shrink:0" title="Maintenance overdue — click for details" onclick="openSettings('maintenance')">🔧⚠</span>`:''}
         </div>
         <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;position:relative">
-          ${readOnly?'':`<button class="btn bico" onclick="adjustTemp(${i},-1)" ${dis} style="width:24px;height:24px">−</button>`}
-          <div class="tdisp" style="line-height:1.2;text-align:center">${on&&s.target_temperature!=null?fmtTemp(s.target_temperature):keepActive(d)&&d._keep_target!=null?`<span style="color:var(--keep)">${fmtTemp(d._keep_target)}</span>`:s.target_temperature!=null?`<span style="color:var(--text3)" title="Target when turned on">${fmtTemp(s.target_temperature)}</span>`:'<span style="color:var(--text3)">—</span>'}</div>
-          ${readOnly?'':`<button class="btn bico" onclick="adjustTemp(${i},1)" ${dis} style="width:24px;height:24px">+</button>`}
+          ${readOnly?'':`<button class="btn bico" onclick="adjustTemp(${i},-1)" ${dis} ${ecoState(d)==='on'?'title="Changing the temperature turns ECO off"':''} style="width:24px;height:24px">−</button>`}
+          <div class="tdisp" style="line-height:1.2;text-align:center">${on&&s.target_temperature!=null&&ecoState(d)==='on'?`<span title="ECO setpoint — chosen by the unit. Changing the temperature turns ECO off." style="color:var(--eco)"><span style="font-size:9px;font-weight:600;letter-spacing:.04em;vertical-align:top;margin-right:3px">ECO</span>${fmtTemp(s.target_temperature)}</span>`:on&&s.target_temperature!=null?fmtTemp(s.target_temperature):keepActive(d)&&d._keep_target!=null?`<span style="color:var(--keep)">${fmtTemp(d._keep_target)}</span>`:s.target_temperature!=null?`<span style="color:var(--text3)" title="Target when turned on">${fmtTemp(s.target_temperature)}</span>`:'<span style="color:var(--text3)">—</span>'}</div>
+          ${readOnly?'':`<button class="btn bico" onclick="adjustTemp(${i},1)" ${dis} ${ecoState(d)==='on'?'title="Changing the temperature turns ECO off"':''} style="width:24px;height:24px">+</button>`}
           ${readOnly?'':`<button class="btn bico" onclick="toggleTileMenu(${i},event)" ${busy?'disabled':''} title="More" style="width:24px;height:24px;font-size:11px">⋯</button>
           <div class="tile-menu" id="tile-menu-${i}">
             ${x.beeper!==undefined?`<div class="menu-item" onclick="closeTileMenus();toggleBeeper(${i})"><span class="ck">${x.beeper?.value==='ON'?'✓':''}</span>🔔 Beeper</div>`:''}
@@ -3576,6 +3579,7 @@ function openScheduleModal(idx=null){
     const endRow=document.getElementById('sch-end-row');if(endRow)endRow.style.display='none';
   }
   modal.style.display='flex';
+  updateSchEcoHint();
 }
 
 function selectDays(preset){
@@ -3583,6 +3587,13 @@ function selectDays(preset){
   const days=map[preset]||[];
   document.querySelectorAll('.dbtn').forEach(b=>b.classList.toggle('on',days.includes(+b.dataset.d)));
 }
+
+function updateSchEcoHint(){
+  const on=id=>document.getElementById(id)?.checked;
+  const h=document.getElementById('sch-eco-hint');
+  if(h)h.style.display=on('sch-temp-en')&&on('sch-eco-en')&&document.getElementById('sch-eco')?.value==='on'?'block':'none';
+}
+document.addEventListener('change',e=>{if(['sch-temp-en','sch-eco-en'].includes(e.target?.id))updateSchEcoHint();});
 
 function saveSchedule(){
   const deviceIdx=+document.getElementById('sch-device').value;
