@@ -6,11 +6,11 @@ import datetime
 import os
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
 from state import _add_log, _lock, _now_iso, _save_raw, _state, _utcnow
-from worker import _latency_summary, _send_cmd
+from worker import _away_off, _away_on, _latency_summary, _send_cmd
 
 router = APIRouter(tags=["system"])
 
@@ -152,6 +152,24 @@ async def set_vacation(state: str):
     async with _lock:
         _save_raw(_state)
     return {"ok": True, "vacation_mode": enabled}
+
+
+@router.post("/away/{state}")
+async def set_away(state: str):
+    """AWAY on: turn all units off and hold schedules. AWAY off: restore each
+    unit, or apply the latest schedule event that fell inside the away window."""
+    if state not in ("on", "off"):
+        raise HTTPException(status_code=400, detail="state must be 'on' or 'off'")
+    s = _state["settings"]
+    enabled = state == "on"
+    if enabled == bool(s.get("away_mode")):
+        return {"ok": True, "away_mode": enabled}
+    if enabled and s.get("vacation_mode"):
+        raise HTTPException(status_code=409, detail="Vacation mode is on")
+    await (_away_on() if enabled else _away_off())
+    async with _lock:
+        _save_raw(_state)
+    return {"ok": True, "away_mode": enabled}
 
 
 @router.get("/vacation")

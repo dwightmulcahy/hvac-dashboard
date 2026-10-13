@@ -1118,6 +1118,8 @@ def _build_schedule_commands(sch: dict) -> list:
 
 
 async def _check_schedules():
+    if _state["settings"].get("away_mode"):
+        return  # held; replayed by _away_off
     now = datetime.datetime.now()
     today = now.strftime("%Y-%m-%d")
     js_day = now.isoweekday() % 7  # Sun=0, Mon=1 ... Sat=6
@@ -1237,6 +1239,8 @@ async def _check_missed_schedules():
     """Fire any schedules that were missed while the API was down.
     Only fires if missed within the last MISSED_WINDOW_MINUTES minutes."""
     MISSED_WINDOW_MINUTES = 30
+    if _state["settings"].get("away_mode"):
+        return  # held; replayed by _away_off
     now = datetime.datetime.now()
     today = now.strftime("%Y-%m-%d")
     js_day = now.isoweekday() % 7
@@ -1337,6 +1341,154 @@ async def _check_missed_schedules():
 
     async with _lock:
         _save_raw(_state)
+
+
+# ── AWAY mode ─────────────────────────────────────────────
+# Short-term "everyone's out": turn every running unit off and remember how
+# it was set; schedules are held (not fired) while away. On return each unit
+# gets the latest schedule event that fell inside the away window (start →
+# that schedule's settings, end → OFF), otherwise its pre-away snapshot.
+# The max-temp guard keeps running while away.
+
+AWAY_REPLAY_MAX_DAYS = 31
+
+
+def _away_snapshot(device: dict) -> dict | None:
+    """The user-intended state to restore, or None if the unit was off.
+    Looks through guard and KEEP so neither's temporary mode is restored."""
+    ds = _state["device_state"].get(device["host"], {})
+    mode = ds.get("mode", "OFF")
+    temp = ds.get("target_temperature")
+    if device.get("_max_temp_active"):
+        mode = device.get("_pre_autocool_mode") or "OFF"
+        temp = device.get("_pre_autocool_temp")
+    elif device.get("_keep_paused") and device.get("_keep_resume_mode"):
+        mode = device["_keep_resume_mode"]
+        temp = device.get("_keep_target") or temp
+    if mode in ("OFF", None):
+        return None
+    return {"mode": mode, "target_temperature": temp}
+
+
+async def _away_on():
+    s = _state["settings"]
+    s["away_mode"] = True
+    s["away_started_at"] = datetime.datetime.now().isoformat(timespec="seconds")
+    off = 0
+    for d in _state["devices"]:
+        d["_away_snapshot"] = _away_snapshot(d)
+        _release_max_temp_guard(d, "AWAY")
+        ds = _state["device_state"].setdefault(d["host"], {})
+        if ds.get("mode", "OFF") in ("OFF", None):
+            continue
+        if await _send_cmd(d["host"], {"mode": "OFF"}):
+            ds["mode"] = "OFF"
+        else:
+            d.setdefault("_retry_queue", []).append({"mode": "OFF"})
+        off += 1
+    _add_log(f"🚪 AWAY on — {off} unit(s) off, schedules held", "warn")
+
+
+def _away_schedule_events(start: datetime.datetime, end: datetime.datetime) -> list:
+    """(when, kind, sch) for every enabled schedule start/end in (start, end]."""
+    events = []
+    first = max(start.date(), end.date() - datetime.timedelta(days=AWAY_REPLAY_MAX_DAYS))
+    days = (end.date() - first).days
+    for sch in _state["schedules"]:
+        if not sch.get("enabled", True):
+            continue
+        try:
+            sh, sm = map(int, sch["time"].split(":"))
+        except Exception:
+            continue
+        end_time = sch.get("end_time")
+        eh = em = None
+        if end_time:
+            try:
+                eh, em = map(int, end_time.split(":"))
+            except Exception:
+                end_time = None
+        overnight = bool(end_time) and end_time < sch["time"]
+        # include the day before the window so an overnight end inside it is seen
+        for i in range(-1, days + 1):
+            day = first + datetime.timedelta(days=i)
+            if (day.isoweekday() % 7) not in sch.get("days", []):
+                continue
+            base = datetime.datetime.combine(day, datetime.time())
+            on_at = base.replace(hour=sh, minute=sm)
+            if start < on_at <= end:
+                events.append((on_at, "start", sch))
+            if end_time:
+                off_at = base.replace(hour=eh, minute=em)
+                if overnight:
+                    off_at += datetime.timedelta(days=1)
+                if start < off_at <= end:
+                    events.append((off_at, "end", sch))
+    events.sort(key=lambda e: e[0])
+    return events
+
+
+async def _away_off():
+    s = _state["settings"]
+    now = datetime.datetime.now()
+    today = now.strftime("%Y-%m-%d")
+    try:
+        started = datetime.datetime.fromisoformat(s.get("away_started_at") or "")
+    except ValueError:
+        started = now
+    s["away_mode"] = False
+    s["away_started_at"] = None
+
+    latest = {}
+    for when, kind, sch in _away_schedule_events(started, now):
+        latest[sch.get("device_host", "")] = (kind, sch)
+        # mark as handled so the normal checks don't fire them again today
+        if when.strftime("%Y-%m-%d") == today:
+            sch["last_run" if kind == "start" else "_last_end_run"] = f"{today} {_ts()}"
+
+    for d in _state["devices"]:
+        host, name = d["host"], d["name"]
+        snap = d.pop("_away_snapshot", None)
+        ds = _state["device_state"].setdefault(host, {})
+        if host in latest:
+            kind, sch = latest[host]
+            _release_max_temp_guard(d, "schedule")
+            if kind == "end":
+                _add_log(f"{name}: AWAY off — schedule @ {sch['time']} ended while away, staying off", "info")
+                commands = [{"mode": "OFF"}]
+            else:
+                _add_log(f"{name}: AWAY off — applying schedule @ {sch['time']}", "ok")
+                commands = _build_schedule_commands(sch)
+            for cmd in commands:
+                if await _send_action(host, cmd):
+                    if "mode" in cmd:
+                        ds["mode"] = cmd["mode"]
+                    if "target_temperature" in cmd:
+                        await _verify_temp_command(host, d, name, cmd["target_temperature"])
+                else:
+                    d.setdefault("_retry_queue", []).append(cmd)
+            if kind == "start":
+                await _eco_after_schedule(d, sch, commands)
+            continue
+        if not snap:
+            continue
+        _release_max_temp_guard(d, "AWAY")
+        mode, temp = snap["mode"], snap.get("target_temperature")
+        _add_log(f"{name}: AWAY off — restoring {mode}" + (f" @ {temp}°C" if temp else ""), "ok")
+        if not await _send_cmd(host, {"mode": mode}):
+            d.setdefault("_retry_queue", []).append({"mode": mode})
+            continue
+        ds["mode"] = mode
+        if d.get("eco_wanted") is True:
+            # ECO forces its own setpoint — re-press it instead of sending the temp
+            await _maintain_eco(d, force=True)
+        elif temp is not None:
+            target = float(temp)
+            if await _send_cmd(host, {"target_temperature": target}):
+                await _verify_temp_command(host, d, name, target)
+            else:
+                d.setdefault("_retry_queue", []).append({"target_temperature": target})
+    _add_log("🏠 AWAY off — units restored, schedules resumed", "ok")
 
 
 # ── Main background worker ────────────────────────────────

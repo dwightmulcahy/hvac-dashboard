@@ -272,7 +272,7 @@ async def auth_middleware(request: Request, call_next):
     # ("/complete" only matches POST /maintenance/{id}/complete — plain
     # POST/PUT/DELETE /maintenance/{id} (create/edit/delete reminders)
     # falls through to the admin-only check below, unaffected)
-    operator_patterns = ["/cmd", "/beeper/", "/poll", "/display-toggle", "/vacation/", "/complete"]
+    operator_patterns = ["/cmd", "/beeper/", "/poll", "/display-toggle", "/vacation/", "/away/", "/complete"]
     if method == "POST" and any(p in path for p in operator_patterns):
         if ROLE_WEIGHTS.get(role, 0) >= ROLE_WEIGHTS["operator"]:
             return await call_next(request)

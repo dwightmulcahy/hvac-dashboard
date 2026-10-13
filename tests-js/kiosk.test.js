@@ -207,6 +207,7 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
   const beeperCalls = [];
   let cmdCalls = [];
   let vacationCalls = [];
+  let awayCalls = [];
   const usageSummaryCalls = [];
   const maintenanceCompleteCalls = [];
   let simulateNetworkDown = false;
@@ -260,6 +261,15 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
           ok: true,
           vacation_mode: MOCK_SETTINGS.vacation_mode,
         }),
+      };
+    }
+    if (u.includes("/away/")) {
+      awayCalls.push(u);
+      MOCK_SETTINGS.away_mode = u.includes("/away/on");
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, away_mode: MOCK_SETTINGS.away_mode }),
       };
     }
     if (u.includes("/beeper/")) {
@@ -760,6 +770,36 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
     },
   );
 
+  // ── AWAY mode toggle ─────────────────────────────────────────
+
+  const awayBtn = $("#away-btn");
+  const awayBanner = $("#away-banner");
+
+  await t.test("AWAY toggle is visible for operator, starts off, no banner", () => {
+    assert.notEqual(window.getComputedStyle(awayBtn).display, "none");
+    assert.match(awayBtn.getAttribute("aria-label"), /off/);
+    assert.equal(awayBanner.style.display, "none");
+  });
+
+  awayBtn.dispatchEvent(new window.Event("click", { bubbles: true }));
+  await wait(50);
+
+  await t.test("tapping AWAY calls away/on and shows the banner", () => {
+    assert.ok(awayCalls.some((u) => u.includes("/away/on")));
+    assert.match(awayBtn.getAttribute("aria-label"), /on/);
+    assert.equal(awayBanner.style.display, "block");
+    assert.match(awayBanner.textContent, /tap to return/);
+  });
+
+  awayCalls = [];
+  awayBanner.dispatchEvent(new window.Event("click", { bubbles: true }));
+  await wait(50);
+
+  await t.test("tapping the banner calls away/off and hides it", () => {
+    assert.ok(awayCalls.some((u) => u.includes("/away/off")));
+    assert.equal(awayBanner.style.display, "none");
+  });
+
   // ── Maintenance reminders ────────────────────────────────────
 
   window.showSub("grid");
@@ -1053,6 +1093,10 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
       assert.equal(window.getComputedStyle($("#vacation-btn")).display, "none");
     },
   );
+
+  await t.test("AWAY toggle is hidden for a viewer role", () => {
+    assert.equal(window.getComputedStyle($("#away-btn")).display, "none");
+  });
 
   // ── Locked device: indicator placement + disabled +/- ────────
 

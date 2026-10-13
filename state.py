@@ -55,6 +55,8 @@ DEFAULT_STATE = {
         "vacation_max_temp": 32,
         "vacation_started_at": None,   # ISO timestamp when vacation was enabled
         "vacation_days_limit": 14,     # auto-end vacation after this many days (0=disabled)
+        "away_mode": False,            # AWAY: units off, schedules held (worker._away_on/_away_off)
+        "away_started_at": None,       # local ISO timestamp AWAY was turned on
         "verbose_logging": False,
         "temp_unit": "both",          # "C", "F", or "both"
         "watchtower_webhook": "",     # optional webhook URL for update notifications
@@ -101,6 +103,7 @@ DEVICE_DEFAULTS = {
     "_keep_paused_at": None,       # epoch seconds, enforces the minimum fan-only time
     "_keep_target": None,          # target °C captured at pause time
     "_keep_resume_mode": None,     # COOL or HEAT — mode to return to
+    "_away_snapshot": None,        # {mode, target_temperature} to restore when AWAY ends
     # ECO intent: True/False once the user or a schedule sets ECO, None = never
     # managed. The unit drops its ECO preset on mode/temp changes; while True,
     # the worker re-applies it (worker._maintain_eco).
