@@ -943,6 +943,18 @@ KEEP_MIN_FAN_SECS = 300   # compressor short-cycle protection
 KEEP_MODES = ("COOL", "HEAT")
 
 
+def _release_max_temp_guard(device: dict, by: str):
+    """A schedule or user took control of the unit: the max-temp guard no
+    longer owns it, so it must not later 'restore' its pre-guard mode
+    (e.g. turn a scheduled COOL run OFF once the room drops below max-1)."""
+    if not device.get("_max_temp_active"):
+        return
+    device["_max_temp_active"] = False
+    device.pop("_pre_autocool_mode", None)
+    device.pop("_pre_autocool_temp", None)
+    _add_log(f"{device['name']}: 🌡 max-temp guard released ({by} took control)", "info")
+
+
 def _clear_keep_pause(device: dict):
     device["_keep_paused"] = False
     device["_keep_paused_at"] = None
@@ -1140,6 +1152,8 @@ async def _check_schedules():
 
         power = sch.get("power")
         commands = _build_schedule_commands(sch)
+        if any("mode" in c for c in commands):
+            _release_max_temp_guard(device, "schedule")
 
         # send commands — queue any that fail for retry on next poll
         all_ok = True
@@ -1262,6 +1276,8 @@ async def _check_missed_schedules():
         _add_log(f"⚡ Missed schedule recovered: {name} @ {sch['time']} ({int(missed_mins)}m late)", "warn")
 
         commands = _build_schedule_commands(sch)
+        if any("mode" in c for c in commands):
+            _release_max_temp_guard(device, "schedule")
 
         for cmd in commands:
             ok = await _send_action(host, cmd)

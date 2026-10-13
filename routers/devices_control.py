@@ -16,6 +16,7 @@ from worker import (
     _check_max_temp,
     _maintain_eco,
     _poll_device,
+    _release_max_temp_guard,
     _send_cmd,
     _send_eco,
     _send_switch,
@@ -53,6 +54,8 @@ async def send_device_cmd(host: str, payload: CommandPayload, authorization: str
     device = next((d for d in _state["devices"] if d["host"] == host), None)
     name = device["name"] if device else host
     ok = await _send_cmd(host, payload.params)
+    if ok and device is not None and "mode" in payload.params:
+        _release_max_temp_guard(device, user)
     if ok:
         ds = _state["device_state"].get(host, {})
         ds.update(payload.params)

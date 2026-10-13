@@ -308,3 +308,18 @@ def test_eco_bad_state_and_unknown_device(client, auth_headers, api_module, mock
     _eco_setup(api_module, mocker)
     assert client.post("/devices/ac1.local/eco/maybe", headers=auth_headers).status_code == 400
     assert client.post("/devices/nope.local/eco/on", headers=auth_headers).status_code == 404
+
+
+def test_manual_mode_cmd_releases_max_temp_guard(client, auth_headers, api_module, mocker):
+    from routers import devices_control
+    device = {
+        "host": "ac1.local", "name": "Master BR", "max_temp": 27.0,
+        "_max_temp_active": True, "_pre_autocool_mode": "OFF",
+    }
+    api_module._state["devices"].append(device)
+    mocker.patch.object(devices_control, "_send_cmd", return_value=True)
+    mocker.patch.object(devices_control, "_maintain_eco", return_value=None)
+    r = client.post("/devices/ac1.local/cmd", json={"params": {"mode": "COOL"}}, headers=auth_headers)
+    assert r.status_code == 200
+    assert device["_max_temp_active"] is False
+    assert "_pre_autocool_mode" not in device

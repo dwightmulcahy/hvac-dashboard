@@ -376,3 +376,39 @@ async def test_missed_schedule_recovery_sends_eco(worker_module, mocker, monkeyp
     await worker_module._check_missed_schedules()
 
     assert any("Eco%20On" in u or "eco_on" in u for u in urls)
+
+
+# ── schedule vs max-temp guard ownership ────────────────────
+
+
+@pytest.mark.asyncio
+async def test_schedule_fire_releases_max_temp_guard(worker_module, mocker, monkeypatch):
+    """Regression: guard auto-cooled an OFF unit earlier, schedule then turned it
+    on; once the room dropped below max-1 the guard 'restored OFF', killing the
+    scheduled run. Firing a schedule must release guard ownership."""
+    _freeze(monkeypatch, worker_module, 2026, 1, 5, 21, 1)
+    device = {
+        "host": "ac1.local", "name": "Master BR", "max_temp": 27.0,
+        "_max_temp_active": True, "_pre_autocool_mode": "OFF", "_pre_autocool_temp": "24",
+    }
+    worker_module._state["devices"].append(device)
+    worker_module._state["schedules"].append(_sch(time="21:00", days=[1], temp=21))
+    worker_module.VERIFY_DELAY_SECS = 0
+
+    sent = []
+
+    async def fake_post(self, url, *a, **kw):
+        sent.append(url)
+        return _FakeResponse(200)
+    mocker.patch.object(httpx.AsyncClient, "post", fake_post)
+    mocker.patch.object(worker_module, "_verify_temp_command", return_value=True)
+
+    await worker_module._check_schedules()
+    assert device["_max_temp_active"] is False
+    assert "_pre_autocool_mode" not in device
+
+    # room cools below max-1 — guard must not turn the scheduled run off
+    worker_module._state["device_state"]["ac1.local"] = {"current_temperature": "25.5", "mode": "COOL"}
+    sent.clear()
+    await worker_module._check_max_temp(device)
+    assert not any("mode=OFF" in u for u in sent)
