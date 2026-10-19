@@ -96,6 +96,7 @@ const REGIONS = [
   "watts-temp",
   "wifi-ontime",
   "day-names",
+  "sleep-curve",
   "schedule-fmt",
   "fmt-hours",
   "fmt-ago",

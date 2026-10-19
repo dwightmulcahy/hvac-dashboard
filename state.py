@@ -103,6 +103,7 @@ DEVICE_DEFAULTS = {
     "_keep_paused_at": None,       # epoch seconds, enforces the minimum fan-only time
     "_keep_target": None,          # target °C captured at pause time
     "_keep_resume_mode": None,     # COOL or HEAT — mode to return to
+    "_sleep": None,                # active sleep curve: {sch_id, start, end, mode, last, seen, stopped}
     "_away_snapshot": None,        # {mode, target_temperature} to restore when AWAY ends
     # ECO intent: True/False once the user or a schedule sets ECO, None = never
     # managed. The unit drops its ECO preset on mode/temp changes; while True,
@@ -146,6 +147,7 @@ SCHEDULE_DEFAULTS = {
     "mode": None,
     "temp": None,
     "eco": None,            # "on" / "off" / None (unchanged)
+    "sleep": None,          # SleepCurve dict — overnight setpoint curve (worker._check_sleep_curve)
     "enabled": True,
     "last_run": None,
 }

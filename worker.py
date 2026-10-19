@@ -1117,6 +1117,150 @@ def _build_schedule_commands(sch: dict) -> list:
     return commands
 
 
+# ── Sleep curve ───────────────────────────────────────────
+# A COOL/HEAT schedule with an end time can carry sch["sleep"]: the setpoint
+# drifts away from the schedule temp in steps (warmer in COOL, cooler in
+# HEAT), holds, then steps back to the wake temp before end_time. The target
+# is derived from the time of night, never from a step counter, so restarts,
+# missed polls and an unreachable dongle all land on the right value.
+# Any manual temperature or mode change stops the curve for that night.
+
+SLEEP_MIN_TEMP, SLEEP_MAX_TEMP = 17.0, 30.0
+
+
+def _sleep_window(sch: dict, fired: datetime.datetime) -> tuple:
+    """(start, end) datetimes for the schedule window that started on `fired`'s date."""
+    sh, sm = map(int, sch["time"].split(":"))
+    eh, em = map(int, sch["end_time"].split(":"))
+    start = fired.replace(hour=sh, minute=sm, second=0, microsecond=0)
+    end = start.replace(hour=eh, minute=em)
+    if end <= start:
+        end += datetime.timedelta(days=1)
+    return start, end
+
+
+def _sleep_target(sch: dict, start: datetime.datetime, end: datetime.datetime,
+                  now: datetime.datetime) -> float | None:
+    """Setpoint the curve wants at `now`, or None outside the window. The rise
+    takes n equal intervals (n = rise/step), stepping at the end of each; the
+    return takes n+1, so the peak is held for at least one interval and the
+    wake temp is reached one interval before end_time. Ramps are scaled down
+    proportionally when they don't fit the window."""
+    cfg = sch.get("sleep") or {}
+    base = float(sch["temp"])
+    sign = 1 if sch.get("mode") == "COOL" else -1
+    step = float(cfg.get("step") or 0.5)
+    peak = base + sign * abs(float(cfg.get("rise", 2.0)))
+    wake = float(cfg["wake_temp"]) if cfg.get("wake_temp") is not None else base
+    total = (end - start).total_seconds()
+    rise_s = float(cfg.get("rise_hours", 2.0)) * 3600
+    wake_s = float(cfg.get("wake_hours", 2.0)) * 3600
+    if rise_s + wake_s > total > 0:
+        k = total / (rise_s + wake_s)
+        rise_s, wake_s = rise_s * k, wake_s * k
+    t = (now - start).total_seconds()
+    if t < 0 or t >= total:
+        return None
+
+    def ramp(a: float, b: float, frac: float, extra: int) -> float:
+        n = round(abs(b - a) / step)
+        if n == 0:
+            return b
+        k = min(n, int(frac * (n + extra)))
+        return a + (1 if b > a else -1) * k * step
+
+    if t < rise_s:
+        v = ramp(base, peak, t / rise_s, 0)
+    elif t < total - wake_s:
+        v = peak
+    else:
+        v = ramp(peak, wake, (t - (total - wake_s)) / wake_s, 1)
+    v = round(v * 2) / 2  # unit accepts 0.5°C steps
+    return min(SLEEP_MAX_TEMP, max(SLEEP_MIN_TEMP, v))
+
+
+def _start_sleep_curve(device: dict, sch: dict, fired: datetime.datetime, commands: list):
+    """Called whenever a schedule fires. A schedule that sets mode/temp owns the
+    unit: it starts its own curve, or ends any other schedule's curve."""
+    if not any("mode" in c or "target_temperature" in c for c in commands):
+        return
+    if not sch.get("sleep") or not sch.get("end_time") or sch.get("power") == "off":
+        if device.get("_sleep"):
+            device["_sleep"] = None
+        return
+    try:
+        start, end = _sleep_window(sch, fired)
+    except Exception:
+        return
+    device["_sleep"] = {
+        "sch_id": sch.get("id"), "start": start.isoformat(), "end": end.isoformat(),
+        "mode": sch["mode"], "last": float(sch["temp"]), "seen": False, "stopped": False,
+    }
+    cfg = sch["sleep"]
+    sign = "+" if sch["mode"] == "COOL" else "−"
+    _add_log(f"{device['name']}: 🌙 sleep curve started ({sign}{cfg.get('rise', 2.0):g}°C, "
+             f"until {sch['end_time']})", "info")
+
+
+def _stop_sleep_curve(device: dict, why: str):
+    sl = device.get("_sleep")
+    if sl and not sl.get("stopped"):
+        sl["stopped"] = True
+        _add_log(f"{device['name']}: 🌙 sleep curve stopped — {why}", "info")
+
+
+async def _check_sleep_curve(device: dict):
+    sl = device.get("_sleep")
+    if not sl or sl.get("stopped"):
+        return
+    now = datetime.datetime.now()
+    try:
+        start = datetime.datetime.fromisoformat(sl["start"])
+        end = datetime.datetime.fromisoformat(sl["end"])
+    except Exception:
+        device["_sleep"] = None
+        return
+    if now >= end:
+        device["_sleep"] = None
+        return
+    if _state["settings"].get("away_mode"):
+        return
+    sch = next((s for s in _state["schedules"] if s.get("id") == sl.get("sch_id")), None)
+    if not sch or not sch.get("sleep") or not sch.get("enabled", True) or sch.get("temp") is None:
+        device["_sleep"] = None
+        return
+    host, name = device["host"], device["name"]
+    ds = _state["device_state"].get(host, {})
+    if ds.get("error") or device.get("_stale"):
+        return
+    if device.get("lock_temp") or device.get("_max_temp_active"):
+        return
+    keep_paused = bool(device.get("_keep_paused")) and device.get("_keep_resume_mode") == sl["mode"]
+    if ds.get("mode") == sl["mode"] or keep_paused:
+        sl["seen"] = True
+    elif sl.get("seen"):
+        # only after the unit was seen in the schedule's mode, so a queued
+        # (failed) schedule mode command doesn't read as a user change
+        _stop_sleep_curve(device, f"mode changed to {ds.get('mode')}")
+        return
+    else:
+        return
+    target = _sleep_target(sch, start, end, now)
+    if target is None or target == sl.get("last"):
+        return
+    if keep_paused:
+        device["_keep_target"] = target  # KEEP restores this when it resumes
+        sl["last"] = target
+        _add_log(f"{name}: 🌙 sleep curve → {target:g}°C (KEEP paused)", "info")
+        return
+    if await _send_cmd(host, {"target_temperature": target}):
+        ds["target_temperature"] = str(target)
+        sl["last"] = target
+        _add_log(f"{name}: 🌙 sleep curve → {target:g}°C", "info")
+        await _verify_temp_command(host, device, name, target)
+    # on failure `last` is unchanged, so the next poll simply retries
+
+
 async def _check_schedules():
     if _state["settings"].get("away_mode"):
         return  # held; replayed by _away_off
@@ -1185,6 +1329,7 @@ async def _check_schedules():
                 _add_log(f"{name}: schedule command failed — queued for retry: {cmd}", "warn")
 
         await _eco_after_schedule(device, sch, commands)
+        _start_sleep_curve(device, sch, now, commands)
 
         if not all_ok:
             msg = f"{name}: schedule @ {sch['time']} partially failed — {len(device['_retry_queue'])} cmd(s) queued"
@@ -1293,6 +1438,7 @@ async def _check_missed_schedules():
                 await _verify_temp_command(host, device, name, cmd["target_temperature"])
 
         await _eco_after_schedule(device, sch, commands)
+        _start_sleep_curve(device, sch, sch_dt, commands)
 
         sch["last_run"] = f"{today} {_ts()}"
 
@@ -1439,9 +1585,10 @@ async def _away_off():
     s["away_mode"] = False
     s["away_started_at"] = None
 
-    latest = {}
+    latest, latest_when = {}, {}
     for when, kind, sch in _away_schedule_events(started, now):
         latest[sch.get("device_host", "")] = (kind, sch)
+        latest_when[sch.get("device_host", "")] = when
         # mark as handled so the normal checks don't fire them again today
         if when.strftime("%Y-%m-%d") == today:
             sch["last_run" if kind == "start" else "_last_end_run"] = f"{today} {_ts()}"
@@ -1469,6 +1616,7 @@ async def _away_off():
                     d.setdefault("_retry_queue", []).append(cmd)
             if kind == "start":
                 await _eco_after_schedule(d, sch, commands)
+                _start_sleep_curve(d, sch, latest_when[host], commands)
             continue
         if not snap:
             continue
@@ -1529,6 +1677,7 @@ async def _background_worker():
                 await _poll_device(device)
                 await _check_max_temp(device)
                 await _check_keep(device)
+                await _check_sleep_curve(device)
                 await _maintain_eco(device)
                 await _check_watchdog(device)
                 await asyncio.sleep(0.5)  # jitter between devices

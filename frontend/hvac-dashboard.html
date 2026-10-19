@@ -643,6 +643,24 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
         </select>
       </div>
       <div id="sch-eco-hint" style="display:none;font-size:11px;color:var(--warn);margin:-2px 0 0 24px">⚠ ECO sets the unit to its own temperature — the Temp above will be overridden.</div>
+      <div style="display:flex;align-items:center;gap:8px;font-size:13px" title="Overnight curve: the setpoint drifts warmer (cool) or cooler (heat) after the start, holds, then returns before the end time. Needs Mode cool/heat, a Temp and an end time. Any manual temp/mode change stops it for that night.">
+        <input type="checkbox" id="sch-sleep-en" onchange="updateSchSleepUI()">
+        <label for="sch-sleep-en">🌙 Sleep curve</label>
+        <select id="sch-sleep-preset" class="inp" style="margin-left:4px" onchange="updateSchSleepUI()">
+          <option value="gentle">Gentle (1° over 1h)</option>
+          <option value="standard" selected>Standard (2° over 2h)</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
+      <div id="sch-sleep-custom" style="display:none;flex-wrap:wrap;align-items:center;gap:6px;font-size:11px;color:var(--text2);margin:-2px 0 0 24px">
+        <span>Drift</span><input type="number" id="sch-sleep-rise" class="inp" min="0.5" max="3" step="0.5" value="2" style="width:52px" oninput="updateSchSleepUI()"><span>°C over</span>
+        <input type="number" id="sch-sleep-rise-h" class="inp" min="0" max="4" step="0.5" value="2" style="width:52px" oninput="updateSchSleepUI()"><span>h · return over</span>
+        <input type="number" id="sch-sleep-wake-h" class="inp" min="0" max="3" step="0.5" value="2" style="width:52px" oninput="updateSchSleepUI()"><span>h · step</span>
+        <select id="sch-sleep-step" class="inp" onchange="updateSchSleepUI()"><option value="0.5">0.5°C</option><option value="1">1°C</option></select>
+        <span>· wake temp</span><input type="number" id="sch-sleep-wake-temp" class="inp" min="17" max="30" placeholder="= Temp" style="width:60px"
+          oninput="this.dataset.celsius=tempFromDisplayUnit(this.value);updateSchSleepUI()"><span id="sch-sleep-wake-temp-unit">°C</span>
+      </div>
+      <div id="sch-sleep-preview" style="display:none;font-size:11px;font-family:'DM Mono',monospace;margin:-2px 0 0 24px"></div>
     </div>
 
     <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -2443,7 +2461,7 @@ function renderUnits(){
 
   devices.forEach((d,i)=>{
     const tileId=`tile-${i}`;
-    const stateKey=`${d.state?.mode}|${d.state?.target_temperature}|${d.state?.current_temperature}|${d.extras?.outdoor_temp?.value}|${d.busy}|${d.stale}|${d.lock_temp}|${d.retry_queue_depth}|${d.consecutive_failures}|${d._maintenanceOverdue}|${ecoState(d)}|${d.extras?.beeper?.value}|${keepActive(d)}|${d.state?.firmware_version}|${d.state?.firmware_outdated}`;
+    const stateKey=`${d.state?.mode}|${d.state?.target_temperature}|${d.state?.current_temperature}|${d.extras?.outdoor_temp?.value}|${d.busy}|${d.stale}|${d.lock_temp}|${d.retry_queue_depth}|${d.consecutive_failures}|${d._maintenanceOverdue}|${ecoState(d)}|${d.extras?.beeper?.value}|${keepActive(d)}|${d.state?.firmware_version}|${d.state?.firmware_outdated}|${!!(d._sleep&&!d._sleep.stopped)}`;
     let tile=document.getElementById(tileId);
 
     if(!tile){
@@ -2501,6 +2519,7 @@ function buildTileHTML(d,i){
           <span class="dot ${on?'d-on':'d-off'}" style="flex-shrink:0"></span>
           <span class="uname" title="${d.name}">${d.name}</span>
           ${ecoState(d)!=='off'?`<span class="tstat${readOnly?' ro':''}" style="${ecoState(d)==='armed'?'opacity:.45':''}" title="${ecoState(d)==='on'?'ECO on':'ECO armed — re-enables when the unit runs again'}${readOnly?'':' — tap to turn off'}" ${readOnly?'':`onclick="toggleEco(${i})"`}>🌿</span>`:''}
+          ${d._sleep&&!d._sleep.stopped?`<span class="tstat ro" title="Sleep curve active until ${String(d._sleep.end||'').slice(11,16)} — changing temp or mode stops it">🌙</span>`:''}
           ${d.lock_temp?`<span class="tstat${readOnly?' ro':''}" title="Temp locked at ${d.locked_target_temp}°C${readOnly?'':' — tap to unlock'}" ${readOnly?'':`onclick="toggleLockTemp(${i})"`}>🔒</span>`:''}
           ${busy?'<span class="spinner"></span>':''}
           ${readOnly?'<span style="font-size:9px;color:var(--text3);border:1px solid var(--border);padding:1px 5px;border-radius:4px;flex-shrink:0" title="Read-only access">👁</span>':''}
@@ -3293,6 +3312,7 @@ function refreshVisibleTempInputs(){
     ['vac-max-temp', 'vac-max-temp-unit', 25, 40],
     ['gen-vacation-temp', 'gen-vacation-temp-unit', 25, 40],
     ['sch-temp', 'sch-temp-unit', 17, 30],
+    ['sch-sleep-wake-temp', 'sch-sleep-wake-temp-unit', 17, 30],
   ].forEach(([inputId, labelId, minC, maxC])=>{
     const input=document.getElementById(inputId);
     if(!input)return;
@@ -3533,6 +3553,7 @@ function adjustTimePicker(part,delta){
   hEl.textContent=String(h).padStart(2,'0');
   mEl.textContent=String(m).padStart(2,'0');
   document.getElementById('sch-time').value=`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+  if(typeof updateSchSleepUI==='function')updateSchSleepUI();
 }
 function snapTimePicker(){
   const hEl=document.getElementById('tp-hour');
@@ -3542,6 +3563,7 @@ function snapTimePicker(){
   hEl.textContent=String(h).padStart(2,'0');
   mEl.textContent=String(m).padStart(2,'0');
   document.getElementById('sch-time').value=`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+  if(typeof updateSchSleepUI==='function')updateSchSleepUI();
 }
 
 function openScheduleModal(idx=null){
@@ -3570,6 +3592,7 @@ function openScheduleModal(idx=null){
     const endRow=document.getElementById('sch-end-row');if(endRow)endRow.style.display=hasEnd?'flex':'none';
     const endTime=document.getElementById('sch-end-time');if(endTime&&hasEnd)endTime.value=s.end_time;
     const tp=document.getElementById('sch-temp');if(tp)populateTempInput('sch-temp','sch-temp-unit',s.temp||24,17,30);
+    loadSchSleepFields(s.sleep);
   }else{
     setTimePicker('07:00');
     ['sch-power-en','sch-mode-en','sch-temp-en','sch-eco-en','sch-end-en'].forEach(id=>{
@@ -3577,9 +3600,11 @@ function openScheduleModal(idx=null){
     });
     populateTempInput('sch-temp','sch-temp-unit',24,17,30);
     const endRow=document.getElementById('sch-end-row');if(endRow)endRow.style.display='none';
+    loadSchSleepFields(null);
   }
   modal.style.display='flex';
   updateSchEcoHint();
+  updateSchSleepUI();
 }
 
 function selectDays(preset){
@@ -3595,6 +3620,61 @@ function updateSchEcoHint(){
 }
 document.addEventListener('change',e=>{if(['sch-temp-en','sch-eco-en'].includes(e.target?.id))updateSchEcoHint();});
 
+function loadSchSleepFields(cfg){
+  const el=id=>document.getElementById(id);
+  if(!el('sch-sleep-en'))return;
+  el('sch-sleep-en').checked=!!cfg;
+  const c=cfg||SLEEP_PRESETS.standard;
+  el('sch-sleep-preset').value=cfg?sleepPresetName(cfg):'standard';
+  el('sch-sleep-rise').value=c.rise;
+  el('sch-sleep-rise-h').value=c.rise_hours;
+  el('sch-sleep-wake-h').value=c.wake_hours;
+  el('sch-sleep-step').value=String(+c.step===1?1:0.5);
+  populateTempInput('sch-sleep-wake-temp','sch-sleep-wake-temp-unit',c.wake_temp??null,17,30);
+}
+function readSchSleepConfig(){
+  const el=id=>document.getElementById(id);
+  if(!el('sch-sleep-en')?.checked)return null;
+  const preset=el('sch-sleep-preset').value;
+  if(preset!=='custom')return{...SLEEP_PRESETS[preset]};
+  const wt=el('sch-sleep-wake-temp').value;
+  return{
+    rise:+el('sch-sleep-rise').value||2,
+    rise_hours:+el('sch-sleep-rise-h').value||0,
+    wake_hours:+el('sch-sleep-wake-h').value||0,
+    step:+el('sch-sleep-step').value===1?1:0.5,
+    wake_temp:wt===''?null:tempFromDisplayUnit(wt),
+  };
+}
+function schSleepProblem(){
+  const on=id=>document.getElementById(id)?.checked;
+  const mode=document.getElementById('sch-mode')?.value;
+  if(!on('sch-end-en'))return'needs an end time';
+  if(!on('sch-mode-en')||!['COOL','HEAT'].includes(mode))return'needs Mode cool or heat';
+  if(!on('sch-temp-en'))return'needs a Temp';
+  if(on('sch-power-en')&&document.getElementById('sch-power').value==='off')return"can't be used with Power off";
+  if(on('sch-eco-en')&&document.getElementById('sch-eco').value==='on')return"can't be combined with ECO on";
+  return null;
+}
+function updateSchSleepUI(){
+  const el=id=>document.getElementById(id);
+  if(!el('sch-sleep-en'))return;
+  const en=el('sch-sleep-en').checked;
+  el('sch-sleep-custom').style.display=en&&el('sch-sleep-preset').value==='custom'?'flex':'none';
+  const pv=el('sch-sleep-preview');
+  pv.style.display=en?'block':'none';
+  if(!en)return;
+  const problem=schSleepProblem();
+  if(problem){pv.style.color='var(--warn)';pv.textContent=`⚠ Sleep curve ${problem}`;return;}
+  pv.style.color='var(--text3)';
+  pv.textContent=fmtSleepCurve({
+    time:el('sch-time').value,end_time:el('sch-end-time').value,mode:el('sch-mode').value,
+    temp:tempFromDisplayUnit(el('sch-temp').value),sleep:readSchSleepConfig(),
+  },c=>c==null?'':_tempUnit==='F'?`${toF(c)}°F`:`${(+c).toFixed(1)}°C`);
+}
+document.addEventListener('change',e=>{if(/^sch-(end|mode|temp|power|eco)/.test(e.target?.id||''))updateSchSleepUI();});
+document.addEventListener('input',e=>{if(['sch-temp','sch-end-time'].includes(e.target?.id))updateSchSleepUI();});
+
 function saveSchedule(){
   const deviceIdx=+document.getElementById('sch-device').value;
   const time=document.getElementById('sch-time').value;
@@ -3608,6 +3688,8 @@ function saveSchedule(){
   if(!powerEn&&!modeEn&&!tempEn&&!ecoEn){alert('Enable at least one action.');return;}
   const endEn=document.getElementById('sch-end-en')?.checked;
   const endTime=endEn?document.getElementById('sch-end-time')?.value:null;
+  const sleep=readSchSleepConfig();
+  if(sleep){const problem=schSleepProblem();if(problem){alert(`Sleep curve ${problem}.`);return;}}
   const sch={
     id:editSchIdx!==null?schedules[editSchIdx].id:null,
     device_host:devices[deviceIdx].host,
@@ -3618,13 +3700,21 @@ function saveSchedule(){
     mode:modeEn?document.getElementById('sch-mode').value:null,
     temp:tempEn?tempFromDisplayUnit(document.getElementById('sch-temp').value):null,
     eco:ecoEn?document.getElementById('sch-eco').value:null,
+    sleep,
     enabled:editSchIdx!==null?schedules[editSchIdx].enabled:true,
   };
   // send to API
   const method=editSchIdx!==null?'PUT':'POST';
   const url=editSchIdx!==null?`${API}/schedules/${schedules[editSchIdx].id}`:`${API}/schedules`;
   fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(sch)})
-    .then(r=>r.json())
+    .then(async r=>{
+      const data=await r.json();
+      if(!r.ok){
+        const msg=Array.isArray(data.detail)?data.detail.map(e=>String(e.msg||'').replace(/^Value error, /,'')).join('; '):(data.detail||r.status);
+        throw new Error(msg);
+      }
+      return data;
+    })
     .then(data=>{
       if(data.warnings?.length){
         data.warnings.forEach(w=>addLog(`⚠ ${w}`,'warn'));
@@ -3653,6 +3743,54 @@ function toggleScheduleEnabled(idx){
     .catch(_=>{s.enabled=!s.enabled;renderSchedules();});
 }
 
+// ── TESTABLE:sleep-curve:start ──
+// Mirrors worker._sleep_target: the rise takes n intervals (n=rise/step),
+// the return n+1 (wake temp reached one interval before the end); ramps
+// scale down to fit short windows.
+const SLEEP_PRESETS={
+  gentle:{rise:1,rise_hours:1,wake_hours:1,step:0.5,wake_temp:null},
+  standard:{rise:2,rise_hours:2,wake_hours:2,step:0.5,wake_temp:null},
+};
+function sleepPresetName(cfg){
+  if(!cfg)return null;
+  for(const [k,p] of Object.entries(SLEEP_PRESETS)){
+    if(['rise','rise_hours','wake_hours','step'].every(f=>+cfg[f]===p[f])&&cfg.wake_temp==null)return k;
+  }
+  return'custom';
+}
+function _hhmmToMin(t){const [h,m]=t.split(':').map(Number);return h*60+m;}
+function _minToHhmm(m){m=((Math.round(m)%1440)+1440)%1440;return`${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;}
+// Key points of the curve: [{at:'HH:MM', temp:°C}] — start, peak reached,
+// return begins, wake temp reached; plus the end (unit off, temp null).
+function sleepCurvePoints(s){
+  const cfg=s.sleep;if(!cfg||!s.end_time||s.temp==null)return null;
+  const start=_hhmmToMin(s.time);let end=_hhmmToMin(s.end_time);if(end<=start)end+=1440;
+  const total=end-start,sign=s.mode==='HEAT'?-1:1,step=+cfg.step||0.5;
+  const base=+s.temp,peak=base+sign*Math.abs(+cfg.rise),wake=cfg.wake_temp!=null?+cfg.wake_temp:base;
+  let rise=(+cfg.rise_hours)*60,ret=(+cfg.wake_hours)*60;
+  if(rise+ret>total&&total>0){const k=total/(rise+ret);rise*=k;ret*=k;}
+  const clamp=v=>Math.min(30,Math.max(17,Math.round(v*2)/2));
+  const pts=[{at:_minToHhmm(start),temp:clamp(base)}];
+  pts.push({at:_minToHhmm(start+rise),temp:clamp(peak)});
+  if(ret>0){
+    const n=Math.round(Math.abs(peak-wake)/step)||1;
+    pts.push({at:_minToHhmm(end-ret),temp:clamp(peak)});
+    pts.push({at:_minToHhmm(end-ret+ret*n/(n+1)),temp:clamp(wake)});
+  }
+  pts.push({at:_minToHhmm(end),temp:null});
+  return pts;
+}
+function fmtSleepCurve(s,fmt){
+  const pts=sleepCurvePoints(s);if(!pts)return'';
+  fmt=fmt||(c=>`${(+c).toFixed(1)}°C`);
+  const [a,b,...rest]=pts;
+  let out=`${a.at} ${fmt(a.temp)} → ${fmt(b.temp)} by ${b.at}`;
+  if(rest.length===3)out+=` · hold to ${rest[0].at} → ${fmt(rest[1].temp)} by ${rest[1].at}`;
+  else out+=' · hold';
+  return out+` · off ${rest[rest.length-1].at}`;
+}
+// ── TESTABLE:sleep-curve:end ──
+
 // ── TESTABLE:schedule-fmt:start ──
 function fmtDays(days){
   const s=days.slice().sort((a,b)=>a-b);
@@ -3668,6 +3806,7 @@ function fmtActions(s){
   if(s.mode)p.push(`mode ${s.mode.toLowerCase()}`);
   if(s.temp)p.push(`temp ${s.temp}°C`);
   if(s.eco&&s.power!=='off')p.push(`🌿 eco ${s.eco}`);
+  if(s.sleep&&s.power!=='off')p.push(`🌙 sleep ${s.mode==='HEAT'?'−':'+'}${s.sleep.rise}°C`);
   return p.join(' · ')||'—';
 }
 

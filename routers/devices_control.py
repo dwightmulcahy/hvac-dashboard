@@ -20,6 +20,7 @@ from worker import (
     _send_cmd,
     _send_eco,
     _send_switch,
+    _stop_sleep_curve,
     _verify_temp_command,
 )
 
@@ -56,6 +57,8 @@ async def send_device_cmd(host: str, payload: CommandPayload, authorization: str
     ok = await _send_cmd(host, payload.params)
     if ok and device is not None and "mode" in payload.params:
         _release_max_temp_guard(device, user)
+    if ok and device is not None and ({"mode", "target_temperature"} & payload.params.keys()):
+        _stop_sleep_curve(device, f"changed by {user}")
     if ok:
         ds = _state["device_state"].get(host, {})
         ds.update(payload.params)

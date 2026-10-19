@@ -51,6 +51,7 @@ const MOCK_DEVICES = {
       _max_temp_active: false,
       _on_time_minutes: 42,
       _firmware_version: "2026.7.0",
+      _sleep: { sch_id: "x", end: "2026-01-06T07:30:00", stopped: false },
       state: {
         mode: "COOL",
         current_temperature: "24",
@@ -160,6 +161,7 @@ function buildMockSchedules() {
         mode: "COOL",
         temp: 21,
         power: "on",
+        sleep: { rise: 2, rise_hours: 2, wake_hours: 2, step: 0.5 },
       },
     ],
   };
@@ -424,6 +426,13 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
     },
   );
 
+  await t.test("an active sleep curve shows a moon on the tile; others don't", () => {
+    const tiles = [...window.document.querySelectorAll(".tile")];
+    const moon = 'M20 14.5A8';
+    assert.ok(tiles.find((x) => x.textContent.includes("Main LR")).innerHTML.includes(moon));
+    assert.ok(!tiles.find((x) => x.textContent.includes("Kitchen")).innerHTML.includes(moon));
+  });
+
   // ── Device detail view ───────────────────────────────────────
 
   $(".tile").dispatchEvent(new window.Event("click", { bubbles: true }));
@@ -638,6 +647,10 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
       assert.ok(!activeRow.textContent.includes("starts in"));
     },
   );
+
+  await t.test("a schedule with a sleep curve is tagged 🌙 with its drift", () => {
+    assert.ok(activeRow.textContent.includes("🌙 +2°"));
+  });
 
   await t.test(
     "overnight end_time countdown is correct (~1h), not thrown a week off by day-matching",

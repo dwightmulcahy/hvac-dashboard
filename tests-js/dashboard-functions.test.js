@@ -384,6 +384,75 @@ test("fmtActions lowercases the mode", () => {
   assert.equal(fns.fmtActions({ mode: "HEAT_COOL" }), "mode heat_cool");
 });
 
+test("fmtActions shows the sleep curve direction and size", () => {
+  const sleep = { rise: 2 };
+  assert.match(fns.fmtActions({ mode: "COOL", temp: 21, sleep }), /🌙 sleep \+2°C$/);
+  assert.match(fns.fmtActions({ mode: "HEAT", temp: 22, sleep }), /🌙 sleep −2°C$/);
+  assert.doesNotMatch(fns.fmtActions({ power: "off", sleep }), /sleep/);
+});
+
+// ── sleep curve preview (mirrors worker._sleep_target) ─────────
+
+const SLEEP_SCH = (over = {}) => ({
+  time: "21:00",
+  end_time: "07:30",
+  mode: "COOL",
+  temp: 21,
+  sleep: { rise: 2, rise_hours: 2, wake_hours: 2, step: 0.5, wake_temp: null },
+  ...over,
+});
+
+test("sleepCurvePoints: standard COOL curve key points", () => {
+  const pts = fns.sleepCurvePoints(SLEEP_SCH());
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(pts.map((p) => [p.at, p.temp]))), // vm-realm arrays
+    [
+      ["21:00", 21],
+      ["23:00", 23],
+      ["05:30", 23],
+      ["07:06", 21],
+      ["07:30", null],
+    ],
+  );
+});
+
+test("sleepCurvePoints: HEAT drifts cooler, wake temp honoured", () => {
+  const pts = fns.sleepCurvePoints(
+    SLEEP_SCH({ mode: "HEAT", temp: 22, sleep: { rise: 1, rise_hours: 1, wake_hours: 1, step: 0.5, wake_temp: 23 } }),
+  );
+  assert.equal(pts[1].temp, 21);
+  assert.equal(pts[3].temp, 23);
+});
+
+test("sleepCurvePoints: no end time / no temp → null", () => {
+  assert.equal(fns.sleepCurvePoints(SLEEP_SCH({ end_time: null })), null);
+  assert.equal(fns.sleepCurvePoints(SLEEP_SCH({ temp: null })), null);
+});
+
+test("sleepCurvePoints: ramps scale down in a short window", () => {
+  const pts = fns.sleepCurvePoints(SLEEP_SCH({ end_time: "23:00" }));
+  assert.equal(pts[1].at, "22:00");
+  assert.equal(pts[2].at, "22:00");
+});
+
+test("fmtSleepCurve: readable summary; zero return ramp holds to the end", () => {
+  assert.equal(
+    fns.fmtSleepCurve(SLEEP_SCH()),
+    "21:00 21.0°C → 23.0°C by 23:00 · hold to 05:30 → 21.0°C by 07:06 · off 07:30",
+  );
+  assert.equal(
+    fns.fmtSleepCurve(SLEEP_SCH({ sleep: { rise: 2, rise_hours: 2, wake_hours: 0, step: 0.5 } })),
+    "21:00 21.0°C → 23.0°C by 23:00 · hold · off 07:30",
+  );
+});
+
+test("sleepPresetName recognises presets, else custom", () => {
+  assert.equal(fns.sleepPresetName({ rise: 2, rise_hours: 2, wake_hours: 2, step: 0.5, wake_temp: null }), "standard");
+  assert.equal(fns.sleepPresetName({ rise: 1, rise_hours: 1, wake_hours: 1, step: 0.5 }), "gentle");
+  assert.equal(fns.sleepPresetName({ rise: 2, rise_hours: 2, wake_hours: 2, step: 1 }), "custom");
+  assert.equal(fns.sleepPresetName(null), null);
+});
+
 // ── nextFireMs / fmtNext ─────────────────────────────────────
 
 test("nextFireMs returns Infinity when the schedule has no matching days", () => {
