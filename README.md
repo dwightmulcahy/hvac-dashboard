@@ -361,7 +361,7 @@ git tag v1.2.0
 git push origin release --tags
 ```
 
-GitHub Actions builds multi-arch (`amd64` + `arm64`) images and pushes to Docker Hub with tags `latest`, `1.2.0`, `1.2`, `1`. Version is injected from the git tag via `APP_VERSION` build arg.
+GitHub Actions first verifies the tagged commit is on `release` and runs the full test suite (`tests.yml`), then builds multi-arch (`amd64` + `arm64`) images and pushes to Docker Hub with tags `1.2.0`, `1.2`, `1`, `latest`. The floating tags (`1.2`, `1`, `latest`) only move when the tag is a non-prerelease and the highest semver — a `-rc` or backport tag publishes only its exact version. Version is injected from the git tag via `APP_VERSION` build arg.
 
 Once the image is built, scanned, and pushed, the same workflow creates a [GitHub Release](../../releases) for the tag — this is also what makes tags show up as Releases in the sidebar rather than just tags. Its body is auto-generated from commit history by [git-cliff](https://git-cliff.org) (config: `cliff.toml`), grouping commits by type (Features, Bug Fixes, Dependencies, etc.) based on the [conventional commit](https://www.conventionalcommits.org) prefix — `feat:`, `fix:`, `docs:`, and so on — each commit was made with. `CHANGELOG.md` is the same content covering the full project history; it's a static file checked into the repo, not regenerated automatically on every release, so it'll need a manual `git-cliff -o CHANGELOG.md` + commit after tagging if you want it to stay current.
 

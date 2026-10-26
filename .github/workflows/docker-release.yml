@@ -5,9 +5,52 @@ on:
     tags:
       - 'v*.*.*'
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false   # never abort a half-published release
+
+permissions:
+  contents: read
+
 jobs:
+  verify:
+    name: Verify tag is on release
+    runs-on: ubuntu-latest
+    outputs:
+      is_latest: ${{ steps.meta.outputs.is_latest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # Release process (README) tags commits on the `release` branch.
+      - name: Tagged commit must be reachable from origin/release
+        run: |
+          git fetch origin release
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/release; then
+            echo "::error::$GITHUB_REF_NAME ($GITHUB_SHA) is not on release"; exit 1
+          fi
+      # `latest`, X and X.Y only move for a non-prerelease tag that is the
+      # highest semver — a backport or -rc tag must not overwrite them.
+      - id: meta
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          highest="$(git tag --list | sed -nE 's/^v?([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' | sort -V | tail -n 1)"
+          if [[ "$version" != *-* && "$version" == "$highest" ]]; then
+            echo "is_latest=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_latest=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  tests:
+    name: Full test suite
+    needs: verify
+    uses: ./.github/workflows/tests.yml
+    secrets: inherit
+
   build-and-push:
     name: Build and Push Docker Image
+    needs: [verify, tests]
     runs-on: ubuntu-latest
     permissions:
       contents: write          # actions/checkout, and creating the GitHub Release below
@@ -15,7 +58,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # git-cliff needs the full commit + tag history to build the
           # changelog — the default shallow checkout (depth 1) only has
@@ -24,10 +67,10 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v4
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -40,14 +83,16 @@ jobs:
 
       - name: Extract metadata (tags and labels)
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/hvac-dashboard
+          flavor: |
+            latest=false
           tags: |
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest
+            type=semver,pattern={{major}}.{{minor}},enable=${{ needs.verify.outputs.is_latest == 'true' }}
+            type=semver,pattern={{major}},enable=${{ needs.verify.outputs.is_latest == 'true' }}
+            type=raw,value=latest,enable=${{ needs.verify.outputs.is_latest == 'true' }}
 
       # Buildx can't `load:true` a multi-platform image locally, so
       # this release gate builds a single-platform (amd64) image
@@ -71,7 +116,7 @@ jobs:
       # both explicitly removes whatever buildx was attaching that
       # Trivy was preferring over its own filesystem scan.
       - name: Build image for security scan (amd64 only)
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           platforms: linux/amd64
@@ -93,7 +138,7 @@ jobs:
       # until upstream releases a fix. Failing on unfixable CVEs just
       # blocks every release indefinitely for no actionable reason.
       - name: Scan release image for vulnerabilities (Trivy)
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: hvac-dashboard:release-scan
           format: sarif
@@ -104,19 +149,17 @@ jobs:
           exit-code: "0"
 
       - name: Upload Trivy scan results to Security tab
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         if: always()
         continue-on-error: true
         with:
           sarif_file: trivy-results.sarif
 
       # This is the actual release gate — CRITICAL or HIGH severity
-      # findings block the push to Docker Hub. Unlike ci.yml (which
-      # only gates on CRITICAL to avoid flaky/noisy CI on every push),
-      # this workflow only runs on version tags, i.e. real releases,
-      # so it's held to a stricter bar.
+      # findings block the push to Docker Hub. ci.yml applies the same
+      # bar so a failing scan surfaces on push, not at release time.
       - name: Fail release on CRITICAL or HIGH vulnerabilities
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: hvac-dashboard:release-scan
           format: table
@@ -126,7 +169,7 @@ jobs:
           exit-code: "1"
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -154,7 +197,7 @@ jobs:
       # project uses alongside the standard conventional-commit ones).
       - name: Generate changelog for this release
         id: git-cliff
-        uses: orhun/git-cliff-action@v4
+        uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff # v4.9.1
         with:
           config: cliff.toml
           args: --latest --strip header
@@ -163,7 +206,7 @@ jobs:
           GITHUB_REPO: ${{ github.repository }}
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ steps.version.outputs.version }}
           name: ${{ steps.version.outputs.version }}

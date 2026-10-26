@@ -9,6 +9,14 @@ on:
     branches:
       - main
       - release
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   lint-and-build:
@@ -24,7 +32,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Extract Python version from Dockerfile
         id: pyver
@@ -34,13 +42,13 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ steps.pyver.outputs.version }}
           cache: "pip"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # provenance/sbom disabled — this build is scan-only (never
       # pushed), and buildx's attestation behavior with load:true has
@@ -49,7 +57,7 @@ jobs:
       # filesystem scan. See docker-release.yml's equivalent step for
       # the full writeup of the exact symptom this fixes.
       - name: Test Docker build
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           push: false
@@ -66,7 +74,7 @@ jobs:
       # until upstream releases a fix. Failing CI on unfixable CVEs
       # just blocks every build indefinitely for no actionable reason.
       - name: Scan image for vulnerabilities (Trivy)
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: hvac-dashboard:ci-test
           format: sarif
@@ -77,18 +85,19 @@ jobs:
           exit-code: "0"
 
       - name: Upload Trivy scan results to Security tab
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         if: always()
         continue-on-error: true
         with:
           sarif_file: trivy-results.sarif
 
-      - name: Fail build on CRITICAL vulnerabilities
-        uses: aquasecurity/trivy-action@v0.36.0
+      # Same gate as docker-release.yml, so CI fails before a release would.
+      - name: Fail build on CRITICAL/HIGH vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: hvac-dashboard:ci-test
           format: table
-          severity: CRITICAL
+          severity: CRITICAL,HIGH
           ignore-unfixed: true
           trivyignores: .trivyignore
           exit-code: "1"

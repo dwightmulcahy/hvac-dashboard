@@ -10,6 +10,9 @@ updates:
     labels:
       - "dependencies"
       - "python"
+    groups:
+      pip-minor-patch:
+        update-types: ["minor", "patch"]
     commit-message:
       prefix: "chore(deps)"
 
@@ -23,11 +26,43 @@ updates:
     labels:
       - "dependencies"
       - "ci"
+    groups:
+      actions:
+        patterns: ["*"]
     commit-message:
       prefix: "chore(ci)"
 
   # Docker base image (python:3.14-slim in the Dockerfile)
   - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "chore(docker)"
+
+  # Dev-only JS tooling (eslint, jsdom, prettier) in package.json
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "javascript"
+    groups:
+      npm-minor-patch:
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: "chore(deps)"
+
+  # Images referenced by docker-compose.yml
+  - package-ecosystem: "docker-compose"
     directory: "/"
     schedule:
       interval: "weekly"

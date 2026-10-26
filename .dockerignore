@@ -1,0 +1,12 @@
+# Allowlist: only what the Dockerfile COPYs. Keeps secrets, data/, tests,
+# firmware and node_modules out of the build context. Add a path here when
+# adding a COPY to the Dockerfile.
+*
+!requirements.txt
+!nginx.conf
+!supervisord.conf
+!frontend/hvac-dashboard.html
+!frontend/kiosk.html
+!*.py
+!routers/
+routers/__pycache__/
