@@ -2,6 +2,10 @@
 secrets.yaml
 *.secret
 .env
+.env.*
+!.env.example
+*.pem
+*.key
 
 # Python
 __pycache__/
@@ -15,12 +19,15 @@ venv/
 coverage.xml
 htmlcov/
 htmlReport/
+.pytest_cache/
+.ruff_cache/
 node_modules/
 
 # Data
 data/
 *.json
 !package.json
+!package-lock.json
 
 # OS
 .DS_Store
@@ -33,3 +40,6 @@ Thumbs.db
 
 # Docker
 *.tar.gz
+
+# Logs
+*.log
