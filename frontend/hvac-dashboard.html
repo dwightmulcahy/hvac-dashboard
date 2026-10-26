@@ -2327,9 +2327,10 @@ function renderIPList(){
     <div class="dev-hcell" title="Dongle firmware version (⬆ = older than this dashboard's firmware/packages/slwf-base.yaml)">FW</div>
     <div class="dev-hcell"></div>`;
   document.getElementById('ip-list').innerHTML=header+devices.map((d,i)=>`
-    <div class="irow" data-orig-host="${d.host}" data-idx="${i}" draggable="true"
-      ondragstart="dragStart(event,${i})" ondragover="dragOver(event)" ondrop="dragDrop(event,${i})" ondragend="dragEnd(event)">
-      <span class="dev-cell" title="Drag to reorder" style="cursor:grab;color:var(--text3);font-size:14px;user-select:none;text-align:center">⠿</span>
+    <div class="irow" data-orig-host="${d.host}" data-idx="${i}"
+      ondragover="dragOver(event)" ondrop="dragDrop(event,${i})">
+      <span class="dev-cell drag-handle" draggable="true" ondragstart="dragStart(event,${i})" ondragend="dragEnd(event)"
+        title="Drag to reorder" style="cursor:grab;color:var(--text3);font-size:14px;user-select:none;text-align:center">⠿</span>
       <input class="inp dev-cell" value="${d.name==='New unit'?'':d.name}" placeholder="Name"
         oninput="devices[${i}].name=this.value;setDeviceDirty(${i})"
         style="width:100%;font-size:12px">
@@ -2377,8 +2378,11 @@ let _dragIdx=null;
 
 function dragStart(e,i){
   _dragIdx=i;
+  // .irow is display:contents (no box), so the handle is the drag source;
+  // Firefox won't start a drag without setData.
   e.dataTransfer.effectAllowed='move';
-  e.currentTarget.classList.add('dragging');
+  e.dataTransfer.setData('text/plain',String(i));
+  e.currentTarget.closest('.irow').classList.add('dragging');
 }
 
 function dragOver(e){
@@ -2403,7 +2407,7 @@ function dragDrop(e,targetIdx){
 }
 
 function dragEnd(e){
-  e.currentTarget.classList.remove('dragging');
+  e.currentTarget.closest('.irow')?.classList.remove('dragging');
   _dragIdx=null;
 }
 
