@@ -196,13 +196,12 @@ jobs:
       # needs to know about a custom `improvement:` commit type this
       # project uses alongside the standard conventional-commit ones).
       - name: Generate conventional release notes
-        run: |
-          python3 scripts/standard_release_notes.py \
-            --tag "${GITHUB_REF_NAME}" \
-            --project-name "HVAC Dashboard" \
-            --image "dwightmulcahy/hvac-dashboard" \
-            --output release-notes.md
-
+        uses: dwightmulcahy/repo-template/.github/actions/release-notes@f3dc1af2146156866574485a20ded5ac35d08a88
+        with:
+          tag: "${GITHUB_REF_NAME}"
+          project-name: "HVAC Dashboard"
+          image: "dwightmulcahy/hvac-dashboard"
+          output: "release-notes.md"
       - name: Create GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
