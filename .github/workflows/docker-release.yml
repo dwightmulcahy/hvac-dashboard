@@ -198,7 +198,7 @@ jobs:
       - name: Generate conventional release notes
         uses: dwightmulcahy/repo-template/.github/actions/release-notes@f3dc1af2146156866574485a20ded5ac35d08a88
         with:
-          tag: "${GITHUB_REF_NAME}"
+          tag: ${{ github.ref_name }}
           project-name: "HVAC Dashboard"
           image: "dwightmulcahy/hvac-dashboard"
           output: "release-notes.md"
