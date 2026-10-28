@@ -18,6 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       is_latest: ${{ steps.meta.outputs.is_latest }}
+      publish_major: ${{ steps.meta.outputs.publish_major }}
+      publish_minor: ${{ steps.meta.outputs.publish_minor }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -30,12 +32,19 @@ jobs:
             echo "::error::$GITHUB_REF_NAME ($GITHUB_SHA) is not on release"; exit 1
           fi
       # `latest`, X and X.Y only move for a non-prerelease tag that is the
-      # highest semver — a backport or -rc tag must not overwrite them.
+      # highest stable semver in each alias scope; backports can update their line.
       - id: meta
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           highest="$(git tag --list | sed -nE 's/^v?([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' | sort -V | tail -n 1)"
+          stable_versions="$(git tag --list | sed -nE 's/^v?([0-9]+\.[0-9]+\.[0-9]+)$/\1/p')"
+          major="${version%%.*}"
+          minor="${version%.*}"
+          highest_major="$(printf '%s\n' "$stable_versions" | awk -F. -v m="$major" '$1==m' | sort -V | tail -n 1)"
+          highest_minor="$(printf '%s\n' "$stable_versions" | awk -F. -v m="$major" -v n="${minor#*.}" '$1==m && $2==n' | sort -V | tail -n 1)"
+          echo "publish_major=$([[ "$version" == "$highest_major" ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "publish_minor=$([[ "$version" == "$highest_minor" ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           if [[ "$version" != *-* && "$version" == "$highest" ]]; then
             echo "is_latest=true" >> "$GITHUB_OUTPUT"
           else
@@ -90,8 +99,8 @@ jobs:
             latest=false
           tags: |
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ needs.verify.outputs.is_latest == 'true' }}
-            type=semver,pattern={{major}},enable=${{ needs.verify.outputs.is_latest == 'true' }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ needs.verify.outputs.publish_minor == 'true' }}
+            type=semver,pattern={{major}},enable=${{ needs.verify.outputs.publish_major == 'true' }}
             type=raw,value=latest,enable=${{ needs.verify.outputs.is_latest == 'true' }}
 
       # Buildx can't `load:true` a multi-platform image locally, so
