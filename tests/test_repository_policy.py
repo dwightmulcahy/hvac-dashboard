@@ -32,7 +32,8 @@ def test_release_moves_floating_tags_only_for_latest_stable():
     wf = (WORKFLOWS / "docker-release.yml").read_text(encoding="utf-8")
     assert "latest=false" in wf
     assert "type=semver,pattern={{version}}" in wf
-    assert wf.count("enable=${{ needs.verify.outputs.is_latest == 'true' }}") == 3
+    for alias in ("publish_major", "publish_minor", "is_latest"):
+        assert wf.count(f"enable=${{{{ needs.verify.outputs.{alias} == 'true' }}}}") == 1
     assert "merge-base --is-ancestor" in wf
     assert "uses: ./.github/workflows/tests.yml" in wf
 
