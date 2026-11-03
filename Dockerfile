@@ -1,4 +1,4 @@
-FROM python:3.14-slim
+FROM python:3.15-slim
 # ^ ci.yml and tests.yml both extract this version number (via
 # `grep -oP '(?<=FROM python:)[0-9]+\.[0-9]+'`) to set up the same
 # Python version for linting/testing — keep this line's exact format
