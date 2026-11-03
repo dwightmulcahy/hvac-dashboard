@@ -2,7 +2,7 @@ fastapi>=0.162.0
 pydantic>=2.14.2
 uvicorn>=0.54.0
 httpx>=0.28.1
-python-multipart>=0.0.32
+python-multipart>=0.0.33
 
 # Not used directly — pulled in transitively by the packages above.
 # Pinned explicitly to force pip's resolver to a safe floor,
