@@ -22,7 +22,7 @@ ARG GIT_SHA=unknown
 #
 # `apt-get upgrade` runs first and separately from the install below:
 # util-linux and its related packages (libblkid1, libmount1, login,
-# mount, etc.) ship as part of the python:3.14-slim base image itself,
+# mount, etc.) ship as part of the python:3.15-slim base image itself,
 # not something this Dockerfile installs — `apt-get install nginx
 # supervisor curl` alone never touches already-installed packages, so
 # a Debian security fix for one of them (e.g. CVE-2026-53615) sits

@@ -1,7 +1,7 @@
 [tool.ruff]
 line-length = 120
-# Deliberately one version behind the Dockerfile's actual runtime
-# (python:3.14-slim, see Dockerfile line 1) rather than matching it
+# Deliberately behind the Dockerfile's actual runtime
+# (python:3.15-slim, see Dockerfile line 1) rather than matching it
 # exactly. ruff's target-version=py314 has a confirmed, currently-open
 # formatter bug (astral-sh/ruff#23090, #24041, #25901 — all still open
 # as of this writing): `ruff format` with target-version="py314"
@@ -11,7 +11,7 @@ line-length = 120
 # (maintenance_logic.py's `except (ValueError, TypeError):`), so this
 # isn't a theoretical concern for us specifically. py313 avoids the
 # bug entirely and changes nothing meaningful for *linting* this
-# codebase (it doesn't use anything exclusive to 3.14's new syntax).
+# codebase (it doesn't use anything exclusive to 3.14+ syntax).
 # Revisit once those upstream issues are closed.
 target-version = "py313"
 
