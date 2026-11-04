@@ -89,8 +89,8 @@ DEVICE_DEFAULTS = {
     "locked_target_temp": None,
     # gates IR-dependent features (display toggle, etc.) — most units don't have one soldered on
     "has_ir_emitter": False,
-    # KEEP: in COOL/HEAT, drop to FAN_ONLY once the room passes target, resume when it drifts back
-    "keep_mode": False,
+    # ECO AUTO: in COOL/HEAT, ECO on while the room is past target, off while short of it
+    "eco_auto": False,
     "_max_temp_active": False,
     "_pre_autocool_mode": None,
     "_pre_autocool_temp": None,
@@ -99,10 +99,7 @@ DEVICE_DEFAULTS = {
     "_stale": False,
     "_last_mode": None,
     "_last_active_mode": None,    # last non-OFF mode seen/sent — kiosk turns an OFF unit back on in this
-    "_keep_paused": False,         # True while KEEP has the unit in FAN_ONLY
-    "_keep_paused_at": None,       # epoch seconds, enforces the minimum fan-only time
-    "_keep_target": None,          # target °C captured at pause time
-    "_keep_resume_mode": None,     # COOL or HEAT — mode to return to
+    "_eco_auto_last": None,        # last ECO AUTO decision (True/False), acts only on change
     "_sleep": None,                # active sleep curve: {sch_id, start, end, mode, last, seen, stopped}
     "_away_snapshot": None,        # {mode, target_temperature} to restore when AWAY ends
     # ECO intent: True/False once the user or a schedule sets ECO, None = never
@@ -155,6 +152,19 @@ SCHEDULE_DEFAULTS = {
 # ── JSON state persistence ─────────────────────────────────
 
 
+_REMOVED_DEVICE_KEYS = ("_keep_paused", "_keep_paused_at", "_keep_target", "_keep_resume_mode", "eco_targets")
+
+
+def _migrate_device(d: dict):
+    """KEEP mode was replaced by ECO AUTO: a device that had KEEP on gets
+    ECO AUTO on. Also drops state of removed features."""
+    if "keep_mode" in d:
+        keep = d.pop("keep_mode")
+        d.setdefault("eco_auto", bool(keep))
+    for k in _REMOVED_DEVICE_KEYS:
+        d.pop(k, None)
+
+
 def _load_raw() -> dict:
     if not os.path.exists(DATA_FILE):
         log.info("No state file found — starting fresh")
@@ -166,6 +176,8 @@ def _load_raw() -> dict:
         for k, v in DEFAULT_STATE.items():
             if k not in data:
                 data[k] = json.loads(json.dumps(v))
+        for d in data.get("devices", []):
+            _migrate_device(d)
         return data
     except Exception:
         log.exception("Failed to load state — falling back to defaults")

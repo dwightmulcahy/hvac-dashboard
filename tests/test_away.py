@@ -1,7 +1,7 @@
 """AWAY mode: worker._away_on / _away_off and POST /away/{state}.
 
 On: snapshot every running unit's user-intended state (looking through the
-max-temp guard and KEEP), turn it off, hold schedules. Off: per unit, the
+max-temp guard), turn it off, hold schedules. Off: per unit, the
 latest schedule event inside the away window wins (start → its commands,
 end → OFF); otherwise the snapshot is restored. The guard keeps running.
 """
@@ -42,7 +42,7 @@ def _sch(host, time, end_time=None, days=(0, 1, 2, 3, 4, 5, 6), **kw):
 def sent(worker_module, mocker):
     calls = []
 
-    async def fake_cmd(host, params, *, keep=False):
+    async def fake_cmd(host, params):
         calls.append((host, params))
         return True
 
@@ -79,15 +79,6 @@ async def test_away_on_snapshots_pre_guard_state_and_releases_guard(worker_modul
 
 
 @pytest.mark.asyncio
-async def test_away_on_snapshots_keep_resume_mode(worker_module, sent, monkeypatch):
-    _freeze(monkeypatch, worker_module, 2026, 1, 5, 18, 0)
-    (a,) = _devices(worker_module, ("a", "FAN_ONLY", "25", {
-        "_keep_paused": True, "_keep_resume_mode": "COOL", "_keep_target": 23.0}))
-    await worker_module._away_on()
-    assert a["_away_snapshot"] == {"mode": "COOL", "target_temperature": 23.0}
-
-
-@pytest.mark.asyncio
 async def test_schedules_held_while_away(worker_module, sent, monkeypatch):
     _devices(worker_module, ("a", "OFF", "24", {}))
     worker_module._state["schedules"] = [_sch("a", "19:00")]
@@ -114,13 +105,14 @@ async def test_away_off_restores_snapshot(worker_module, sent, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_away_off_eco_wanted_presses_eco_not_temp(worker_module, sent, monkeypatch):
+async def test_away_off_eco_wanted_restores_temp_then_eco(worker_module, sent, monkeypatch):
+    """ECO doesn't override the setpoint, so the snapshot temp is restored too."""
     _freeze(monkeypatch, worker_module, 2026, 1, 5, 18, 0)
     _devices(worker_module, ("a", "COOL", "24", {"eco_wanted": True}))
     await worker_module._away_on()
     sent.clear()
     await worker_module._away_off()
-    assert sent == [("a", {"mode": "COOL"}), ("a", {"eco": "on"})]
+    assert sent == [("a", {"mode": "COOL"}), ("a", {"target_temperature": 24.0}), ("a", {"eco": "on"})]
 
 
 @pytest.mark.asyncio

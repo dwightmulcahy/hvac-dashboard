@@ -1,8 +1,8 @@
 "use strict";
 /**
- * hvac-dashboard.html unit tile: KEEP indicator lives in the mode bar's fan
- * segment (not a header badge that crowded the name/temp controls), and the
- * footer shows only "fw <version>" with details in the tooltip.
+ * hvac-dashboard.html unit tile: plain mode bar (KEEP removed), ECO doesn't
+ * relabel the target, and the footer shows only "fw <version>" with details
+ * in the tooltip.
  */
 
 const test = require("node:test");
@@ -27,10 +27,7 @@ const DEVICE = {
   lock_temp: false,
   locked_target_temp: null,
   watchdog_minutes: 5,
-  keep_mode: true,
-  _keep_paused: true,
-  _keep_target: 25,
-  _keep_resume_mode: "COOL",
+  eco_auto: true,
   _max_temp_active: false,
   _retry_queue: [],
   _consecutive_failures: 0,
@@ -57,8 +54,7 @@ const OFF_DEVICE = {
   host: "ac2.local",
   name: "A Very Long Bedroom Name",
   beeper: "ON",
-  keep_mode: false,
-  _keep_paused: false,
+  eco_auto: false,
   lock_temp: true,
   locked_target_temp: 23,
   state: { ...DEVICE.state, mode: "OFF", target_temperature: 23, eco: true },
@@ -99,21 +95,15 @@ test("dashboard unit tile: KEEP in mode bar, compact firmware line", async (t) =
 
   await t.test("tile rendered", () => assert.ok(tile, "tile-0 missing"));
 
-  await t.test("fan segment reads '⏸ keep' with a KEEP tooltip", () => {
+  await t.test("fan segment is a plain mode button (no KEEP)", () => {
     const fanBtn = [...tile.querySelectorAll("button")].find(
       (b) => b.getAttribute("onclick") === "setMode(0,'FAN_ONLY')",
     );
     assert.ok(fanBtn);
-    assert.equal(fanBtn.textContent.trim(), "⏸ keep");
-    assert.match(fanBtn.getAttribute("title"), /KEEP: target 25°C reached/);
-  });
-
-  await t.test("no separate keep badge in the tile header", () => {
-    const keepSpans = [...tile.querySelectorAll("span")].filter(
-      (s) => s.textContent.trim() === "⏸ keep",
-    );
-    assert.equal(keepSpans.length, 1, "only the mode-bar label");
-    assert.ok(keepSpans[0].closest("button"));
+    assert.doesNotMatch(fanBtn.textContent, /keep/i);
+    assert.equal(fanBtn.getAttribute("title"), null);
+    assert.equal(window.keepActive, undefined);
+    assert.doesNotMatch(tile.getAttribute("style"), /--keep/);
   });
 
   await t.test("footer shows 'fw 1.1.0' only; build details in tooltip", () => {
@@ -204,71 +194,33 @@ test("dashboard unit tile: KEEP in mode bar, compact firmware line", async (t) =
     },
   );
 
-  // ── KEEP highlight follows the actual mode ──
-
   await t.test(
-    "turning a KEEP-paused unit off drops the KEEP highlight",
-    async () => {
-      window.fetch = async (url) => {
-        const u = String(url);
-        if (u.includes("/cmd")) return ok({ ok: true });
-        return mockFetch(url);
-      };
-      await window.togglePower(0);
-      await wait(20);
-      const t0 = window.document.querySelector("#tile-0");
-      assert.doesNotMatch(t0.getAttribute("style"), /--keep/);
-      assert.ok(!t0.textContent.includes("⏸ keep"));
-    },
-  );
-
-  await t.test(
-    "stale _keep_paused alone (unit not in fan) is not highlighted",
-    () => {
-      assert.equal(
-        window.keepActive({ _keep_paused: true, state: { mode: "OFF" } }),
-        false,
-      );
-      assert.equal(
-        window.keepActive({ _keep_paused: true, state: { mode: "COOL" } }),
-        false,
-      );
-      assert.equal(
-        window.keepActive({ _keep_paused: true, state: { mode: "FAN_ONLY" } }),
-        true,
-      );
-    },
-  );
-
-  await t.test(
-    "ECO on: target shown as ECO setpoint, +/− warn it turns ECO off",
+    "ECO on: target shown as the plain setpoint, +/− carry no ECO warning",
     async () => {
       window.eval(
         "devices[1].state.mode='COOL';devices[1].state.eco=true;devices[1].eco_wanted=true;renderUnits();",
       );
       const t1 = window.document.querySelector("#tile-1");
       const tdisp = t1.querySelector(".tdisp");
-      assert.match(tdisp.textContent, /^ECO/);
-      assert.match(tdisp.innerHTML, /var\(--eco\)/);
+      assert.doesNotMatch(tdisp.textContent, /ECO/);
+      assert.doesNotMatch(tdisp.innerHTML, /var\(--eco\)/);
       const plus = [...t1.querySelectorAll("button")].find(
         (b) => b.getAttribute("onclick") === "adjustTemp(1,1)",
       );
-      assert.match(plus.getAttribute("title"), /turns ECO off/);
+      assert.equal(plus.getAttribute("title"), null);
     },
   );
 
-  await t.test("schedule modal warns when Temp and ECO On are both set", () => {
-    window.openScheduleModal(null);
-    const $id = (x) => window.document.getElementById(x);
-    $id("sch-temp-en").checked = true;
-    $id("sch-eco-en").checked = true;
-    $id("sch-eco").value = "on";
-    window.updateSchEcoHint();
-    assert.equal($id("sch-eco-hint").style.display, "block");
-    $id("sch-eco").value = "off";
-    window.updateSchEcoHint();
-    assert.equal($id("sch-eco-hint").style.display, "none");
-    window.closeSchModal();
+  await t.test("schedule modal has no Temp + ECO On warning", () => {
+    assert.equal(window.document.getElementById("sch-eco-hint"), null);
+    assert.equal(window.updateSchEcoHint, undefined);
+  });
+
+  await t.test("adjusting temp keeps ECO intent", async () => {
+    window.eval("devices[1].eco_wanted=true;");
+    window.fetch = async (url) => (String(url).includes("/cmd") ? ok({ ok: true }) : mockFetch(url));
+    window.adjustTemp(1, 1);
+    assert.equal(window.eval("devices[1].eco_wanted"), true);
   });
 
   window.close();

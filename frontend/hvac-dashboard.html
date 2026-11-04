@@ -15,7 +15,7 @@
   --auto:#a855f7;--auto-bg:#3b1f5e;
   --fan:#10b981;--fan-bg:#0d3728;
   --dry:#ec4899;--dry-bg:#4a1030;
-  --ok:#22c55e;--warn:#f59e0b;--err:#ef4444;--keep:#84cc16;--eco:#4ade80;--eco-bg:#14301f;
+  --ok:#22c55e;--warn:#f59e0b;--err:#ef4444;--eco:#4ade80;--eco-bg:#14301f;
   --r:10px;--rl:14px;
 }
 :root.light{
@@ -27,7 +27,7 @@
   --auto:#9333ea;--auto-bg:#f3e8ff;
   --fan:#059669;--fan-bg:#d1fae5;
   --dry:#db2777;--dry-bg:#fce7f3;
-  --ok:#16a34a;--warn:#d97706;--err:#dc2626;--keep:#4d7c0f;--eco:#15803d;--eco-bg:#dcfce7;
+  --ok:#16a34a;--warn:#d97706;--err:#dc2626;--eco:#15803d;--eco-bg:#dcfce7;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:24px 20px;max-width:960px;margin:0 auto}
@@ -637,12 +637,11 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
       <div style="display:flex;align-items:center;gap:8px;font-size:13px" title="Unit's built-in ECO preset. Sent after mode/temp; ignored when the schedule powers the unit off.">
         <input type="checkbox" id="sch-eco-en">
         <label for="sch-eco-en">🌿 ECO</label>
-        <select id="sch-eco" class="inp" style="margin-left:4px" onchange="updateSchEcoHint()">
+        <select id="sch-eco" class="inp" style="margin-left:4px">
           <option value="on">On</option>
           <option value="off">Off</option>
         </select>
       </div>
-      <div id="sch-eco-hint" style="display:none;font-size:11px;color:var(--warn);margin:-2px 0 0 24px">⚠ ECO sets the unit to its own temperature — the Temp above will be overridden.</div>
       <div style="display:flex;align-items:center;gap:8px;font-size:13px" title="Overnight curve: the setpoint drifts warmer (cool) or cooler (heat) after the start, holds, then returns before the end time. Needs Mode cool/heat, a Temp and an end time. Any manual temp/mode change stops it for that night.">
         <input type="checkbox" id="sch-sleep-en" onchange="updateSchSleepUI()">
         <label for="sch-sleep-en">🌙 Sleep curve</label>
@@ -1490,7 +1489,7 @@ async function saveDeviceToAPI(d){
       body:JSON.stringify({host:d.host,name:d.name,btu:d.btu||24000,seer:d.seer||20,
         max_temp:d.maxTemp||null,beeper:d.beeper||'OFF',watchdog_minutes:d.watchdog_minutes||5,
         lock_temp:d.lock_temp||false,locked_target_temp:d.locked_target_temp||null,
-        has_ir_emitter:d.has_ir_emitter||false,keep_mode:d.keep_mode||false})
+        has_ir_emitter:d.has_ir_emitter||false,eco_auto:d.eco_auto||false})
     });
   }catch(_){}
 }
@@ -1859,7 +1858,7 @@ async function pollAll(){
 async function setMode(i,mode){
   if(_authRole==='viewer'){addLog('Read-only access — cannot change mode','warn');return;}
   await withBusy(i,async d=>{
-    try{await sendCmd(d.host,{mode});d.state.mode=mode;d._keep_paused=false;addLog(`${d.name}: mode → ${mode}`,'ok');}
+    try{await sendCmd(d.host,{mode});d.state.mode=mode;addLog(`${d.name}: mode → ${mode}`,'ok');}
     catch(e){addLog(`${d.name}: mode failed — ${e.message}`,'err');}
   });
 }
@@ -1878,8 +1877,6 @@ async function adjustTemp(i,delta){
   const maxT=safeFloat(d.state.max_temp)||30;
   const next=Math.round((Math.min(maxT,Math.max(minT,base+delta*step)))/step)*step;
   pendingTemps[i]=next;
-  // an explicit temp turns ECO off (the backend clears eco_wanted; ECO would override it)
-  if(d.eco_wanted===true)d.eco_wanted=false;
   // optimistic display immediately
   d.state.target_temperature=String(next);
   renderUnits();updateSummary();
@@ -1925,7 +1922,6 @@ async function togglePower(i){
     const mode=on?'OFF':(d.state?._prev||'COOL');
     try{
       await sendCmd(d.host,{mode});
-      d._keep_paused=false; // backend cancels KEEP on any user mode change
       if(!on&&d.state)d.state._prev=d.state.mode;
       d.state.mode=mode;
       addLog(`${d.name}: ${on?'turned off':'turned on'}`,'ok');
@@ -2008,22 +2004,17 @@ async function toggleLockTemp(i){
 
 // Unit's built-in ECO preset — set via the firmware's eco_on/eco_off
 // buttons; state from the eco_status text sensor (ds.eco), else climate preset.
-// KEEP only counts while the unit is actually in fan-only. The backend clears
-// _keep_paused on any other mode change, but the local copy can lag until the
-// next /devices refresh — so never highlight an OFF/COOL/HEAT unit as KEEP.
 // Dongle HTTP latency (worker._latency_summary, last 50 requests) for tooltips.
 function latencyLabel(s){
   if(!s||s.http_ms_avg==null)return'';
   return ` · ${s.http_ms_avg}ms avg / ${s.http_ms_max}ms max${s.http_fail?` · ${s.http_fail}/${s.http_requests} failed`:''}`;
 }
 
-function keepActive(d){return !!d?._keep_paused&&d?.state?.mode==='FAN_ONLY';}
 
 function isEcoPreset(s){return s?.eco!=null?!!s.eco:String(s?.preset||'').toUpperCase()==='ECO';}
 // ECO as the user sees it: the backend keeps re-applying ECO while eco_wanted
-// is true (the unit drops it on mode/temp changes and can't hold it while off
-// or in KEEP's fan-only pause). 'on' = active now, 'armed' = wanted but not
-// currently applied, 'off'. Devices never toggled (eco_wanted null) follow the unit.
+// is true (the unit drops it on mode/temp changes and can't hold it while off).
+// 'on' = active now, 'armed' = wanted but not currently applied, 'off'. Devices never toggled (eco_wanted null) follow the unit.
 function ecoState(d){
   const active=isEcoPreset(d?.state);
   const wanted=d?.eco_wanted==null?active:d.eco_wanted===true;
@@ -2323,7 +2314,7 @@ function renderIPList(){
     <div class="dev-hcell">SEER</div>
     <div class="dev-hcell">Max${tempUnitLabel()}</div>
     <div class="dev-hcell" title="Has IR emitter — unlocks display toggle and swing step on the tile">IR</div>
-    <div class="dev-hcell" title="KEEP — in COOL/HEAT, switch to fan only once the room is 0.5°C past target, back to COOL/HEAT when it drifts 0.5°C back">Keep</div>
+    <div class="dev-hcell" title="ECO AUTO — in COOL/HEAT, ECO on while the room is past target (cooler in COOL, warmer in HEAT), off while it's short of target">Eco auto</div>
     <div class="dev-hcell" title="Dongle firmware version (⬆ = older than this dashboard's firmware/packages/slwf-base.yaml)">FW</div>
     <div class="dev-hcell"></div>`;
   document.getElementById('ip-list').innerHTML=header+devices.map((d,i)=>`
@@ -2353,8 +2344,8 @@ function renderIPList(){
           style="width:16px;height:16px;cursor:pointer">
       </div>
       <div class="dev-cell" style="display:flex;justify-content:center">
-        <input type="checkbox" ${d.keep_mode?'checked':''} onchange="toggleKeepMode(${i})"
-          title="KEEP — in COOL/HEAT, switch to fan only once the room is 0.5°C past target, back to COOL/HEAT when it drifts 0.5°C back"
+        <input type="checkbox" ${d.eco_auto?'checked':''} onchange="toggleEcoAuto(${i})"
+          title="ECO AUTO — in COOL/HEAT, ECO on while the room is past target (cooler in COOL, warmer in HEAT), off while it's short of target"
           style="width:16px;height:16px;cursor:pointer">
       </div>
       <div class="dev-cell" style="font-size:10px;font-family:'DM Mono',monospace;text-align:center;white-space:nowrap;overflow:hidden">${fwHtml(d.state,true)}</div>
@@ -2426,7 +2417,7 @@ async function saveDeviceRow(i){
     seer:d.seer||20,max_temp:d.maxTemp||null,
     beeper:d.beeper||'OFF',watchdog_minutes:d.watchdog_minutes||5,
     lock_temp:d.lock_temp||false,locked_target_temp:d.locked_target_temp||null,
-    has_ir_emitter:d.has_ir_emitter||false,keep_mode:d.keep_mode||false};
+    has_ir_emitter:d.has_ir_emitter||false,eco_auto:d.eco_auto||false};
 
   try{
     if(hostChanged){
@@ -2465,7 +2456,7 @@ function renderUnits(){
 
   devices.forEach((d,i)=>{
     const tileId=`tile-${i}`;
-    const stateKey=`${d.state?.mode}|${d.state?.target_temperature}|${d.state?.current_temperature}|${d.extras?.outdoor_temp?.value}|${d.busy}|${d.stale}|${d.lock_temp}|${d.retry_queue_depth}|${d.consecutive_failures}|${d._maintenanceOverdue}|${ecoState(d)}|${d.extras?.beeper?.value}|${keepActive(d)}|${d.state?.firmware_version}|${d.state?.firmware_outdated}|${!!(d._sleep&&!d._sleep.stopped)}`;
+    const stateKey=`${d.state?.mode}|${d.state?.target_temperature}|${d.state?.current_temperature}|${d.extras?.outdoor_temp?.value}|${d.busy}|${d.stale}|${d.lock_temp}|${d.retry_queue_depth}|${d.consecutive_failures}|${d._maintenanceOverdue}|${ecoState(d)}|${d.extras?.beeper?.value}|${d.eco_auto}|${d.state?.firmware_version}|${d.state?.firmware_outdated}|${!!(d._sleep&&!d._sleep.stopped)}`;
     let tile=document.getElementById(tileId);
 
     if(!tile){
@@ -2517,7 +2508,7 @@ function buildTileHTML(d,i){
     const dis=(!on||busy||readOnly)?'disabled':'';
     const busyOrRO=(busy||readOnly)?'disabled':'';
     const x=d.extras||{};
-    return`<div id="tile-${i}" data-state-key="${stateKey}" class="tile ${on?'tile-on':''}" style="${d.stale?'border-color:var(--warn)':keepActive(d)?'border-color:var(--keep)':''}${readOnly?';opacity:0.85':''}">
+    return`<div id="tile-${i}" data-state-key="${stateKey}" class="tile ${on?'tile-on':''}" style="${d.stale?'border-color:var(--warn)':''}${readOnly?';opacity:0.85':''}">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:8px">
         <div style="display:flex;align-items:center;gap:6px;min-width:0;flex:1">
           <span class="dot ${on?'d-on':'d-off'}" style="flex-shrink:0"></span>
@@ -2533,9 +2524,9 @@ function buildTileHTML(d,i){
           ${d._maintenanceOverdue?`<span style="font-size:10px;color:var(--err);cursor:pointer;flex-shrink:0" title="Maintenance overdue — click for details" onclick="openSettings('maintenance')">🔧⚠</span>`:''}
         </div>
         <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;position:relative">
-          ${readOnly?'':`<button class="btn bico" onclick="adjustTemp(${i},-1)" ${dis} ${ecoState(d)==='on'?'title="Changing the temperature turns ECO off"':''} style="width:24px;height:24px">−</button>`}
-          <div class="tdisp" style="line-height:1.2;text-align:center">${on&&s.target_temperature!=null&&ecoState(d)==='on'?`<span title="ECO setpoint — chosen by the unit. Changing the temperature turns ECO off." style="color:var(--eco)"><span style="font-size:9px;font-weight:600;letter-spacing:.04em;vertical-align:top;margin-right:3px">ECO</span>${fmtTemp(s.target_temperature)}</span>`:on&&s.target_temperature!=null?fmtTemp(s.target_temperature):keepActive(d)&&d._keep_target!=null?`<span style="color:var(--keep)">${fmtTemp(d._keep_target)}</span>`:s.target_temperature!=null?`<span style="color:var(--text3)" title="Target when turned on">${fmtTemp(s.target_temperature)}</span>`:'<span style="color:var(--text3)">—</span>'}</div>
-          ${readOnly?'':`<button class="btn bico" onclick="adjustTemp(${i},1)" ${dis} ${ecoState(d)==='on'?'title="Changing the temperature turns ECO off"':''} style="width:24px;height:24px">+</button>`}
+          ${readOnly?'':`<button class="btn bico" onclick="adjustTemp(${i},-1)" ${dis} style="width:24px;height:24px">−</button>`}
+          <div class="tdisp" style="line-height:1.2;text-align:center">${on&&s.target_temperature!=null?fmtTemp(s.target_temperature):s.target_temperature!=null?`<span style="color:var(--text3)" title="Target when turned on">${fmtTemp(s.target_temperature)}</span>`:'<span style="color:var(--text3)">—</span>'}</div>
+          ${readOnly?'':`<button class="btn bico" onclick="adjustTemp(${i},1)" ${dis} style="width:24px;height:24px">+</button>`}
           ${readOnly?'':`<button class="btn bico" onclick="toggleTileMenu(${i},event)" ${busy?'disabled':''} title="More" style="width:24px;height:24px;font-size:11px">⋯</button>
           <div class="tile-menu" id="tile-menu-${i}">
             ${x.beeper!==undefined?`<div class="menu-item" onclick="closeTileMenus();toggleBeeper(${i})"><span class="ck">${x.beeper?.value==='ON'?'✓':''}</span>🔔 Beeper</div>`:''}
@@ -2551,7 +2542,7 @@ function buildTileHTML(d,i){
         </div>
       </div>
       <div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:8px">
-        ${MODES.map(m=>`<button onclick="setMode(${i},'${m}')" ${busyOrRO?'disabled':''} style="flex:1;padding:3px 0;font-size:10px;border:none;border-right:1px solid var(--border);cursor:pointer;transition:all .15s;background:${s.mode===m?`var(--${m==='COOL'?'cool':m==='HEAT'?'heat':m==='HEAT_COOL'?'auto':m==='FAN_ONLY'?'fan':'dry'}-bg)`:'transparent'};color:${s.mode===m?`var(--${m==='COOL'?'cool':m==='HEAT'?'heat':m==='HEAT_COOL'?'auto':m==='FAN_ONLY'?'fan':'dry'})`:'var(--text3)'};font-weight:${s.mode===m?'600':'400'}" ${busy||readOnly||(!on&&m!==s.mode)?'disabled':''} ${keepActive(d)&&m==='FAN_ONLY'?`title="KEEP: target ${d._keep_target}°C reached — fan only until the room drifts 0.5°C back, then ${String(d._keep_resume_mode||'').toLowerCase()}"`:''}>${keepActive(d)&&m==='FAN_ONLY'?'<span style="color:var(--keep)">⏸ keep</span>':MODE_LABEL[m]}</button>`).join('')}
+        ${MODES.map(m=>`<button onclick="setMode(${i},'${m}')" ${busyOrRO?'disabled':''} style="flex:1;padding:3px 0;font-size:10px;border:none;border-right:1px solid var(--border);cursor:pointer;transition:all .15s;background:${s.mode===m?`var(--${m==='COOL'?'cool':m==='HEAT'?'heat':m==='HEAT_COOL'?'auto':m==='FAN_ONLY'?'fan':'dry'}-bg)`:'transparent'};color:${s.mode===m?`var(--${m==='COOL'?'cool':m==='HEAT'?'heat':m==='HEAT_COOL'?'auto':m==='FAN_ONLY'?'fan':'dry'})`:'var(--text3)'};font-weight:${s.mode===m?'600':'400'}" ${busy||readOnly||(!on&&m!==s.mode)?'disabled':''}>${MODE_LABEL[m]}</button>`).join('')}
         ${(()=>{const e=ecoState(d);return`<button class="eco-seg" data-eco="${e}" onclick="toggleEco(${i})" ${busy||readOnly?'disabled':''} title="${e==='on'?'ECO on':e==='armed'?'ECO armed — re-enables automatically when the unit runs (it drops ECO when off, in fan, or after a mode/temp change)':'ECO off'}${readOnly?'':' — tap to toggle'}"
           style="flex:0 0 30px;padding:3px 0;font-size:11px;border:none;cursor:pointer;transition:all .15s;background:${e==='on'?'var(--eco-bg)':'transparent'};opacity:${e==='on'?1:e==='armed'?0.7:0.45};filter:${e==='off'?'grayscale(1)':'none'};${e==='armed'?'outline:1px dashed var(--eco);outline-offset:-3px;':''}">🌿</button>`;})()}
       </div>
@@ -2831,11 +2822,11 @@ async function otaDevice(i){
   input.click();
 }
 
-function toggleKeepMode(i){
+function toggleEcoAuto(i){
   const d=devices[i];
-  d.keep_mode=!d.keep_mode;
+  d.eco_auto=!d.eco_auto;
   saveDeviceToAPI(d);
-  addLog(`${d.name}: KEEP ${d.keep_mode?'enabled':'disabled'}`,'info');
+  addLog(`${d.name}: ECO AUTO ${d.eco_auto?'enabled':'disabled'}`,'info');
   renderIPList();
 }
 
@@ -3607,7 +3598,6 @@ function openScheduleModal(idx=null){
     loadSchSleepFields(null);
   }
   modal.style.display='flex';
-  updateSchEcoHint();
   updateSchSleepUI();
 }
 
@@ -3616,13 +3606,6 @@ function selectDays(preset){
   const days=map[preset]||[];
   document.querySelectorAll('.dbtn').forEach(b=>b.classList.toggle('on',days.includes(+b.dataset.d)));
 }
-
-function updateSchEcoHint(){
-  const on=id=>document.getElementById(id)?.checked;
-  const h=document.getElementById('sch-eco-hint');
-  if(h)h.style.display=on('sch-temp-en')&&on('sch-eco-en')&&document.getElementById('sch-eco')?.value==='on'?'block':'none';
-}
-document.addEventListener('change',e=>{if(['sch-temp-en','sch-eco-en'].includes(e.target?.id))updateSchEcoHint();});
 
 function loadSchSleepFields(cfg){
   const el=id=>document.getElementById(id);
@@ -3657,7 +3640,6 @@ function schSleepProblem(){
   if(!on('sch-mode-en')||!['COOL','HEAT'].includes(mode))return'needs Mode cool or heat';
   if(!on('sch-temp-en'))return'needs a Temp';
   if(on('sch-power-en')&&document.getElementById('sch-power').value==='off')return"can't be used with Power off";
-  if(on('sch-eco-en')&&document.getElementById('sch-eco').value==='on')return"can't be combined with ECO on";
   return null;
 }
 function updateSchSleepUI(){

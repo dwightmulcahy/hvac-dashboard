@@ -4,7 +4,7 @@ import datetime
 
 from fastapi import APIRouter
 
-from state import DEVICE_DEFAULTS, _add_log, _load_raw, _lock, _now_iso, _save_raw, _state
+from state import DEVICE_DEFAULTS, _add_log, _load_raw, _lock, _migrate_device, _now_iso, _save_raw, _state
 from worker import _fetch_exchange_rate
 
 router = APIRouter(tags=["settings"])
@@ -64,6 +64,7 @@ async def restore(data: dict):
     async with _lock:
         if "devices" in data:
             for cfg in data["devices"]:
+                _migrate_device(cfg)
                 existing = next((d for d in _state["devices"] if d["host"] == cfg.get("host")), None)
                 if existing:
                     existing.update(cfg)

@@ -104,7 +104,7 @@ def _device(worker_module, **kw):
 def sent(worker_module, mocker):
     calls = []
 
-    async def fake(host, params, *, keep=False):
+    async def fake(host, params):
         calls.append(params)
         return True
     mocker.patch.object(worker_module, "_send_cmd", side_effect=fake)
@@ -178,19 +178,6 @@ async def test_mode_not_yet_seen_does_not_stop(worker_module, sent, monkeypatch)
     assert sent == []
 
 
-@pytest.mark.asyncio
-async def test_keep_paused_updates_keep_target(worker_module, sent, monkeypatch):
-    d = _device(worker_module, _keep_paused=True, _keep_resume_mode="COOL", _keep_target=21.0)
-    worker_module._state["device_state"]["ac1.local"]["mode"] = "FAN_ONLY"
-    _start(worker_module, d, _sch())
-    _freeze(monkeypatch, worker_module, D(2026, 1, 5, 22, 0))
-    await worker_module._check_sleep_curve(d)
-    assert sent == []
-    assert d["_keep_target"] == 22.0
-    assert d["_sleep"]["stopped"] is False
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("extra", [{"lock_temp": True}, {"_max_temp_active": True}])
 async def test_skipped_while_lock_or_guard(worker_module, sent, monkeypatch, extra):
     d = _device(worker_module, **extra)
@@ -298,9 +285,15 @@ def test_schedule_with_sleep_saves(client, auth_headers, api_module):
 
 
 @pytest.mark.parametrize("bad", [
-    {"end_time": None}, {"mode": "FAN_ONLY"}, {"temp": None}, {"power": "off"}, {"eco": "on"},
+    {"end_time": None}, {"mode": "FAN_ONLY"}, {"temp": None}, {"power": "off"},
     {"sleep": {"rise": 5}}, {"sleep": {"step": 0.25}},
 ])
 def test_schedule_sleep_validation(client, auth_headers, bad):
     r = client.post("/schedules", json=_payload(**bad), headers=auth_headers)
     assert r.status_code == 422
+
+
+def test_schedule_sleep_with_eco_on_accepted(client, auth_headers):
+    """ECO doesn't override the setpoint, so a sleep curve can run with ECO on."""
+    r = client.post("/schedules", json=_payload(eco="on"), headers=auth_headers)
+    assert r.status_code == 200 and r.json()["ok"]

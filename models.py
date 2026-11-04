@@ -19,7 +19,7 @@ class DeviceConfig(BaseModel):
     lock_temp: bool = False
     locked_target_temp: float | None = None
     has_ir_emitter: bool = False
-    keep_mode: bool = False
+    eco_auto: bool = False
 
 
 class CommandPayload(BaseModel):
@@ -77,6 +77,4 @@ class ScheduleConfig(BaseModel):
             raise ValueError("sleep curve needs an end time")
         if self.mode not in ("COOL", "HEAT") or self.temp is None or self.power == "off":
             raise ValueError("sleep curve needs mode COOL or HEAT and a temperature")
-        if self.eco == "on":
-            raise ValueError("sleep curve can't be combined with ECO on (ECO forces its own setpoint)")
         return self

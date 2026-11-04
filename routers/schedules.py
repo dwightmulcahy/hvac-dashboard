@@ -33,21 +33,6 @@ def _detect_schedule_conflicts(new_sch: dict, exclude_id: str = None) -> list:
     return conflicts
 
 
-def _schedule_warnings(sch: dict) -> list:
-    """Non-blocking advice about a schedule's actions."""
-    warnings = []
-    if sch.get("temp") is not None and sch.get("eco") == "on" and sch.get("power") != "off":
-        device = next((d for d in _state["devices"] if d["host"] == sch.get("device_host")), {})
-        mode = sch.get("mode") or _state["device_state"].get(sch.get("device_host"), {}).get("mode") or "COOL"
-        eco_tgt = (device.get("eco_targets") or {}).get(mode)
-        what = f"{eco_tgt:g}°C" if eco_tgt is not None else "its own setpoint"
-        warnings.append(
-            f"{sch.get('device_name') or sch.get('device_host')} @ {sch.get('time')}: ECO sets the unit to {what} "
-            f"— the schedule's {sch['temp']:g}°C will be overridden"
-        )
-    return warnings
-
-
 @router.get("/schedules")
 async def get_schedules():
     return {"schedules": _state["schedules"]}
@@ -64,7 +49,7 @@ async def add_schedule(cfg: ScheduleConfig):
     _state["schedules"].append(sch)
     async with _lock:
         _save_raw(_state)
-    return {"ok": True, "id": sch["id"], "warnings": conflicts + _schedule_warnings(sch)}
+    return {"ok": True, "id": sch["id"], "warnings": conflicts}
 
 
 @router.put("/schedules/{sch_id}")
@@ -80,7 +65,7 @@ async def update_schedule(sch_id: str, cfg: ScheduleConfig):
             _add_log(f"⚠ Schedule conflict: {c}", "warn")
     async with _lock:
         _save_raw(_state)
-    return {"ok": True, "warnings": conflicts + _schedule_warnings(sch)}
+    return {"ok": True, "warnings": conflicts}
 
 
 @router.delete("/schedules/{sch_id}")
