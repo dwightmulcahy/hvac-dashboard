@@ -22,6 +22,16 @@ def test_root_status_git_sha_truncated_to_short_form(client, monkeypatch):
     assert r.json()["git_sha"] == "a1b2c3d"
 
 
+def test_root_status_reports_build_info(client, monkeypatch):
+    sha = "a1b2c3d4e5f6789012345678901234567890abcd"
+    monkeypatch.setenv("GIT_SHA", sha)
+    body = client.get("/").json()
+    assert body["git_sha_full"] == sha
+    assert body["python"].count(".") == 2
+    assert body["started_at"]
+    assert isinstance(body["uptime_s"], int) and body["uptime_s"] >= 0
+
+
 def test_health_endpoint_with_no_devices(client):
     r = client.get("/health")
     assert r.status_code == 200

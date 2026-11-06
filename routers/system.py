@@ -4,6 +4,7 @@ and usage reset."""
 
 import datetime
 import os
+import platform
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -13,6 +14,9 @@ from state import _add_log, _lock, _now_iso, _save_raw, _state, _utcnow
 from worker import _away_off, _away_on, _latency_summary, _send_cmd
 
 router = APIRouter(tags=["system"])
+
+# Process start, reported by GET / so the build-info dialog can show uptime.
+_STARTED_AT = _utcnow()
 
 
 @router.get("/health/push")
@@ -208,6 +212,10 @@ async def root():
             "version": os.environ.get("APP_VERSION", "dev"),
             "build": os.environ.get("BUILD_DATE", ""),
             "git_sha": git_sha[:7] if git_sha != "unknown" else git_sha,
+            "git_sha_full": git_sha,
+            "python": platform.python_version(),
+            "started_at": _STARTED_AT.isoformat(),
+            "uptime_s": int((_utcnow() - _STARTED_AT).total_seconds()),
             "devices": len(_state["devices"]), "schedules": len(_state["schedules"])}
 
 

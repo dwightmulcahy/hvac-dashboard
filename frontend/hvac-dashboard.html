@@ -136,7 +136,7 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
     <div>
       <h1>HVAC Dashboard</h1>
     </div>
-    <span id="api-status" style="font-size:11px;font-family:'DM Mono',monospace;padding:3px 8px;border-radius:6px;background:var(--bg3);color:var(--text3);white-space:nowrap">⬤ API</span>
+    <span id="api-status" role="button" tabindex="0" onclick="openBuildInfo()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openBuildInfo()}" style="font-size:11px;font-family:'DM Mono',monospace;padding:3px 8px;border-radius:6px;background:var(--bg3);color:var(--text3);white-space:nowrap;cursor:pointer">⬤ API</span>
     <span id="role-badge" style="display:none;font-size:10px;font-family:'DM Mono',monospace;padding:2px 7px;border-radius:5px;background:var(--bg3);color:var(--text3);white-space:nowrap"></span>
   </div>
   <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
@@ -157,6 +157,22 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
         <div class="menu-divider"></div>
         <div class="menu-item" onclick="document.getElementById('about-modal').style.display='flex';closeMenu()">ℹ About</div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Build info modal (opened from the API version badge) -->
+<div id="build-modal" onclick="if(event.target===this)closeBuildInfo()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;align-items:center;justify-content:center">
+  <div role="dialog" aria-modal="true" aria-labelledby="build-modal-title" style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl);padding:24px;width:420px;max-width:95vw">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div id="build-modal-title" style="font-size:16px;font-weight:500">Build info</div>
+      <button class="btn bico" onclick="closeBuildInfo()" aria-label="Close" style="font-size:16px;color:var(--text3)">✕</button>
+    </div>
+    <div id="build-mismatch" style="display:none;margin-bottom:12px;padding:8px 10px;border-radius:var(--r);background:rgba(245,158,11,.12);color:var(--warn);font-size:12px"></div>
+    <table id="build-table" style="width:100%;border-collapse:collapse;font-size:12px;font-family:'DM Mono',monospace;line-height:1.9"></table>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+      <button class="btn" onclick="copyBuildInfo()" style="font-size:12px">Copy</button>
+      <button class="btn" onclick="refreshBuildInfo()" style="font-size:12px">↺ Refresh</button>
     </div>
   </div>
 </div>
@@ -4021,12 +4037,12 @@ function setApiStatus(ok, version){
     el.style.background='var(--fan-bg)';
     el.style.color='var(--ok)';
     el.textContent=`⬤ API ${version||''}`;
-    el.title='API connected';
+    el.title='API connected — click for build info';
   }else{
     el.style.background='rgba(239,68,68,.15)';
     el.style.color='var(--err)';
     el.textContent='⬤ API offline';
-    el.title='API unreachable — schedules and automation are not running';
+    el.title='API unreachable — schedules and automation are not running. Click for build info';
   }
 }
 
@@ -4037,6 +4053,7 @@ async function checkApiStatus(){
     const r=await fetch(`${API}/`,{signal:AbortSignal.timeout(3000)});
     if(r.ok){
       const d=await r.json();
+      _apiInfo=d;
       setApiStatus(true, d.version||'');
       const el=document.getElementById('about-version');
       if(el){
@@ -4045,20 +4062,96 @@ async function checkApiStatus(){
         el.textContent=`${d.version||''}${build}${sha}`;
       }
       // check if dashboard is out of date with API version
-      const apiVer=d.version||'';
-      const dashVer=DASHBOARD_VERSION;
-      if(apiVer && dashVer && dashVer!=='DASHBOARD_VERSION_PLACEHOLDER' && apiVer!==dashVer){
-        showUpdateBanner(apiVer);
+      if(buildInfoMismatch(d,DASHBOARD_VERSION)){
+        showUpdateBanner(d.version);
       }else{
         hideUpdateBanner();
       }
     }else{
+      _apiInfo=null;
       setApiStatus(false);
     }
   }catch(_){
+    _apiInfo=null;
     setApiStatus(false);
   }
+  if(document.getElementById('build-modal')?.style.display==='flex')renderBuildInfo();
 }
+
+// ── TESTABLE:build-info:start ──
+const REPO_URL='https://github.com/dwightmulcahy/hvac-dashboard';
+// Split so the Dockerfile's global sed of the placeholder
+// only rewrites DASHBOARD_VERSION itself, not these comparisons.
+const VERSION_PLACEHOLDER='DASHBOARD_VERSION_'+'PLACEHOLDER';
+function fmtUptime(secs){
+  if(secs==null||!Number.isFinite(secs)||secs<0)return'—';
+  const d=Math.floor(secs/86400),h=Math.floor(secs%86400/3600),m=Math.floor(secs%3600/60);
+  if(d)return`${d}d ${h}h`;
+  if(h)return`${h}h ${m}m`;
+  if(m)return`${m}m`;
+  return`${Math.floor(secs)}s`;
+}
+// Rows for the build-info dialog: [label, text, href?]. `api` is the
+// GET / response, or null when the API is unreachable.
+function buildInfoRows(api, dashVersion){
+  const dash=dashVersion&&dashVersion!==VERSION_PLACEHOLDER?dashVersion:'dev';
+  const rows=[['Dashboard',dash]];
+  if(!api){rows.push(['API','offline']);return rows;}
+  rows.push(['API',api.version||'—']);
+  rows.push(['Build date',api.build||'—']);
+  const full=api.git_sha_full&&api.git_sha_full!=='unknown'?api.git_sha_full:null;
+  rows.push(['Commit',api.git_sha||'unknown',full?`${REPO_URL}/commit/${full}`:null]);
+  if(api.version&&/^v?\d/.test(api.version))
+    rows.push(['Release',api.version,`${REPO_URL}/releases/tag/${api.version.startsWith('v')?api.version:'v'+api.version}`]);
+  if(api.python)rows.push(['Python',api.python]);
+  if(api.uptime_s!=null)rows.push(['API uptime',fmtUptime(api.uptime_s)]);
+  rows.push(['Devices',String(api.devices??'—')]);
+  rows.push(['Schedules',String(api.schedules??'—')]);
+  return rows;
+}
+function buildInfoMismatch(api, dashVersion){
+  if(!api?.version||!dashVersion||dashVersion===VERSION_PLACEHOLDER)return null;
+  return api.version!==dashVersion
+    ?`Dashboard ${dashVersion} doesn't match API ${api.version} — reload to update.`:null;
+}
+// ── TESTABLE:build-info:end ──
+
+let _apiInfo=null;
+function renderBuildInfo(){
+  const tbl=document.getElementById('build-table');
+  tbl.replaceChildren();
+  for(const [label,text,href] of buildInfoRows(_apiInfo,DASHBOARD_VERSION)){
+    const tr=document.createElement('tr');
+    const th=document.createElement('td');
+    th.textContent=label;th.style.cssText='color:var(--text3);padding-right:16px;white-space:nowrap;vertical-align:top';
+    const td=document.createElement('td');
+    td.style.cssText='color:var(--text);word-break:break-all';
+    if(href){
+      const a=document.createElement('a');
+      a.href=href;a.target='_blank';a.rel='noopener';a.textContent=text;
+      a.style.cssText='color:var(--cool);text-decoration:none';
+      td.appendChild(a);
+    }else td.textContent=text;
+    tr.append(th,td);tbl.appendChild(tr);
+  }
+  const mm=document.getElementById('build-mismatch');
+  const msg=buildInfoMismatch(_apiInfo,DASHBOARD_VERSION);
+  mm.textContent=msg||'';mm.style.display=msg?'block':'none';
+}
+function openBuildInfo(){
+  renderBuildInfo();
+  document.getElementById('build-modal').style.display='flex';
+  refreshBuildInfo();
+}
+function closeBuildInfo(){document.getElementById('build-modal').style.display='none';}
+function refreshBuildInfo(){return checkApiStatus();}
+function copyBuildInfo(){
+  const txt=buildInfoRows(_apiInfo,DASHBOARD_VERSION).map(([l,t])=>`${l}: ${t}`).join('\n');
+  navigator.clipboard?.writeText(txt).then(()=>addLog('Build info copied','ok')).catch(()=>{});
+}
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&document.getElementById('build-modal')?.style.display==='flex')closeBuildInfo();
+});
 
 function showUpdateBanner(newVersion){
   let banner=document.getElementById('update-banner');

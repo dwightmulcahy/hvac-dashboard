@@ -101,6 +101,7 @@ const REGIONS = [
   "fmt-hours",
   "fmt-ago",
   "select-temp-unit",
+  "build-info",
 ];
 
 /**
