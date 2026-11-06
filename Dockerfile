@@ -121,8 +121,8 @@ COPY frontend/kiosk.html /var/www/html/kiosk.html
 COPY *.py /app/
 COPY routers/ /app/routers/
 
-# Inject build version into dashboard
-RUN sed -i "s/DASHBOARD_VERSION_PLACEHOLDER/${APP_VERSION}/g" /var/www/html/index.html
+# Inject build version into dashboard and kiosk
+RUN sed -i "s/DASHBOARD_VERSION_PLACEHOLDER/${APP_VERSION}/g" /var/www/html/index.html /var/www/html/kiosk.html
 
 # Fix permissions
 RUN chown -R www-data:www-data /var/www/html && chmod -R 755 /var/www/html

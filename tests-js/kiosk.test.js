@@ -378,6 +378,24 @@ test("kiosk.html end-to-end functional behavior", async (t) => {
     },
   );
 
+  await t.test("tapping the version badge opens build info, back returns to grid", async () => {
+    $("#version-badge").click();
+    await wait(20);
+    assert.equal($("#about-view").style.display, "block");
+    assert.equal($("#grid-view").style.display, "none");
+    assert.equal($("#sub-header span:last-child").textContent, "Build info");
+    const text = $("#about-view").textContent;
+    assert.match(text, /v1\.13\.0/);
+    assert.match(text, /abc1234/);
+    assert.match(text, /Signed in\s*dwight \(operator\)/i);
+    assert.match(text, /Idle\s*detail 15s · info 30s · lock 10m/);
+    assert.match(text, /Kiosk\s*dev/, "unbuilt kiosk reports dev, not the placeholder");
+    assert.doesNotMatch(text, /PLACEHOLDER/);
+    $("#sub-header").click();
+    assert.equal($("#about-view").style.display, "none");
+    assert.equal($("#grid-view").style.display, "grid");
+  });
+
   await t.test(
     "no external CDN dependency remains — icons are self-contained SVG",
     () => {

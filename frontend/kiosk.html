@@ -33,6 +33,7 @@ button:active{opacity:0.7}
 #sub-header{height:44px;flex-shrink:0;border-bottom:0.5px solid var(--border);align-items:center;display:none;padding:0 4px;cursor:pointer}
 #grid-view{padding:14px;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr);gap:10px;height:328px}
 #grid-detail,#schedules-view,#devices-view{display:none;height:328px;padding:10px 20px;overflow:hidden}
+#about-view{display:none;height:328px;padding:6px 20px;overflow-y:auto}
 #footer-stats{height:40px;display:grid;grid-template-columns:0.55fr 1.25fr 1.25fr 0.95fr;align-items:center;padding:0 20px;border-top:0.5px solid var(--border);flex-shrink:0}
 /* 3-column grid (not flex space-between) so the centered clock never shifts
    when the "updated Xs ago" text on the right changes width each second */
@@ -73,7 +74,7 @@ button:active{opacity:0.7}
       <span style="color:var(--text);font-size:15px;font-weight:500">All units</span>
       <div style="display:flex;align-items:center;gap:12px">
         <button id="unit-toggle" title="Temperature units" aria-label="Temperature units" style="height:28px;padding:0 10px;font-size:12px;color:var(--text2)"></button>
-        <span id="version-badge" style="color:var(--text3);font-size:11px"></span>
+        <span id="version-badge" role="button" aria-label="Build info" style="color:var(--text3);font-size:11px;cursor:pointer;padding:6px 0"></span>
         <span id="maintenance-btn" class="icon" style="display:none;color:var(--text2);cursor:pointer" title="Maintenance reminders"></span>
         <span id="relock-btn" class="icon" style="color:var(--text2);cursor:pointer" aria-label="Lock panel"></span>
       </div>
@@ -90,6 +91,7 @@ button:active{opacity:0.7}
     <div id="schedules-view"></div>
     <div id="devices-view"></div>
     <div id="maintenance-view"></div>
+    <div id="about-view"></div>
     <div id="idle-badge" style="display:none;color:var(--text4);font-size:10px;text-align:center;padding:3px 0"></div>
     <div id="footer-stats"></div>
     <div id="footer-meta">
@@ -539,13 +541,15 @@ function showSub(sub){
   document.getElementById('schedules-view').style.display=sub==='schedules'?'block':'none';
   document.getElementById('devices-view').style.display=sub==='devices'?'block':'none';
   document.getElementById('maintenance-view').style.display=sub==='maintenance'?'block':'none';
+  document.getElementById('about-view').style.display=sub==='about'?'block':'none';
   if(isGrid){clearIdleTimer();openDeviceHost=null;}
-  else if(sub==='detail'){armIdleTimer(DETAIL_IDLE_SECONDS);}
+  else if(sub==='detail'){document.querySelector('#sub-header span:last-child').textContent='All units';armIdleTimer(DETAIL_IDLE_SECONDS);}
   else{armIdleTimer(INFO_IDLE_SECONDS);}
 }
 document.getElementById('sub-header').addEventListener('click',()=>{showSub('grid');touch();});
 document.getElementById('relock-btn').addEventListener('click',relock);
 document.getElementById('unit-toggle').addEventListener('click',()=>{touch();cycleTempUnit();});
+document.getElementById('version-badge').addEventListener('click',()=>{touch();openAboutView();});
 
 // ── Polling ────────────────────────────────────────────────────
 
@@ -1163,6 +1167,87 @@ function renderDevicesView(){
       </div>`;
     }).join('')}
   </div>`;
+}
+
+// ── Build info (tap the header version badge) ────────────────
+
+// Rewritten to APP_VERSION by the Dockerfile; the split literal below
+// keeps that global sed from also rewriting the comparison.
+const KIOSK_VERSION='DASHBOARD_VERSION_PLACEHOLDER';
+const VERSION_PLACEHOLDER='DASHBOARD_VERSION_'+'PLACEHOLDER';
+const REPO_URL='https://github.com/dwightmulcahy/hvac-dashboard';
+const PAGE_LOADED_AT=new Date();
+function escHtml(v){
+  return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function fmtUptime(secs){
+  if(secs==null||!Number.isFinite(secs)||secs<0)return'—';
+  const d=Math.floor(secs/86400),h=Math.floor(secs%86400/3600),m=Math.floor(secs%3600/60);
+  if(d)return`${d}d ${h}h`;
+  if(h)return`${h}h ${m}m`;
+  if(m)return`${m}m`;
+  return`${Math.floor(secs)}s`;
+}
+function fmtIdle(secs){return secs>=60?`${Math.round(secs/60)}m`:`${secs}s`;}
+function browserLabel(ua){
+  const m=/(Chromium|Chrome|Firefox|Edg|Safari)\/(\d+)/.exec(ua||'');
+  return m?`${m[1]==='Edg'?'Edge':m[1]} ${m[2]}`:(ua||'—');
+}
+// [section, [[label, text, href?], …]] for the about view. `api` is the
+// fresh GET / response, or null when the API is unreachable.
+function aboutSections(api){
+  const kv=KIOSK_VERSION!==VERSION_PLACEHOLDER?KIOSK_VERSION:'dev';
+  const build=[['Kiosk',kv]];
+  if(!api)build.push(['API','offline']);
+  else{
+    build.push(['API',api.version||'—'],['Build date',api.build||'—']);
+    const full=api.git_sha_full&&api.git_sha_full!=='unknown'?api.git_sha_full:null;
+    build.push(['Commit',api.git_sha||'unknown',full?`${REPO_URL}/commit/${full}`:null]);
+    if(api.python)build.push(['Python',api.python]);
+    if(api.uptime_s!=null)build.push(['API uptime',fmtUptime(api.uptime_s)]);
+    build.push(['Devices',`${api.devices??'—'} · ${api.schedules??'—'} schedules`]);
+  }
+  const scr=window.screen||{};
+  const kiosk=[
+    ['Page uptime',fmtUptime((Date.now()-PAGE_LOADED_AT.getTime())/1000)],
+    ['Signed in',currentUser?`${currentUser.username} (${currentUser.role})`:'—'],
+    ['Display',`${window.innerWidth}×${window.innerHeight} · screen ${scr.width||'?'}×${scr.height||'?'} @${window.devicePixelRatio||1}x`],
+    ['Browser',browserLabel(navigator.userAgent)],
+    ['Network',navigator.onLine===false?'offline':'online'],
+    ['API URL',API],
+    ['Poll',`every ${POLL_INTERVAL_MS/1000}s${lastUpdatedAt?` · updated ${fmtAgo(lastUpdatedAt)}`:''}`],
+    ['Idle',`detail ${fmtIdle(DETAIL_IDLE_SECONDS)} · info ${fmtIdle(INFO_IDLE_SECONDS)} · lock ${fmtIdle(SCREENSAVER_IDLE_SECONDS)}`],
+    ['Quiet hours',settings?.kiosk_quiet_hours_enabled?`${settings.kiosk_quiet_start||'22:00'}–${settings.kiosk_quiet_end||'07:00'}`:'off'],
+  ];
+  const mismatch=api?.version&&kv!=='dev'&&api.version!==kv
+    ?`Kiosk ${kv} doesn't match API ${api.version} — reload the page to update.`:null;
+  return {sections:[['Build',build],['Kiosk',kiosk]],mismatch};
+}
+function renderAboutView(api){
+  document.querySelector('#sub-header span:last-child').textContent='Build info';
+  const {sections,mismatch}=aboutSections(api);
+  const row=([l,t,h])=>`<div style="display:flex;gap:16px;padding:7px 4px;border-bottom:0.5px solid var(--border2)">
+      <span style="color:var(--text3);font-size:12px;min-width:110px">${escHtml(l)}</span>
+      <span style="color:${h?'var(--cool)':'var(--text)'};font-size:12px;word-break:break-all">${escHtml(t)}</span>
+    </div>`;
+  document.getElementById('about-view').innerHTML=`<div style="max-width:640px;margin:0 auto;width:100%">
+    ${mismatch?`<div style="margin:6px 4px 10px;padding:8px 10px;border-radius:8px;border:1px solid var(--warn);color:var(--warn);font-size:12px">${escHtml(mismatch)}</div>`:''}
+    ${sections.map(([title,rows])=>`<div style="color:var(--text2);font-size:11px;font-weight:500;letter-spacing:0.4px;text-transform:uppercase;margin:12px 4px 4px">${escHtml(title)}</div>${rows.map(row).join('')}`).join('')}
+  </div>`;
+}
+// Always refetches GET / so API uptime is current (rootInfo is only
+// fetched once per unlock).
+async function openAboutView(){
+  renderAboutView(rootInfo.version?rootInfo:null);
+  showSub('about');
+  try{
+    const r=await fetchT(`${API}/`);
+    if(!r.ok)throw new Error(r.status);
+    rootInfo=await r.json();
+    if(currentSub==='about')renderAboutView(rootInfo);
+  }catch(_){
+    if(currentSub==='about')renderAboutView(null);
+  }
 }
 
 // ── Footer ───────────────────────────────────────────────────

@@ -48,9 +48,16 @@ test("buildInfoMismatch only fires for a real version difference", () => {
   assert.match(fns.buildInfoMismatch(API, "1.4.1"), /1\.4\.1.*1\.4\.2/);
 });
 
-test("Dockerfile's sed rewrites only the DASHBOARD_VERSION constant", () => {
-  const html = fs.readFileSync(path.join(__dirname, "../frontend/hvac-dashboard.html"), "utf8");
-  const hits = html.match(/DASHBOARD_VERSION_PLACEHOLDER/g) || [];
-  assert.equal(hits.length, 1, "placeholder literal must appear exactly once (in DASHBOARD_VERSION)");
-  assert.match(html, /const DASHBOARD_VERSION='DASHBOARD_VERSION_PLACEHOLDER'/);
+for (const [file, constName] of [["hvac-dashboard.html", "DASHBOARD_VERSION"], ["kiosk.html", "KIOSK_VERSION"]]) {
+  test(`Dockerfile's sed rewrites only ${constName} in ${file}`, () => {
+    const html = fs.readFileSync(path.join(__dirname, "../frontend", file), "utf8");
+    const hits = html.match(/DASHBOARD_VERSION_PLACEHOLDER/g) || [];
+    assert.equal(hits.length, 1, `placeholder literal must appear exactly once (in ${constName})`);
+    assert.match(html, new RegExp(`const ${constName}='DASHBOARD_VERSION_PLACEHOLDER'`));
+  });
+}
+
+test("Dockerfile injects the version into both pages", () => {
+  const df = fs.readFileSync(path.join(__dirname, "../Dockerfile"), "utf8");
+  assert.match(df, /sed -i "s\/DASHBOARD_VERSION_PLACEHOLDER\/.*index\.html .*kiosk\.html/);
 });
