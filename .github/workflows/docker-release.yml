@@ -79,7 +79,7 @@ jobs:
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -156,7 +156,7 @@ jobs:
           exit-code: "0"
 
       - name: Upload Trivy scan results to Security tab
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         if: always()
         continue-on-error: true
         with:
@@ -176,7 +176,7 @@ jobs:
           exit-code: "1"
 
       - name: Build and push Docker image
-        uses: dwightmulcahy/repo-template/.github/actions/docker-publish@15c05e1fc09a7c0ef835b773f1ae43871d902879
+        uses: dwightmulcahy/repo-template/.github/actions/docker-publish@cf8e0cc9cf440098778de4684e3df2e3de2a305e
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -201,14 +201,14 @@ jobs:
       # needs to know about a custom `improvement:` commit type this
       # project uses alongside the standard conventional-commit ones).
       - name: Generate conventional release notes
-        uses: dwightmulcahy/repo-template/.github/actions/release-notes@15c05e1fc09a7c0ef835b773f1ae43871d902879
+        uses: dwightmulcahy/repo-template/.github/actions/release-notes@cf8e0cc9cf440098778de4684e3df2e3de2a305e
         with:
           tag: ${{ github.ref_name }}
           project-name: "HVAC Dashboard"
           image: "dwightmulcahy/hvac-dashboard"
           output: "release-notes.md"
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: ${{ steps.version.outputs.version }}
           name: ${{ steps.version.outputs.version }}
