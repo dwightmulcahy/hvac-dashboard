@@ -94,7 +94,7 @@ jobs:
           "
 
       - name: Install JS test dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts   # job holds CODECOV_TOKEN; no dep needs install scripts
 
       - name: Lint JS test files (eslint)
         run: npm run lint:js
