@@ -361,6 +361,71 @@ async def _fetch_exchange_rate() -> dict | None:
         _add_log(f"Exchange rate fetch failed: {e}", "warn")
     return None
 
+# ── Outdoor weather (Open-Meteo, free, no key) ─────────────
+WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
+GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
+WEATHER_INTERVAL_SECS = 900
+_weather_last_fetch: float | None = None  # monotonic; None forces a fetch on the next loop
+
+
+def _weather_location() -> tuple[float, float] | None:
+    s = _state["settings"]
+    try:
+        lat, lon = float(s.get("weather_lat")), float(s.get("weather_lon"))
+    except (TypeError, ValueError):
+        return None
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return None
+    return lat, lon
+
+
+async def _fetch_weather() -> dict | None:
+    """Current temp + WMO weather code for the configured location → _state["weather"].
+    No location → clears it. Failure keeps the last good reading."""
+    global _weather_last_fetch
+    _weather_last_fetch = time.monotonic()
+    loc = _weather_location()
+    if loc is None:
+        _state["weather"] = None
+        return None
+    lat, lon = loc
+    params = {"latitude": lat, "longitude": lon, "current": "temperature_2m,weather_code,is_day"}
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(WEATHER_URL, params=params)
+        r.raise_for_status()
+        cur = r.json()["current"]
+        w = {
+            "temp_c": float(cur["temperature_2m"]),
+            "code": int(cur["weather_code"]),
+            "is_day": bool(cur.get("is_day", 1)),
+            "lat": lat,
+            "lon": lon,
+            "fetched_at": _utcnow().isoformat(),
+        }
+    except Exception as e:
+        _verbose(f"Weather fetch failed: {e}", "warn")
+        return None
+    _state["weather"] = w
+    return w
+
+
+async def _maybe_fetch_weather():
+    if _weather_last_fetch is None or time.monotonic() - _weather_last_fetch >= WEATHER_INTERVAL_SECS:
+        await _fetch_weather()
+
+
+async def _geocode(q: str) -> list[dict]:
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(GEOCODE_URL, params={"name": q, "count": 6, "format": "json"})
+    r.raise_for_status()
+    out = []
+    for g in r.json().get("results") or []:
+        label = ", ".join(x for x in (g.get("name"), g.get("admin1"), g.get("country")) if x)
+        out.append({"name": label, "lat": g["latitude"], "lon": g["longitude"]})
+    return out
+
+
 async def _send_cmd(host: str, params: dict) -> bool:
     """Send a climate command."""
     r = await _post_command(host, "climate", CLIMATE_PATHS, f"/set?{urlencode(params)}")
@@ -1585,6 +1650,8 @@ async def _background_worker():
                 await _maintain_eco(device)
                 await _check_watchdog(device)
                 await asyncio.sleep(0.5)  # jitter between devices
+
+            await _maybe_fetch_weather()
 
             # Check schedules (once per minute)
             hhmm = datetime.datetime.now().strftime("%H:%M")

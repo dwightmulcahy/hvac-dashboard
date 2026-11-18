@@ -2,10 +2,10 @@
 
 import datetime
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from state import DEVICE_DEFAULTS, _add_log, _load_raw, _lock, _migrate_device, _now_iso, _save_raw, _state
-from worker import _fetch_exchange_rate
+from worker import _fetch_exchange_rate, _fetch_weather, _geocode, _weather_location
 
 router = APIRouter(tags=["settings"])
 
@@ -18,13 +18,41 @@ async def get_settings():
 @router.put("/settings")
 async def update_settings(settings: dict):
     prev_verbose = _state["settings"].get("verbose_logging", False)
+    loc_keys = ("weather_lat", "weather_lon")
+    prev_loc = [_state["settings"].get(k) for k in loc_keys]
     _state["settings"].update(settings)
+    if [_state["settings"].get(k) for k in loc_keys] != prev_loc:
+        await _fetch_weather()
     new_verbose = _state["settings"].get("verbose_logging", False)
     if new_verbose != prev_verbose:
         _add_log(f"Verbose logging {'enabled' if new_verbose else 'disabled'}", "info")
     async with _lock:
         _save_raw(_state)
     return {"ok": True}
+
+
+@router.get("/weather")
+async def get_weather():
+    """Outdoor conditions from Open-Meteo (refreshed by the worker every
+    WEATHER_INTERVAL_SECS). weather is null until a location is set."""
+    s = _state["settings"]
+    return {
+        "configured": _weather_location() is not None,
+        "location_name": s.get("weather_location_name", ""),
+        "weather": _state.get("weather"),
+    }
+
+
+@router.get("/weather/geocode")
+async def geocode(q: str):
+    """Place-name search for the dashboard's location setting."""
+    q = q.strip()
+    if len(q) < 2:
+        return {"results": []}
+    try:
+        return {"results": await _geocode(q)}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Geocoding failed: {e}") from e
 
 
 @router.get("/exchange-rate")

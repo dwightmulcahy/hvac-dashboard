@@ -66,6 +66,9 @@ DEFAULT_STATE = {
         "kiosk_quiet_hours_enabled": False,
         "kiosk_quiet_start": "22:00",   # HH:MM — dims the kiosk's screensaver during this window
         "kiosk_quiet_end": "07:00",     # (wraps past midnight if end < start, e.g. 22:00-07:00)
+        "weather_lat": None,            # Open-Meteo location for the kiosk's outdoor temp/conditions
+        "weather_lon": None,
+        "weather_location_name": "",    # display label only (from geocode search)
     },
     "usage": {
         "daily": {},        # {"2026-07-01": {"host": {runtime_min, est_kwh, ...}}}
@@ -73,6 +76,7 @@ DEFAULT_STATE = {
         "temp_history": {}, # {"host": [{"t": iso_hour, "in": float, "out": float}, ...]}
     },
     "device_state": {},     # {"host": {last polled climate state + extras}}
+    "weather": None,        # worker._fetch_weather: {temp_c, code, is_day, lat, lon, fetched_at}
     "logs": [],             # recent automation log entries
     "users": {},            # {"username": {hash, salt, role, must_change_password}}
 }

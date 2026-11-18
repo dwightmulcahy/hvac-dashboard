@@ -539,6 +539,20 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
               </div>
             </div>
             <div style="grid-column:1/-1">
+              <div class="clabel" style="margin-bottom:4px">LOCATION <span style="font-weight:normal;text-transform:none;letter-spacing:0;color:var(--text3)">— kiosk outdoor temp &amp; conditions (Open-Meteo)</span></div>
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+                <input type="text" id="gen-loc-search" class="inp" style="flex:1" placeholder="Search town or city…" onkeydown="if(event.key==='Enter'){event.preventDefault();searchLocation();}">
+                <button class="btn" id="gen-loc-find" onclick="searchLocation()" style="font-size:11px;padding:2px 10px">Find</button>
+              </div>
+              <div id="gen-loc-results" style="display:flex;flex-direction:column;gap:3px;margin-bottom:6px"></div>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <input type="number" id="gen-loc-lat" class="inp" style="width:110px" step="0.0001" min="-90" max="90" placeholder="Latitude">
+                <input type="number" id="gen-loc-lon" class="inp" style="width:110px" step="0.0001" min="-180" max="180" placeholder="Longitude">
+                <span id="gen-loc-name" style="font-size:12px;color:var(--text2)"></span>
+              </div>
+              <div id="gen-loc-status" style="font-size:10px;color:var(--text3);margin-top:3px;font-family:'DM Mono',monospace"></div>
+            </div>
+            <div style="grid-column:1/-1">
               <div class="clabel" style="margin-bottom:4px;display:flex;align-items:center;gap:5px">
                 WATCHTOWER WEBHOOK URL
                 <a href="https://watchtower.nickfedor.com/" target="_blank" rel="noopener"
@@ -3137,6 +3151,60 @@ function openSettings(tab){
   const kqeEl=document.getElementById('gen-kiosk-quiet-end');
   if(kqeEl)kqeEl.value=gen.kioskQuietEnd!==undefined?gen.kioskQuietEnd:'07:00';
   updateThemeBtns();
+  loadLocationSetting();
+}
+
+// ── Location (Open-Meteo weather for the kiosk footer) ──────────
+// Stored server-side (settings.weather_lat/lon/location_name); the
+// worker fetches current conditions every 15 min → GET /weather.
+let _locName='';
+async function loadLocationSetting(){
+  try{
+    const [sr,wr]=await Promise.all([fetch(`${API}/settings`),fetch(`${API}/weather`)]);
+    const s=await sr.json();
+    setLocationFields(s.weather_lat,s.weather_lon,s.weather_location_name||'');
+    renderLocationStatus(wr.ok?await wr.json():null);
+  }catch(_){}
+}
+function setLocationFields(lat,lon,name){
+  const la=document.getElementById('gen-loc-lat'),lo=document.getElementById('gen-loc-lon');
+  if(la)la.value=lat??'';
+  if(lo)lo.value=lon??'';
+  _locName=name||'';
+  const n=document.getElementById('gen-loc-name');if(n)n.textContent=_locName;
+}
+function renderLocationStatus(j){
+  const el=document.getElementById('gen-loc-status');if(!el)return;
+  if(!j||!j.configured){el.textContent='not set — kiosk shows the units\' outdoor-coil temps';return;}
+  const w=j.weather;
+  el.textContent=w?`now ${w.temp_c.toFixed(1)}°C/${toF(w.temp_c)}°F · WMO code ${w.code} · fetched ${new Date(w.fetched_at+'Z').toLocaleTimeString()}`:'no reading yet';
+}
+async function searchLocation(){
+  const q=(document.getElementById('gen-loc-search')?.value||'').trim();
+  const box=document.getElementById('gen-loc-results');
+  if(!box||q.length<2)return;
+  box.innerHTML='<span style="font-size:11px;color:var(--text3)">Searching…</span>';
+  try{
+    const r=await fetch(`${API}/weather/geocode?q=${encodeURIComponent(q)}`);
+    const res=r.ok?(await r.json()).results||[]:null;
+    if(res===null){box.innerHTML='<span style="font-size:11px;color:var(--err)">Search failed</span>';return;}
+    if(!res.length){box.innerHTML='<span style="font-size:11px;color:var(--text3)">No matches</span>';return;}
+    box.innerHTML='';
+    res.forEach(g=>{
+      const b=document.createElement('button');
+      b.className='btn';b.style.cssText='text-align:left;font-size:12px;padding:3px 8px';
+      b.textContent=`${g.name} (${g.lat.toFixed(3)}, ${g.lon.toFixed(3)})`;
+      b.onclick=()=>{setLocationFields(+g.lat.toFixed(4),+g.lon.toFixed(4),g.name);box.innerHTML='';};
+      box.appendChild(b);
+    });
+  }catch(_){box.innerHTML='<span style="font-size:11px;color:var(--err)">Search failed</span>';}
+}
+// Blank/invalid → null (clears the location). Returns {lat,lon} or null.
+function readLocationFields(){
+  const la=parseFloat(document.getElementById('gen-loc-lat')?.value);
+  const lo=parseFloat(document.getElementById('gen-loc-lon')?.value);
+  if(isNaN(la)||isNaN(lo)||la<-90||la>90||lo<-180||lo>180)return null;
+  return {lat:la,lon:lo};
 }
 
 function closeSettings(){
@@ -3244,6 +3312,7 @@ function saveGeneralSettings(){
   const kioskQuietEnabled=document.getElementById('gen-kiosk-quiet-enabled')?.checked||false;
   const kioskQuietStart=document.getElementById('gen-kiosk-quiet-start')?.value||'22:00';
   const kioskQuietEnd=document.getElementById('gen-kiosk-quiet-end')?.value||'07:00';
+  const loc=readLocationFields();
   VACATION_MAX_TEMP_SETTING=vacTemp;
   localStorage.setItem('hvac_general',JSON.stringify({poll,seer,watchdog,vacTemp,voltage:_voltage,guardStart,guardEnd,verbose:_verbose_logging,tempUnit:_tempUnit,watchtower,nightlyReboot,kioskQuietEnabled,kioskQuietStart,kioskQuietEnd}));
   devices.forEach(d=>{d.watchdog_minutes=watchdog;saveDeviceToAPI(d);});
@@ -3251,7 +3320,8 @@ function saveGeneralSettings(){
     body:JSON.stringify({poll_interval:poll,max_temp_guard_start:guardStart,max_temp_guard_end:guardEnd,
       vacation_max_temp:vacTemp,verbose_logging:_verbose_logging,temp_unit:_tempUnit,
       watchtower_webhook:watchtower,nightly_reboot_time:nightlyReboot,
-      kiosk_quiet_hours_enabled:kioskQuietEnabled,kiosk_quiet_start:kioskQuietStart,kiosk_quiet_end:kioskQuietEnd})}).catch(_=>{});
+      kiosk_quiet_hours_enabled:kioskQuietEnabled,kiosk_quiet_start:kioskQuietStart,kiosk_quiet_end:kioskQuietEnd,
+      weather_lat:loc?loc.lat:null,weather_lon:loc?loc.lon:null,weather_location_name:loc?_locName:''})}).catch(_=>{});
   addLog(`General settings saved — watchdog ${watchdog}m, guard ${guardStart}:00–${guardEnd}:00, ${_voltage}V`,'ok');
   showToast('Settings saved','ok');
   closeSettings();

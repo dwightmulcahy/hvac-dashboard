@@ -83,10 +83,13 @@ test("kiosk: temp units, power-on to last mode, FAN mode, KEEP, ECO", async (t) 
   let mockSchedules = [];
   const ecoCalls = [];
   const ok = (body) => ({ ok: true, status: 200, json: async () => body });
+  let mockWeather = null;
   const mockFetch = async (url, opts) => {
     const u = String(url);
     if (u.endsWith("/api/"))
       return ok({ status: "ok", version: "v0", git_sha: "x" });
+    if (u.includes("/api/weather"))
+      return ok({ configured: !!mockWeather, location_name: "", weather: mockWeather });
     if (u.includes("/auth/login-pin"))
       return ok({
         ok: true,
@@ -375,6 +378,52 @@ test("kiosk: temp units, power-on to last mode, FAN mode, KEEP, ECO", async (t) 
     const temp = $("#footer-outdoor-temp");
     assert.ok(temp);
     assert.doesNotMatch(temp.textContent, /outdoor/);
+  });
+
+  await t.test("no weather → dongle outdoor average, no conditions icon", async () => {
+    mockWeather = null;
+    await window.refreshAll();
+    window.tickClock();
+    assert.equal($("#footer-outdoor-icon").style.display, "none");
+    const avg = window.fmtTempCompact(
+      devices.devices.map((d) => d.state.outdoor_temp).filter((v) => v != null)
+        .reduce((a, b, _, arr) => a + b / arr.length, 0),
+    );
+    assert.equal($("#footer-outdoor-temp").textContent, avg);
+  });
+
+  await t.test("Open-Meteo weather replaces dongle temp and shows a conditions icon", async () => {
+    mockWeather = { temp_c: 12.3, code: 63, is_day: true, fetched_at: new Date().toISOString() };
+    await window.refreshAll();
+    window.tickClock();
+    assert.equal($("#footer-outdoor-temp").textContent, window.fmtTempCompact(12.3));
+    assert.equal($("#footer-outdoor-icon").style.display, "inline-flex");
+    assert.equal($("#footer-outdoor").title, "Rain");
+    assert.match($("#saver-sub").textContent + window.fmtOutdoorShort(), /12/);
+  });
+
+  await t.test("stale weather (>2h) falls back to dongle temp", async () => {
+    mockWeather = { temp_c: 12.3, code: 0, is_day: true,
+      fetched_at: new Date(Date.now() - 3 * 3600e3).toISOString().replace("Z", "") };
+    await window.refreshAll();
+    window.tickClock();
+    assert.notEqual($("#footer-outdoor-temp").textContent, window.fmtTempCompact(12.3));
+    assert.equal($("#footer-outdoor-icon").style.display, "none");
+  });
+
+  await t.test("weatherIcon maps WMO codes, day/night", () => {
+    const n = (c, d) => window.weatherIcon(c, d)[0];
+    assert.equal(n(0, true), "sun");
+    assert.equal(n(0, false), "moon");
+    assert.equal(n(2, true), "cloud-sun");
+    assert.equal(n(1, false), "cloud-moon");
+    assert.equal(n(3, true), "cloud");
+    assert.equal(n(45, true), "fog");
+    assert.equal(n(55, true), "drizzle");
+    assert.equal(n(81, true), "rain");
+    assert.equal(n(73, true), "snow");
+    assert.equal(n(95, true), "storm");
+    assert.equal(window.weatherIcon(null, true), null);
   });
 
   await t.test(
