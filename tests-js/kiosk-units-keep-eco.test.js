@@ -368,6 +368,15 @@ test("kiosk: temp units, power-on to last mode, FAN mode, KEEP, ECO", async (t) 
     assert.equal(css.gridTemplateColumns, "1fr auto 1fr");
   });
 
+  await t.test("footer-meta fills remaining height; outdoor temp has its own element", () => {
+    const css = window.getComputedStyle($("#footer-meta"));
+    assert.notEqual(css.height, "26px");
+    window.tickClock();
+    const temp = $("#footer-outdoor-temp");
+    assert.ok(temp);
+    assert.doesNotMatch(temp.textContent, /outdoor/);
+  });
+
   await t.test(
     "kiosk ECO button shows 'armed' when wanted but dropped by the unit",
     async () => {
