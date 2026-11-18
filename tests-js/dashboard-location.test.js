@@ -13,6 +13,19 @@ const { JSDOM } = require("jsdom");
 
 const html = fs.readFileSync(path.join(__dirname, "..", "frontend", "hvac-dashboard.html"), "utf8");
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+// CI runners parse the 4k-line dashboard slowly — poll instead of fixed sleeps.
+async function waitFor(fn, ms = 5000) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    try {
+      if (fn()) return;
+    } catch {
+      /* not ready */
+    }
+    await wait(20);
+  }
+  throw new Error("waitFor timed out");
+}
 
 function boot(saved) {
   const puts = [];
@@ -64,9 +77,11 @@ function boot(saved) {
 const click = (el, window) => el.dispatchEvent(new window.Event("click", { bubbles: true }));
 
 async function openGeneral(window) {
+  await waitFor(() => typeof window.openSettings === "function" && typeof window.toggleMenu === "function");
+  window.document.querySelector("#gen-loc-status").textContent = "";
   click(window.document.querySelector("#menu-btn"), window);
   click(window.document.querySelector("#menu-settings"), window);
-  await wait(50);
+  await waitFor(() => window.document.querySelector("#gen-loc-status").textContent !== "");
 }
 
 test("dashboard location setting", async (t) => {
@@ -89,7 +104,7 @@ test("dashboard location setting", async (t) => {
   await t.test("search → pick result fills lat/lon/name", async () => {
     $("#gen-loc-search").value = "Tamarindo";
     click($("#gen-loc-find"), window);
-    await wait(30);
+    await waitFor(() => $("#gen-loc-results button"));
     assert.match(geocodeCalls[0], /q=Tamarindo/);
     const pick = $("#gen-loc-results button");
     assert.match(pick.textContent, /Tamarindo/);
@@ -101,7 +116,7 @@ test("dashboard location setting", async (t) => {
 
   await t.test("Save sends the location", async () => {
     window.saveGeneralSettings();
-    await wait(20);
+    await waitFor(() => puts.some((b) => "weather_lat" in b));
     const body = puts.find((b) => "weather_lat" in b);
     assert.equal(body.weather_lat, 10.2994);
     assert.equal(body.weather_lon, -85.8372);
@@ -111,8 +126,9 @@ test("dashboard location setting", async (t) => {
   await t.test("blank lat/lon clears the location", async () => {
     await openGeneral(window);
     $("#gen-loc-lat").value = "";
+    const before = puts.length;
     window.saveGeneralSettings();
-    await wait(20);
+    await waitFor(() => puts.length > before);
     const body = puts.filter((b) => "weather_lat" in b).at(-1);
     assert.equal(body.weather_lat, null);
     assert.equal(body.weather_lon, null);
