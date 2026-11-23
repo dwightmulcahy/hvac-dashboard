@@ -10,8 +10,8 @@
     "format:js": "prettier --write tests-js/"
   },
   "devDependencies": {
-    "eslint": "^10.14.0",
-    "jsdom": "^31.0.0",
+    "eslint": "^10.15.0",
+    "jsdom": "^31.0.1",
     "prettier": "^3.10.1"
   }
 }
