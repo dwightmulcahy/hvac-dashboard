@@ -179,7 +179,7 @@ jobs:
           exit-code: "1"
 
       - name: Build and push Docker image
-        uses: dwightmulcahy/repo-template/.github/actions/docker-publish@cf8e0cc9cf440098778de4684e3df2e3de2a305e
+        uses: dwightmulcahy/repo-template/.github/actions/docker-publish@f508f4b91a429dcbe7cfa6cdb6205f8d90f28042
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -204,7 +204,7 @@ jobs:
       # needs to know about a custom `improvement:` commit type this
       # project uses alongside the standard conventional-commit ones).
       - name: Generate conventional release notes
-        uses: dwightmulcahy/repo-template/.github/actions/release-notes@cf8e0cc9cf440098778de4684e3df2e3de2a305e
+        uses: dwightmulcahy/repo-template/.github/actions/release-notes@f508f4b91a429dcbe7cfa6cdb6205f8d90f28042
         with:
           tag: ${{ github.ref_name }}
           project-name: "HVAC Dashboard"
