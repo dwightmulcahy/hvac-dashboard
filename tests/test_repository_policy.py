@@ -49,3 +49,12 @@ def test_dockerignore_admits_every_copy_source():
     for src in re.findall(r"^COPY\s+(?!--)(\S+)\s+\S+$", dockerfile, re.MULTILINE):
         src = src.rstrip("/")
         assert src in allowed, f"COPY {src} not admitted by .dockerignore"
+
+
+def test_ci_refreshes_the_cached_apt_layer_daily():
+    """Regression: a warm GHA layer cache kept a stale apt layer, so Trivy failed CI
+    on nginx CVEs Debian had already fixed."""
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert dockerfile.index("ARG APT_REFRESH") < dockerfile.index("RUN apt-get update")
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "APT_REFRESH=${{ steps.day.outputs.date }}" in ci
