@@ -30,6 +30,10 @@ ARG GIT_SHA=unknown
 # setuptools CVE in .trivyignore, Debian has a real fix published for
 # these, so upgrading is the correct response — .trivyignore is only
 # for cases with no reachable fix.
+# CI passes the date here so this layer is rebuilt at least daily: with a
+# warm GitHub Actions layer cache it would otherwise keep yesterday's
+# packages forever and Trivy would flag fixes that Debian already ships.
+ARG APT_REFRESH=unset
 RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends nginx supervisor curl && \
     rm -rf /var/lib/apt/lists/*

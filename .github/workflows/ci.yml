@@ -65,6 +65,10 @@ jobs:
       # to sometimes prefer a stale attached SBOM over its own direct
       # filesystem scan. See docker-release.yml's equivalent step for
       # the full writeup of the exact symptom this fixes.
+      - name: Date for the apt layer refresh
+        id: day
+        run: echo "date=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+
       - name: Test Docker build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -74,6 +78,8 @@ jobs:
           provenance: false
           sbom: false
           tags: hvac-dashboard:ci-test
+          build-args: |
+            APT_REFRESH=${{ steps.day.outputs.date }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
