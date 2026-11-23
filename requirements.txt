@@ -1,5 +1,5 @@
 fastapi>=0.162.5
-pydantic>=2.14.3
+pydantic>=2.14.4
 uvicorn>=0.54.0
 httpx>=0.28.1
 python-multipart>=0.0.33
