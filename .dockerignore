@@ -7,6 +7,8 @@
 !supervisord.conf
 !frontend/hvac-dashboard.html
 !frontend/kiosk.html
+!frontend/whats-new.js
+!frontend/changelog.json
 !*.py
 !routers/
 routers/__pycache__/
