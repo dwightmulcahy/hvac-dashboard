@@ -124,6 +124,9 @@ jobs:
       # in Trivy's own per-file breakdown of the same scan). Disabling
       # both explicitly removes whatever buildx was attaching that
       # Trivy was preferring over its own filesystem scan.
+      - name: Bundle release notes for the "What's new" dialog
+        run: python3 scripts/build_changelog.py --upto "${{ steps.version.outputs.version }}" --repository "${{ github.repository }}" --output frontend/changelog.json
+
       - name: Build image for security scan (amd64 only)
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:

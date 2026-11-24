@@ -76,6 +76,8 @@ See [`ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for how the backend is structure
 - Refresh on browser focus / tab visibility change (debounced 30s)
 - About modal with live version from API
 
+**What's new:** after the dashboard is upgraded, it shows the features and fixes since the version this browser last ran (once; also under ··· → What's new). The notes are bundled into the image at release time by `scripts/build_changelog.py`.
+
 ### Settings (··· menu → Settings)
 - **General** — poll interval, default SEER, default watchdog, vacation max temp
 - **Devices** — add/edit/reorder/delete, BTU, SEER, Max°C guard, alert timeout, save/test/poll per row
