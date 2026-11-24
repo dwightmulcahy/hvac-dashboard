@@ -43,3 +43,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# generated at release time by scripts/build_changelog.py
+frontend/changelog.json

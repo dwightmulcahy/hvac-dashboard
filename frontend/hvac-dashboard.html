@@ -156,6 +156,7 @@ h1{font-size:20px;font-weight:500;letter-spacing:-.3px;margin-bottom:4px}
         <div class="menu-item" id="menu-logout" onclick="doLogout()">Sign out</div>
         <div class="menu-divider"></div>
         <div class="menu-item" onclick="document.getElementById('about-modal').style.display='flex';closeMenu()">ℹ About</div>
+        <div class="menu-item" data-whats-new onclick="closeMenu()">✨ What's new</div>
       </div>
     </div>
   </div>
@@ -4255,5 +4256,8 @@ function focusPoll(){
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')focusPoll();});
 window.addEventListener('focus',focusPoll);
 </script>
+<!-- "What's new" after an upgrade (release notes bundled at release time) -->
+<style>:root{--wn-bg:var(--bg2);--wn-text:var(--text);--wn-line:var(--border2);--wn-accent:var(--cool)}</style>
+<script src="whats-new.js" data-src="changelog.json" data-key="hvac.seenVersion" defer></script>
 </body>
 </html>

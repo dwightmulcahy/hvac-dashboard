@@ -111,6 +111,9 @@ RUN mkdir -p /var/www/html /app /data
 # Copy app files
 COPY frontend/hvac-dashboard.html /var/www/html/index.html
 COPY frontend/kiosk.html /var/www/html/kiosk.html
+# "What's new" dialog; changelog.json only exists in release builds (the glob lets
+# local/CI builds without it succeed)
+COPY frontend/whats-new.js frontend/changelog.jso[n] /var/www/html/
 # Glob rather than an enumerated file list on purpose — this exact
 # line has been the site of two separate real bugs (maintenance_logic.py
 # /notify.py once, logging_config.py the second time), both the same
